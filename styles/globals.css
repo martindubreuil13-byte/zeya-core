@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zeya-void: #0a0709;
+  --color-zeya-aubergine: #21141d;
+  --color-zeya-plum: #2d232b;
+  --color-zeya-graphite: #3a3437;
+  --color-zeya-taupe: #4c4542;
+  --color-zeya-mineral: #8e8980;
+  --color-zeya-champagne: #d7c19b;
+  --color-zeya-ivory: #f4eee2;
+  --color-zeya-hush: #b8ada0;
+
+  --radius-calm: 0.75rem;
+  --radius-presence: 1.5rem;
+  --radius-vessel: 2rem;
+
+  --shadow-hush: 0 20px 80px rgb(10 7 9 / 0.42);
+  --shadow-presence: 0 0 80px rgb(215 193 155 / 0.1), 0 36px 120px rgb(10 7 9 / 0.65), inset 0 1px 0 rgb(244 238 226 / 0.1);
+  --shadow-inset-glow: inset 0 1px 0 rgb(244 238 226 / 0.16), inset 0 -24px 80px rgb(10 7 9 / 0.28);
+
+  --blur-atmosphere: 80px;
+
+  --spacing-cinematic: clamp(4rem, 12vw, 10rem);
+  --spacing-breath: clamp(1.5rem, 4vw, 3.5rem);
+
+  --ease-presence: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exhale: cubic-bezier(0.4, 0, 0.6, 1);
+
+  --font-sans: var(--font-zeya-sans);
+  --font-serif: var(--font-zeya-serif);
+}
+
+:root {
+  color-scheme: dark;
+  background: #0a0709;
+  color: #f4eee2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #0a0709;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh;
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgb(215 193 155 / 0.09), transparent 55%),
+    radial-gradient(circle at 16% 28%, rgb(45 35 43 / 0.72), transparent 44%),
+    radial-gradient(circle at 84% 72%, rgb(58 52 55 / 0.35), transparent 40%),
+    linear-gradient(160deg, #0a0709 0%, #21141d 52%, #130f11 100%);
+  color: #f4eee2;
+}
+
+/* Subtle grid veil — masked to center, very faint */
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.09;
+  background-image:
+    linear-gradient(rgb(244 238 226 / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(244 238 226 / 0.05) 1px, transparent 1px);
+  background-position: center;
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 70% 65% at 50% 50%, black, transparent);
+}
+
+/* Fine grain — soft-light blend, barely perceptible */
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.14;
+  background-image: radial-gradient(rgb(244 238 226 / 0.14) 0.6px, transparent 0.6px);
+  background-size: 2.8px 2.8px;
+  mix-blend-mode: soft-light;
+}
+
+::selection {
+  background: rgb(215 193 155 / 0.26);
+  color: #f4eee2;
+}
+
+/* Scrollbar — minimal, warm */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(215 193 155 / 0.18);
+  border: 2px solid #0a0709;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(215 193 155 / 0.3);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Shared transition class — presence speed */
+.zeya-transition {
+  transition-duration: 600ms;
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform, filter;
+  transition-timing-function: var(--ease-presence);
+}
+
+/* Utility: multi-layer atmospheric radial */
+.bg-atmosphere-radial {
+  background-image:
+    radial-gradient(ellipse 65% 55% at 50% 45%, rgb(215 193 155 / 0.12), transparent 65%),
+    radial-gradient(circle at 19% 20%, rgb(78 55 70 / 0.55), transparent 36%),
+    radial-gradient(circle at 80% 75%, rgb(76 69 66 / 0.38), transparent 40%);
+}
+
+/* Utility: deep midnight foundation */
+.bg-midnight-vellum {
+  background-image: linear-gradient(155deg, #0a0709 0%, #21141d 46%, #3a3437 100%);
+}
+
+/* Utility: champagne separator line */
+.bg-champagne-line {
+  background-image: linear-gradient(90deg, transparent, rgb(215 193 155 / 0.35), transparent);
+}
+
+/* Editorial type rhythm */
+.type-eyebrow {
+  font-size: 0.625rem;
+  font-weight: 300;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(184 173 160 / 0.5);
+}
+
+/* Frosted glass surface */
+.glass-surface {
+  background: linear-gradient(
+    145deg,
+    rgb(33 20 29 / 0.42) 0%,
+    rgb(10 7 9 / 0.3) 100%
+  );
+  border: 1px solid rgb(244 238 226 / 0.08);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    inset 0 1px 0 rgb(244 238 226 / 0.07),
+    0 20px 80px rgb(10 7 9 / 0.38);
+}
