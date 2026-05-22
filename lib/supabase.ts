@@ -15,10 +15,10 @@ export const supabase = createClient(
   supabaseUrl ?? "https://zeya-placeholder.supabase.co",
   supabasePublishableKey ?? "zeya-placeholder-key",
   {
-  auth: {
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    persistSession: true,
-  },
+    auth: {
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      persistSession: true,
+    },
   },
 );

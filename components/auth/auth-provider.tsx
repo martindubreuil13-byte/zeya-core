@@ -89,6 +89,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         open={modalOpen}
         initialMode={initialMode}
         onClose={closeAuth}
+        onAuthenticated={(nextSession) => {
+          setSession(nextSession);
+          setModalOpen(false);
+        }}
       />
     </AuthContext.Provider>
   );

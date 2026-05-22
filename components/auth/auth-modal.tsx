@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
@@ -13,6 +14,7 @@ type AuthModalProps = {
   open: boolean;
   initialMode?: AuthMode;
   onClose: () => void;
+  onAuthenticated?: (session: Session) => void;
 };
 
 const copyByMode: Record<AuthMode, { title: string; line: string; submit: string }> = {
@@ -40,6 +42,14 @@ function friendlyAuthError(message: string) {
     return "That email and password did not open the door.";
   }
 
+  if (normalized.includes("email not confirmed") || normalized.includes("not confirmed")) {
+    return "Confirm your email first, then Zeya can let you in.";
+  }
+
+  if (normalized.includes("user not found")) {
+    return "No Zeya space is connected to that email yet.";
+  }
+
   if (normalized.includes("already registered") || normalized.includes("already exists")) {
     return "That email already belongs to a Zeya space.";
   }
@@ -64,7 +74,12 @@ function passwordHint(password: string) {
   return "This feels strong enough.";
 }
 
-export function AuthModal({ open, initialMode = "sign-in", onClose }: AuthModalProps) {
+export function AuthModal({
+  open,
+  initialMode = "sign-in",
+  onClose,
+  onAuthenticated,
+}: AuthModalProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,7 +124,9 @@ export function AuthModal({ open, initialMode = "sign-in", onClose }: AuthModalP
       return;
     }
 
-    if (!email.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       setError("Tell Zeya where to find you.");
       return;
     }
@@ -128,17 +145,29 @@ export function AuthModal({ open, initialMode = "sign-in", onClose }: AuthModalP
 
     try {
       if (mode === "sign-in") {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
           password,
         });
         if (signInError) throw signInError;
+
+        if (!data.session) {
+          if (data.user && !data.user.email_confirmed_at) {
+            setError("Confirm your email first, then Zeya can let you in.");
+            return;
+          }
+
+          setError("Zeya could not open a session yet. Try once more.");
+          return;
+        }
+
         setSuccess("You’re in.");
+        onAuthenticated?.(data.session);
       }
 
       if (mode === "create-account") {
         const { error: signUpError } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password,
         });
         if (signUpError) throw signUpError;
@@ -150,7 +179,7 @@ export function AuthModal({ open, initialMode = "sign-in", onClose }: AuthModalP
           typeof window !== "undefined"
             ? `${window.location.origin}/auth/reset-password`
             : undefined;
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
           redirectTo,
         });
         if (resetError) throw resetError;
