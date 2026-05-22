@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:webpack": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.8.1",
     "clsx": "latest",
     "framer-motion": "latest",
     "lucide-react": "latest",

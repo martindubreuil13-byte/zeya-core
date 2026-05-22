@@ -3,13 +3,137 @@
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
+import type { VoiceState } from "@/types/voice";
 
 type PresenceCoreProps = {
   className?: string;
+  state?: VoiceState;
 };
 
-export function PresenceCore({ className }: PresenceCoreProps) {
+const presenceByState: Record<
+  VoiceState,
+  {
+    haloDuration: number;
+    haloScale: number[];
+    haloOpacity: number[];
+    innerDuration: number;
+    innerScale: number[];
+    innerOpacity: number[];
+    coreScale: number[];
+    coreOpacity: number[];
+    rippleOpacity: number[];
+    bodyShadow: string;
+  }
+> = {
+  idle: {
+    haloDuration: 4.4,
+    haloScale: [1, 1.1, 1],
+    haloOpacity: [0.22, 0.4, 0.22],
+    innerDuration: 4.4,
+    innerScale: [0.88, 1.06, 0.88],
+    innerOpacity: [0.24, 0.44, 0.24],
+    coreScale: [1, 1.1, 1],
+    coreOpacity: [0.72, 0.92, 0.72],
+    rippleOpacity: [0.12, 0],
+    bodyShadow:
+      "0 0 80px rgb(215 193 155 / 0.1), 0 36px 120px rgb(10 7 9 / 0.65), inset 0 1px 0 rgb(244 238 226 / 0.1), inset 0 -1px 0 rgb(10 7 9 / 0.2)",
+  },
+  connecting: {
+    haloDuration: 2.4,
+    haloScale: [0.98, 1.06, 0.98],
+    haloOpacity: [0.26, 0.5, 0.26],
+    innerDuration: 2.8,
+    innerScale: [0.86, 1.0, 0.86],
+    innerOpacity: [0.3, 0.52, 0.3],
+    coreScale: [0.96, 1.04, 0.96],
+    coreOpacity: [0.62, 0.86, 0.62],
+    rippleOpacity: [0.2, 0],
+    bodyShadow:
+      "0 0 92px rgb(215 193 155 / 0.14), 0 36px 120px rgb(10 7 9 / 0.68), inset 0 1px 0 rgb(244 238 226 / 0.12), inset 0 -1px 0 rgb(10 7 9 / 0.22)",
+  },
+  listening: {
+    haloDuration: 3.8,
+    haloScale: [1, 1.08, 1],
+    haloOpacity: [0.26, 0.48, 0.26],
+    innerDuration: 3.6,
+    innerScale: [0.82, 0.98, 0.82],
+    innerOpacity: [0.3, 0.56, 0.3],
+    coreScale: [0.94, 1.02, 0.94],
+    coreOpacity: [0.82, 1, 0.82],
+    rippleOpacity: [0.22, 0],
+    bodyShadow:
+      "0 0 104px rgb(215 193 155 / 0.16), 0 36px 120px rgb(10 7 9 / 0.65), inset 0 1px 0 rgb(244 238 226 / 0.13), inset 0 -1px 0 rgb(10 7 9 / 0.2)",
+  },
+  thinking: {
+    haloDuration: 6.4,
+    haloScale: [1, 1.04, 1],
+    haloOpacity: [0.16, 0.28, 0.16],
+    innerDuration: 6.2,
+    innerScale: [0.78, 0.92, 0.78],
+    innerOpacity: [0.14, 0.26, 0.14],
+    coreScale: [0.88, 0.96, 0.88],
+    coreOpacity: [0.42, 0.64, 0.42],
+    rippleOpacity: [0.08, 0],
+    bodyShadow:
+      "0 0 64px rgb(215 193 155 / 0.08), 0 36px 120px rgb(10 7 9 / 0.72), inset 0 1px 0 rgb(244 238 226 / 0.08), inset 0 -1px 0 rgb(10 7 9 / 0.28)",
+  },
+  speaking: {
+    haloDuration: 4.8,
+    haloScale: [1, 1.14, 1],
+    haloOpacity: [0.24, 0.5, 0.24],
+    innerDuration: 4.8,
+    innerScale: [0.9, 1.12, 0.9],
+    innerOpacity: [0.28, 0.56, 0.28],
+    coreScale: [1, 1.14, 1],
+    coreOpacity: [0.74, 0.98, 0.74],
+    rippleOpacity: [0.2, 0],
+    bodyShadow:
+      "0 0 116px rgb(215 193 155 / 0.18), 0 36px 120px rgb(10 7 9 / 0.62), inset 0 1px 0 rgb(244 238 226 / 0.14), inset 0 -1px 0 rgb(10 7 9 / 0.2)",
+  },
+  processing: {
+    haloDuration: 5.2,
+    haloScale: [1, 1.05, 1],
+    haloOpacity: [0.18, 0.32, 0.18],
+    innerDuration: 5.2,
+    innerScale: [0.84, 1.0, 0.84],
+    innerOpacity: [0.2, 0.34, 0.2],
+    coreScale: [0.96, 1.04, 0.96],
+    coreOpacity: [0.58, 0.78, 0.58],
+    rippleOpacity: [0.1, 0],
+    bodyShadow:
+      "0 0 72px rgb(215 193 155 / 0.09), 0 36px 120px rgb(10 7 9 / 0.68), inset 0 1px 0 rgb(244 238 226 / 0.09), inset 0 -1px 0 rgb(10 7 9 / 0.24)",
+  },
+  disconnected: {
+    haloDuration: 5.6,
+    haloScale: [0.98, 1.03, 0.98],
+    haloOpacity: [0.12, 0.22, 0.12],
+    innerDuration: 5.6,
+    innerScale: [0.82, 0.94, 0.82],
+    innerOpacity: [0.12, 0.24, 0.12],
+    coreScale: [0.94, 1, 0.94],
+    coreOpacity: [0.48, 0.66, 0.48],
+    rippleOpacity: [0.06, 0],
+    bodyShadow:
+      "0 0 48px rgb(215 193 155 / 0.06), 0 36px 120px rgb(10 7 9 / 0.72), inset 0 1px 0 rgb(244 238 226 / 0.08), inset 0 -1px 0 rgb(10 7 9 / 0.28)",
+  },
+  error: {
+    haloDuration: 5.6,
+    haloScale: [0.98, 1.02, 0.98],
+    haloOpacity: [0.12, 0.24, 0.12],
+    innerDuration: 5.6,
+    innerScale: [0.8, 0.94, 0.8],
+    innerOpacity: [0.12, 0.24, 0.12],
+    coreScale: [0.92, 0.98, 0.92],
+    coreOpacity: [0.44, 0.64, 0.44],
+    rippleOpacity: [0.05, 0],
+    bodyShadow:
+      "0 0 44px rgb(215 193 155 / 0.06), 0 36px 120px rgb(10 7 9 / 0.75), inset 0 1px 0 rgb(244 238 226 / 0.07), inset 0 -1px 0 rgb(10 7 9 / 0.3)",
+  },
+};
+
+export function PresenceCore({ className, state = "idle" }: PresenceCoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const presence = presenceByState[state];
 
   const rawX = useMotionValue(0);
   const rawY = useMotionValue(0);
@@ -78,10 +202,10 @@ export function PresenceCore({ className }: PresenceCoreProps) {
       <motion.div
         aria-hidden="true"
         animate={{
-          scale: [1, 1.1, 1],
-          opacity: [0.22, 0.4, 0.22],
+          scale: presence.haloScale,
+          opacity: presence.haloOpacity,
         }}
-        transition={{ duration: 4.4, repeat: Infinity, ease: "easeInOut" }}
+        transition={{ duration: presence.haloDuration, repeat: Infinity, ease: "easeInOut" }}
         className="absolute inset-[-14%] rounded-full"
         style={{
           background:
@@ -113,8 +237,7 @@ export function PresenceCore({ className }: PresenceCoreProps) {
         style={{
           background:
             "radial-gradient(circle at 36% 32%, rgb(58 52 55 / 0.75) 0%, rgb(33 20 29 / 0.78) 48%, rgb(10 7 9 / 0.72) 100%)",
-          boxShadow:
-            "0 0 80px rgb(215 193 155 / 0.1), 0 36px 120px rgb(10 7 9 / 0.65), inset 0 1px 0 rgb(244 238 226 / 0.1), inset 0 -1px 0 rgb(10 7 9 / 0.2)",
+          boxShadow: presence.bodyShadow,
         }}
       />
 
@@ -122,10 +245,10 @@ export function PresenceCore({ className }: PresenceCoreProps) {
       <motion.div
         aria-hidden="true"
         animate={{
-          scale: [0.88, 1.06, 0.88],
-          opacity: [0.24, 0.44, 0.24],
+          scale: presence.innerScale,
+          opacity: presence.innerOpacity,
         }}
-        transition={{ duration: 4.4, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+        transition={{ duration: presence.innerDuration, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
         className="absolute inset-[18%] rounded-full"
         style={{
           background:
@@ -138,10 +261,10 @@ export function PresenceCore({ className }: PresenceCoreProps) {
       <motion.div
         aria-hidden="true"
         animate={{
-          scale: [1, 1.1, 1],
-          opacity: [0.72, 0.92, 0.72],
+          scale: presence.coreScale,
+          opacity: presence.coreOpacity,
         }}
-        transition={{ duration: 4.4, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+        transition={{ duration: presence.haloDuration, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
         className="relative size-[4.5rem] rounded-full border border-zeya-ivory/10 sm:size-24"
         style={{
           background:
@@ -155,10 +278,10 @@ export function PresenceCore({ className }: PresenceCoreProps) {
       <motion.div
         aria-hidden="true"
         animate={{
-          opacity: [0.45, 0.8, 0.45],
-          scale: [1, 1.22, 1],
+          opacity: presence.coreOpacity,
+          scale: presence.coreScale,
         }}
-        transition={{ duration: 4.4, repeat: Infinity, ease: "easeInOut", delay: 0.15 }}
+        transition={{ duration: presence.haloDuration, repeat: Infinity, ease: "easeInOut", delay: 0.15 }}
         className="absolute size-3 rounded-full sm:size-4"
         style={{
           background:
@@ -172,7 +295,7 @@ export function PresenceCore({ className }: PresenceCoreProps) {
         aria-hidden="true"
         animate={{
           scale: [1, 1.35],
-          opacity: [0.18, 0],
+          opacity: presence.rippleOpacity,
         }}
         transition={{
           duration: 3.5,

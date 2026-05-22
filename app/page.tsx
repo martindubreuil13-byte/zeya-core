@@ -8,6 +8,7 @@ import {
   LandingNav,
   PositioningSection,
 } from "@/components/landing";
+import { VoiceOverlay } from "@/components/voice/VoiceOverlay";
 
 export default function LandingPage() {
   return (
@@ -17,6 +18,7 @@ export default function LandingPage() {
 
       <LandingNav />
       <HeroSection />
+      <VoiceOverlay />
       <PositioningSection />
       <ConversationalMoments />
       <ClosingCTA />
