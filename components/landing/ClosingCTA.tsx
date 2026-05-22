@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { AuthTrigger } from "@/components/auth/auth-trigger";
 
 export function ClosingCTA() {
   return (
@@ -21,18 +22,7 @@ export function ClosingCTA() {
           Ready when you are.
         </p>
 
-        <motion.button
-          type="button"
-          whileHover={{
-            borderColor: "rgba(215,193,155,0.38)",
-            color: "rgba(244,238,226,0.72)",
-            transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-          }}
-          style={{ backgroundColor: "rgba(33,20,29,0.28)" }}
-          className="zeya-transition rounded-full border border-zeya-champagne/20 px-9 py-3.5 text-[11px] font-light uppercase tracking-[0.22em] text-zeya-hush/55 backdrop-blur-xl"
-        >
-          Request Early Access
-        </motion.button>
+        <AuthTrigger />
       </motion.div>
 
       {/* Footer wordmark */}

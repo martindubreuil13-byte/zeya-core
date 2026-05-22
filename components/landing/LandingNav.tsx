@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Link from "next/link";
+import { AuthTrigger } from "@/components/auth/auth-trigger";
 
 export function LandingNav() {
   return (
@@ -16,13 +16,7 @@ export function LandingNav() {
         Zeya
       </span>
 
-      {/* Workspace link */}
-      <Link
-        href="/app"
-        className="zeya-transition text-[11px] font-light uppercase tracking-[0.2em] text-zeya-hush/45 hover:text-zeya-hush/75"
-      >
-        Enter Workspace
-      </Link>
+      <AuthTrigger compact />
     </motion.nav>
   );
 }

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@elevenlabs/client": "^1.8.1",
+    "@supabase/supabase-js": "^2.106.1",
     "clsx": "latest",
     "framer-motion": "latest",
     "lucide-react": "latest",
