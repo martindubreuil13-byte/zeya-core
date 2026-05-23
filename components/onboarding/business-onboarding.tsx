@@ -37,6 +37,7 @@ interface ChatEntry {
   id: string;
   role: "zeya" | "user";
   text: string;
+  variant?: "intro";
 }
 
 interface BrainResponse {
@@ -69,11 +70,17 @@ const msgVariants: import("framer-motion").Variants = {
   },
 };
 
-const READINESS_LABELS: Record<ReadinessLevel, string> = {
-  learning: "Learning",
-  aligning: "Aligning",
-  ready: "Ready",
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function extractFirstName(email: string | undefined): string | null {
+  if (!email) return null;
+  const local = email.split("@")[0];
+  // Filter out emails that are clearly not names (numbers-only, very short, etc.)
+  if (!local || local.length < 2 || /^\d+$/.test(local)) return null;
+  const candidate = local.split(/[._-]/)[0];
+  if (!candidate || candidate.length < 2) return null;
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -100,33 +107,27 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const initRef = useRef(false);
   const chatRef = useRef<ChatEntry[]>([]);
   const memoryRef = useRef<BusinessMemory>(emptyBusinessMemory());
+  const readinessRef = useRef<ReadinessLevel>("learning");
   const onboardingPhaseRef = useRef<OnboardingPhase>("understand_business");
 
-  useEffect(() => {
-    chatRef.current = chat;
-  }, [chat]);
-
-  useEffect(() => {
-    memoryRef.current = memory;
-  }, [memory]);
-
-  useEffect(() => {
-    onboardingPhaseRef.current = onboardingPhase;
-  }, [onboardingPhase]);
+  useEffect(() => { chatRef.current = chat; }, [chat]);
+  useEffect(() => { memoryRef.current = memory; }, [memory]);
+  useEffect(() => { readinessRef.current = readiness; }, [readiness]);
+  useEffect(() => { onboardingPhaseRef.current = onboardingPhase; }, [onboardingPhase]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
-  const addMessage = useCallback((role: ChatEntry["role"], text: string) => {
-    const entry: ChatEntry = { id: crypto.randomUUID(), role, text };
+  const addMessage = useCallback((role: ChatEntry["role"], text: string, variant?: ChatEntry["variant"]) => {
+    const entry: ChatEntry = { id: crypto.randomUUID(), role, text, variant };
     setChat((prev) => [...prev, entry]);
     return entry;
   }, []);
 
   const delayedZeya = useCallback(
-    (text: string, delayMs = 640) =>
+    (text: string, delayMs = 640, variant?: ChatEntry["variant"]) =>
       new Promise<void>((resolve) => {
         setTimeout(() => {
-          addMessage("zeya", text);
+          addMessage("zeya", text, variant);
           resolve();
         }, delayMs);
       }),
@@ -140,7 +141,6 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     el.style.height = `${el.scrollHeight}px`;
   }
 
-  // Reset height when input is cleared after send
   useEffect(() => {
     if (!inputValue && inputRef.current) {
       inputRef.current.style.height = "";
@@ -175,21 +175,32 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         setSessionId(session.id as string);
 
         if (isResume) {
-          await delayedZeya("Good to have you back.", 400);
-          await delayedZeya("Let me look at where we are.", 1100);
-          await delayedZeya("What does your business actually do? What are you selling?", 1900);
+          await delayedZeya("Good to have you back.", 500);
+          await delayedZeya(
+            "Let me review what I have on the business before we continue.",
+            1400,
+          );
+          await delayedZeya("What would you like to add or correct?", 2600);
         } else {
+          // Warm introduction — 4 deliberate beats
+          const firstName = extractFirstName(user!.email);
+          const greeting = firstName ? `Hi, ${firstName}.\nI'm Zeya.` : "Hi.\nI'm Zeya.";
+
+          await delayedZeya(greeting, 500, "intro");
+
           await delayedZeya(
-            "Before I start representing your business, I need to understand it properly.",
-            400,
+            "We're going to be working together over time. My role is to help develop the business — outreach, conversations, follow-ups, and eventually identifying opportunities worth pursuing.",
+            2000,
           );
+
           await delayedZeya(
-            "Think of this as a briefing, not a form. There's no right answer — just tell me what you know.",
-            1300,
+            "Before I start making calls on your behalf, I need to understand how you think about the offer, who you're trying to reach, and how you want the brand to come across.",
+            4000,
           );
+
           await delayedZeya(
-            "What does your business actually do? What are you selling?",
-            2200,
+            "Would it be alright if I asked you a few practical questions first?",
+            6200,
           );
         }
 
@@ -237,7 +248,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             memory_summary: null,
             messages: chatRef.current.slice(-14),
             latest_answer: answer,
-            readiness_level: readiness,
+            readiness_level: readinessRef.current,
             onboarding_phase: onboardingPhaseRef.current,
           }),
         });
@@ -264,6 +275,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         }
 
         setReadiness(result.readiness_level);
+        readinessRef.current = result.readiness_level;
         setOnboardingPhase(result.onboarding_phase);
         onboardingPhaseRef.current = result.onboarding_phase;
 
@@ -280,8 +292,6 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         setSending(false);
       }
     },
-    // readiness intentionally omitted — we read it from state but don't need to re-create on change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sending, sessionId, businessId, addMessage, delayedZeya],
   );
 
@@ -309,18 +319,18 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     if (sessionId) void updateSessionSummary(sessionId, summary);
 
     await delayedZeya(
-      "I'm not fully seasoned yet, but I understand your offer, your audience, your strongest angle, and the kind of tone you want me to use. I'm ready for a first controlled mission.",
-      600,
+      "Thank you for the briefing.\n\nI still have a lot to learn over time, but I understand the offer, your audience, the strongest positioning angles, and the tone you want associated with the business.\n\nI'm ready for a first controlled mission.",
+      700,
     );
     setPhase("confirmed");
     setSending(false);
 
-    setTimeout(() => onComplete(), 2200);
+    setTimeout(() => onComplete(), 2800);
   }
 
   async function handleEdit() {
     addMessage("user", "Let me correct something first.");
-    await delayedZeya("Of course. What would you like to change?", 600);
+    await delayedZeya("What would you like to change?", 500);
     setPhase("question");
     setSending(false);
   }
@@ -363,39 +373,38 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         />
       </div>
 
-      {/* Readiness indicator — top right */}
+      {/* Readiness indicator — top right. Barely visible in learning phase. */}
       <AnimatePresence>
-        {phase !== "loading" && phase !== "confirmed" && (
+        {phase !== "loading" && phase !== "confirmed" && readiness !== "learning" && (
           <motion.div
             key={readiness}
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.8, ease: EASE }}
+            transition={{ duration: 1.2, ease: EASE }}
             className="fixed right-5 top-6 flex items-center gap-1.5"
           >
             <motion.div
-              animate={{ opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+              animate={{ opacity: [0.3, 0.8, 0.3] }}
+              transition={{ duration: 3.0, repeat: Infinity, ease: "easeInOut" }}
               className={[
                 "h-1.5 w-1.5 rounded-full",
-                readiness === "learning" && "bg-zeya-mineral/60",
-                readiness === "aligning" && "bg-zeya-champagne/50",
-                readiness === "ready" && "bg-zeya-champagne/80",
+                readiness === "aligning" && "bg-zeya-champagne/45",
+                readiness === "ready" && "bg-zeya-champagne/75",
               ]
                 .filter(Boolean)
                 .join(" ")}
             />
-            <span className="text-[0.65rem] font-light tracking-widest text-zeya-hush/40 uppercase">
-              {READINESS_LABELS[readiness]}
+            <span className="text-[0.6rem] font-light tracking-widest text-zeya-hush/32 uppercase">
+              {readiness === "aligning" ? "Aligning" : "Ready"}
             </span>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Chat stream */}
-      <div className="w-full max-w-[32rem] flex-1 overflow-y-auto sm:max-h-[60vh] sm:flex-none">
-        <div className="flex flex-col gap-5 py-4">
+      <div className="w-full max-w-[32rem] flex-1 overflow-y-auto sm:max-h-[65vh] sm:flex-none">
+        <div className="flex flex-col gap-6 py-6">
           <AnimatePresence initial={false}>
             {chat.map((entry) => (
               <motion.div
@@ -406,7 +415,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
                 className={entry.role === "zeya" ? "self-start" : "self-end"}
               >
                 {entry.role === "zeya" ? (
-                  <ZeyaMessage text={entry.text} />
+                  <ZeyaMessage text={entry.text} variant={entry.variant} />
                 ) : (
                   <UserMessage text={entry.text} />
                 )}
@@ -450,9 +459,9 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             animate={{ opacity: inputActive ? 1 : 0.4, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: 8, filter: "blur(8px)" }}
             transition={{ duration: 0.8, ease: EASE }}
-            className="mt-7 w-full max-w-[32rem] space-y-3"
+            className="mt-8 w-full max-w-[32rem] space-y-3"
           >
-            <div className="relative flex items-end gap-3 rounded-vessel border border-zeya-graphite/50 bg-zeya-plum/40 px-4 py-3.5 shadow-presence backdrop-blur-sm transition-all duration-300 focus-within:border-zeya-champagne/30 focus-within:bg-zeya-plum/55">
+            <div className="relative flex items-end gap-3 rounded-vessel border border-zeya-graphite/50 bg-zeya-plum/40 px-4 py-4 shadow-presence backdrop-blur-sm transition-all duration-300 focus-within:border-zeya-champagne/30 focus-within:bg-zeya-plum/55">
               <textarea
                 ref={inputRef}
                 value={inputValue}
@@ -468,7 +477,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
                     : "Type your answer…"
                 }
                 rows={3}
-                className="min-h-[4.5rem] max-h-48 w-full resize-none bg-transparent text-[0.9375rem] font-light leading-relaxed tracking-wide text-zeya-ivory placeholder:text-zeya-hush/35 focus:outline-none disabled:opacity-40"
+                className="min-h-[4.5rem] max-h-52 w-full resize-none bg-transparent text-[0.9375rem] font-light leading-relaxed tracking-wide text-zeya-ivory placeholder:text-zeya-hush/30 focus:outline-none disabled:opacity-40"
                 style={{ scrollbarWidth: "none" }}
               />
               <button
@@ -480,7 +489,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
                 <SendIcon />
               </button>
             </div>
-            <p className="text-center text-[0.7rem] font-light tracking-wide text-zeya-hush/25">
+            <p className="text-center text-[0.68rem] font-light tracking-wide text-zeya-hush/22">
               Return to send · Shift+Return for new line
             </p>
           </motion.div>
@@ -492,14 +501,25 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ZeyaMessage({ text }: { text: string }) {
+function ZeyaMessage({ text, variant }: { text: string; variant?: "intro" }) {
+  const isIntro = variant === "intro";
   return (
     <div className="flex items-start gap-3">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zeya-champagne/20 bg-zeya-aubergine">
-        <div className="h-1.5 w-1.5 rounded-full bg-zeya-champagne/70" />
+      <div
+        className={[
+          "shrink-0 flex items-center justify-center rounded-full border border-zeya-champagne/20 bg-zeya-aubergine",
+          isIntro ? "mt-1 h-7 w-7" : "mt-0.5 h-6 w-6",
+        ].join(" ")}
+      >
+        <div className={["rounded-full bg-zeya-champagne/70", isIntro ? "h-2 w-2" : "h-1.5 w-1.5"].join(" ")} />
       </div>
       <p
-        className="max-w-[22rem] text-[0.9375rem] font-light leading-relaxed tracking-wide text-zeya-ivory/90"
+        className={[
+          "font-light leading-relaxed tracking-wide text-zeya-ivory/90",
+          isIntro
+            ? "max-w-[24rem] text-[1.0625rem]"
+            : "max-w-[22rem] text-[0.9375rem]",
+        ].join(" ")}
         style={{ whiteSpace: "pre-line" }}
       >
         {text}
