@@ -18,6 +18,9 @@ import {
   updateBusinessProfile,
   updateSessionSummary,
 } from "@/lib/supabase/business-memory";
+import { useVoiceConversation } from "@/hooks/voice/useVoiceConversation";
+import { VoiceButton } from "@/components/voice/VoiceButton";
+import type { VoiceState } from "@/types/voice";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,7 @@ interface ChatEntry {
   id: string;
   role: "zeya" | "user";
   text: string;
-  variant?: "intro";
+  variant?: "intro" | "thinking";
 }
 
 interface BrainResponse {
@@ -49,6 +52,16 @@ interface BrainResponse {
   onboarding_phase: OnboardingPhase;
   is_complete: boolean;
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const VOICE_STATUS_LABEL: Partial<Record<VoiceState, string>> = {
+  connecting: "Connecting…",
+  listening: "Listening…",
+  thinking: "Processing…",
+  processing: "Processing…",
+  speaking: "Speaking…",
+};
 
 // ─── Animation ────────────────────────────────────────────────────────────────
 
@@ -65,8 +78,8 @@ const msgVariants: import("framer-motion").Variants = {
   exit: {
     opacity: 0,
     y: -8,
-    filter: "blur(10px)",
-    transition: { duration: 0.5, ease: EASE },
+    filter: "blur(8px)",
+    transition: { duration: 0.45, ease: EASE },
   },
 };
 
@@ -75,11 +88,16 @@ const msgVariants: import("framer-motion").Variants = {
 function extractFirstName(email: string | undefined): string | null {
   if (!email) return null;
   const local = email.split("@")[0];
-  // Filter out emails that are clearly not names (numbers-only, very short, etc.)
   if (!local || local.length < 2 || /^\d+$/.test(local)) return null;
   const candidate = local.split(/[._-]/)[0];
   if (!candidate || candidate.length < 2) return null;
   return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+}
+
+function hasNonEmptyValue(obj: Record<string, unknown>): boolean {
+  return Object.values(obj).some((v) =>
+    typeof v === "string" ? v.trim().length > 0 : v !== null && v !== undefined,
+  );
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -91,6 +109,8 @@ interface Props {
 
 export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const { user } = useAuth();
+  const voice = useVoiceConversation();
+  const { state: voiceState, transcript: voiceTranscript, isConfigured, startConversation, stopConversation } = voice;
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [chat, setChat] = useState<ChatEntry[]>([]);
@@ -101,6 +121,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const [businessId, setBusinessId] = useState<string | null>(existingBusinessId);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [ttsSpeaking, setTtsSpeaking] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -109,18 +130,39 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const memoryRef = useRef<BusinessMemory>(emptyBusinessMemory());
   const readinessRef = useRef<ReadinessLevel>("learning");
   const onboardingPhaseRef = useRef<OnboardingPhase>("understand_business");
+  const lastVoiceEntryIdRef = useRef<string | null>(null);
+  const ttsSpeakingRef = useRef(false);
+  const phaseRef = useRef<Phase>("loading");
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => { memoryRef.current = memory; }, [memory]);
   useEffect(() => { readinessRef.current = readiness; }, [readiness]);
   useEffect(() => { onboardingPhaseRef.current = onboardingPhase; }, [onboardingPhase]);
+  useEffect(() => { ttsSpeakingRef.current = ttsSpeaking; }, [ttsSpeaking]);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Voice display state ───────────────────────────────────────────────────────
 
-  const addMessage = useCallback((role: ChatEntry["role"], text: string, variant?: ChatEntry["variant"]) => {
-    const entry: ChatEntry = { id: crypto.randomUUID(), role, text, variant };
-    setChat((prev) => [...prev, entry]);
-    return entry;
+  const voiceDisplayState: VoiceState = ttsSpeaking
+    ? "speaking"
+    : sending
+      ? "thinking"
+      : voiceState;
+
+  // ── Message helpers ──────────────────────────────────────────────────────────
+
+  const addMessage = useCallback(
+    (role: ChatEntry["role"], text: string, variant?: ChatEntry["variant"]) => {
+      const entry: ChatEntry = { id: crypto.randomUUID(), role, text, variant };
+      setChat((prev) => [...prev, entry]);
+      return entry;
+    },
+    [],
+  );
+
+  const removeMessage = useCallback((id: string) => {
+    setChat((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
   const delayedZeya = useCallback(
@@ -147,6 +189,56 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     }
   }, [inputValue]);
 
+  // ── TTS ───────────────────────────────────────────────────────────────────────
+  //
+  // Session recycling: ElevenLabs session is stopped before each callBrain() so
+  // the ConvAI agent never generates its own audio response. speakReplyTTS()
+  // restarts listening in its finally block — this is the conversational loop.
+  //
+  // setTtsSpeaking(true) is delayed until the audio blob is ready (not at fetch
+  // start) so the "thinking" state is visible for the full latency window, and
+  // speech/text display feel concurrent rather than sequential.
+
+  const speakReplyTTS = useCallback(
+    async (text: string) => {
+      if (!isConfigured) return;
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      try {
+        const res = await fetch("/api/elevenlabs/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok || !res.body) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudioRef.current = audio;
+        // Set speaking only when audio is about to play, so the full TTS fetch
+        // latency window shows as "thinking" rather than an invisible wait
+        setTtsSpeaking(true);
+        await new Promise<void>((resolve) => {
+          audio.onended = () => { currentAudioRef.current = null; resolve(); };
+          audio.onerror = () => { currentAudioRef.current = null; resolve(); };
+          void audio.play();
+        });
+        URL.revokeObjectURL(url);
+      } catch {
+        // text already shown — silent failure is acceptable
+      } finally {
+        setTtsSpeaking(false);
+        // Auto-restart listening after every TTS (the conversational loop)
+        if (phaseRef.current === "loading" || phaseRef.current === "question") {
+          void startConversation();
+        }
+      }
+    },
+    [isConfigured, startConversation],
+  );
+
   // ── Init ──────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -155,8 +247,8 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
     async function init() {
       try {
-        const isResume = existingBusinessId !== null;
         let bid = existingBusinessId;
+        let isRealResume = false;
 
         if (!bid) {
           const business = await initBusinessProfile(user!.id);
@@ -164,40 +256,67 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
           setBusinessId(bid);
         } else {
           const existing = await getBusinessProfile(user!.id);
-          if (existing?.business_profile) {
-            const profile = existing.business_profile as BusinessMemory;
+
+          // A real resume requires actual onboarding progress — not just a row
+          // existing. Check top-level columns, JSONB profile fields, and whether
+          // the summary was written (onboarding completed at some point).
+          const rawProfile = existing?.business_profile as Record<string, unknown> | null;
+          const memorySummary = existing?.memory_summary as string | null | undefined;
+
+          if (rawProfile) {
+            const profile = rawProfile as unknown as BusinessMemory;
             setMemory(profile);
             memoryRef.current = profile;
           }
+
+          const hasMeaningfulProfile = rawProfile ? hasNonEmptyValue(rawProfile) : false;
+          const hasTopLevelFields =
+            typeof existing?.business_name === "string"
+              ? existing.business_name.trim().length > 0
+              : false ||
+                (typeof existing?.industry === "string"
+                  ? existing.industry.trim().length > 0
+                  : false);
+          const hasCompletedOnboarding =
+            typeof memorySummary === "string" && memorySummary.trim().length > 0;
+
+          isRealResume = hasMeaningfulProfile || hasTopLevelFields || hasCompletedOnboarding;
         }
 
         const session = await createSession(bid, "onboarding");
         setSessionId(session.id as string);
 
-        if (isResume) {
+        if (isRealResume) {
           await delayedZeya("Good to have you back.", 500);
           await delayedZeya(
             "Let me review what I have on the business before we continue.",
             1400,
           );
           await delayedZeya("What would you like to add or correct?", 2600);
+          void startConversation();
         } else {
-          // Warm introduction — 4 deliberate beats
           const firstName = extractFirstName(user!.email);
           const greeting = firstName ? `Hi, ${firstName}.\nI'm Zeya.` : "Hi.\nI'm Zeya.";
 
-          await delayedZeya(greeting, 500, "intro");
+          // Greeting TTS fires concurrently with text display.
+          // speakReplyTTS.finally will open the mic when audio ends.
+          const greetingForTTS = [
+            firstName ? `Hi, ${firstName}. I'm Zeya.` : "Hi. I'm Zeya.",
+            "We're going to be working together — my role is to help develop the business through outreach, conversations, follow-ups, and eventually identifying opportunities worth pursuing.",
+            "Before I start making calls on your behalf, I need to understand how you think about the offer, who you're trying to reach, and how you want the brand to come across.",
+            "Would it be alright if I asked you a few practical questions first?",
+          ].join(" ");
+          void speakReplyTTS(greetingForTTS);
 
+          await delayedZeya(greeting, 500, "intro");
           await delayedZeya(
             "We're going to be working together over time. My role is to help develop the business — outreach, conversations, follow-ups, and eventually identifying opportunities worth pursuing.",
             2000,
           );
-
           await delayedZeya(
             "Before I start making calls on your behalf, I need to understand how you think about the offer, who you're trying to reach, and how you want the brand to come across.",
             4000,
           );
-
           await delayedZeya(
             "Would it be alright if I asked you a few practical questions first?",
             6200,
@@ -213,7 +332,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     }
 
     void init();
-  }, [user, existingBusinessId, delayedZeya]);
+  }, [user, existingBusinessId, delayedZeya, speakReplyTTS, startConversation]);
 
   // ── Scroll ───────────────────────────────────────────────────────────────────
 
@@ -239,6 +358,9 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
       addMessage("user", answer);
       if (sessionId) void appendMessage(sessionId, "user", answer);
 
+      // Thinking indicator — removed when reply arrives
+      let thinkingId: string | null = addMessage("zeya", "", "thinking").id;
+
       try {
         const res = await fetch("/api/zeya/onboarding-brain", {
           method: "POST",
@@ -254,11 +376,23 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         });
 
         if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(err.error ?? `Brain responded ${res.status}`);
+          const errText = await res.text().catch(() => "");
+          let errMsg = `Brain responded ${res.status}`;
+          try { errMsg = (JSON.parse(errText) as { error?: string }).error ?? errMsg; } catch { /* use default */ }
+          throw new Error(errMsg);
         }
 
-        const result = (await res.json()) as BrainResponse;
+        const raw = await res.text();
+        if (!raw.trim()) throw new Error("No response from brain. Try again.");
+        let result: BrainResponse;
+        try {
+          result = JSON.parse(raw) as BrainResponse;
+        } catch {
+          throw new Error("Malformed brain response. Try again.");
+        }
+        if (!result.reply || typeof result.reply !== "string") {
+          throw new Error("Incomplete brain response. Try again.");
+        }
 
         if (Object.keys(result.memory_patch).length > 0) {
           const newMemory = { ...memoryRef.current, ...result.memory_patch };
@@ -279,6 +413,11 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         setOnboardingPhase(result.onboarding_phase);
         onboardingPhaseRef.current = result.onboarding_phase;
 
+        // Remove thinking, start TTS immediately (speech/text sync: TTS fetch runs
+        // during the text-reveal delay so audio starts close to when text appears)
+        removeMessage(thinkingId);
+        thinkingId = null;
+        void speakReplyTTS(result.reply);
         await delayedZeya(result.reply, 600);
         if (sessionId) void appendMessage(sessionId, "assistant", result.reply);
 
@@ -286,14 +425,28 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
           setPhase("summary");
         }
       } catch (err) {
+        if (thinkingId) { removeMessage(thinkingId); thinkingId = null; }
         const msg = err instanceof Error ? err.message : "Something went wrong.";
         await delayedZeya(`I lost my train of thought. Try again.\n\n${msg}`, 600);
       } finally {
         setSending(false);
       }
     },
-    [sending, sessionId, businessId, addMessage, delayedZeya],
+    [sending, sessionId, businessId, addMessage, removeMessage, delayedZeya, speakReplyTTS],
   );
+
+  // ── Voice transcript → brain ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    const finalUserEntries = voiceTranscript.filter((e) => e.role === "user" && e.isFinal);
+    if (finalUserEntries.length === 0) return;
+    const latest = finalUserEntries[finalUserEntries.length - 1];
+    if (latest.id === lastVoiceEntryIdRef.current) return;
+    if (ttsSpeakingRef.current) return;
+    lastVoiceEntryIdRef.current = latest.id;
+    void stopConversation();
+    setTimeout(() => void callBrain(latest.text), 0);
+  }, [voiceTranscript, stopConversation, callBrain]);
 
   // ── Submit handlers ──────────────────────────────────────────────────────────
 
@@ -358,6 +511,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
   const inputActive = phase === "question";
   const isMemoryTest = onboardingPhase === "memory_test";
+  const voiceStatusLabel = VOICE_STATUS_LABEL[voiceDisplayState];
 
   return (
     <main className="relative isolate flex min-h-dvh flex-col items-center overflow-hidden px-5 pb-10 pt-14 sm:justify-center sm:pb-14">
@@ -373,7 +527,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         />
       </div>
 
-      {/* Readiness indicator — top right. Barely visible in learning phase. */}
+      {/* Readiness indicator */}
       <AnimatePresence>
         {phase !== "loading" && phase !== "confirmed" && readiness !== "learning" && (
           <motion.div
@@ -412,6 +566,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
                 variants={msgVariants}
                 initial="hidden"
                 animate="visible"
+                exit="exit"
                 className={entry.role === "zeya" ? "self-start" : "self-end"}
               >
                 {entry.role === "zeya" ? (
@@ -461,6 +616,46 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             transition={{ duration: 0.8, ease: EASE }}
             className="mt-8 w-full max-w-[32rem] space-y-3"
           >
+            {/* Voice section */}
+            {isConfigured && (
+              <div className="flex flex-col items-center gap-3 pb-1">
+                <VoiceButton
+                  state={voiceDisplayState}
+                  disabled={!inputActive || ttsSpeaking}
+                  onStart={() => void startConversation()}
+                  onStop={() => void stopConversation()}
+                />
+                <div className="flex min-h-[1.1rem] items-center justify-center">
+                  <AnimatePresence mode="wait">
+                    {voiceStatusLabel ? (
+                      <motion.p
+                        key={voiceDisplayState}
+                        initial={{ opacity: 0, y: 3 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ duration: 0.4, ease: EASE }}
+                        className="text-[0.68rem] font-light tracking-widest text-zeya-hush/38 uppercase"
+                      >
+                        {voiceStatusLabel}
+                      </motion.p>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
+
+            {/* "or type" divider */}
+            {isConfigured && (
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-zeya-graphite/25" />
+                <span className="text-[0.65rem] font-light tracking-wider text-zeya-hush/22">
+                  or type
+                </span>
+                <div className="h-px flex-1 bg-zeya-graphite/25" />
+              </div>
+            )}
+
+            {/* Text input */}
             <div className="relative flex items-end gap-3 rounded-vessel border border-zeya-graphite/50 bg-zeya-plum/40 px-4 py-4 shadow-presence backdrop-blur-sm transition-all duration-300 focus-within:border-zeya-champagne/30 focus-within:bg-zeya-plum/55">
               <textarea
                 ref={inputRef}
@@ -501,7 +696,8 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ZeyaMessage({ text, variant }: { text: string; variant?: "intro" }) {
+function ZeyaMessage({ text, variant }: { text: string; variant?: ChatEntry["variant"] }) {
+  if (variant === "thinking") return <ZeyaThinkingMessage />;
   const isIntro = variant === "intro";
   return (
     <div className="flex items-start gap-3">
@@ -516,14 +712,42 @@ function ZeyaMessage({ text, variant }: { text: string; variant?: "intro" }) {
       <p
         className={[
           "font-light leading-relaxed tracking-wide text-zeya-ivory/90",
-          isIntro
-            ? "max-w-[24rem] text-[1.0625rem]"
-            : "max-w-[22rem] text-[0.9375rem]",
+          isIntro ? "max-w-[24rem] text-[1.0625rem]" : "max-w-[22rem] text-[0.9375rem]",
         ].join(" ")}
         style={{ whiteSpace: "pre-line" }}
       >
         {text}
       </p>
+    </div>
+  );
+}
+
+function ZeyaThinkingMessage() {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 h-6 w-6 shrink-0 flex items-center justify-center rounded-full border border-zeya-champagne/20 bg-zeya-aubergine">
+        <motion.div
+          animate={{ opacity: [0.25, 0.7, 0.25] }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          className="h-1.5 w-1.5 rounded-full bg-zeya-champagne/70"
+        />
+      </div>
+      <div className="flex items-end gap-[3px] pb-px pt-[5px]">
+        {([0, 1, 2, 3] as const).map((i) => (
+          <motion.div
+            key={i}
+            className="rounded-full bg-zeya-champagne/28"
+            style={{ width: "2.5px", height: "14px", originY: 1 }}
+            animate={{ scaleY: [0.18, 1, 0.18] }}
+            transition={{
+              duration: 1.6,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: i * 0.14,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
