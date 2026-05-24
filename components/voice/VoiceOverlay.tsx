@@ -12,6 +12,7 @@ const intensityByState = {
   listening: 0.42,
   thinking: 0.5,
   speaking: 0.58,
+  interrupted: 0.48,
   processing: 0.3,
   disconnected: 0.2,
   error: 0.36,

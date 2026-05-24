@@ -15,6 +15,7 @@ const statusCopy: Record<VoiceState, string> = {
   listening: "Speak whenever you are ready.",
   thinking: "Holding that for a moment.",
   speaking: "Zeya is speaking.",
+  interrupted: "Listening.",
   processing: "Letting the moment settle.",
   disconnected: "The line is closed.",
   error: "Connection interrupted. Let’s try again.",

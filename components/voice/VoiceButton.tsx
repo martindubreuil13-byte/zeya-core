@@ -11,7 +11,14 @@ type VoiceButtonProps = {
   onStop: () => void;
 };
 
-const activeStates: VoiceState[] = ["connecting", "listening", "thinking", "speaking", "processing"];
+const activeStates: VoiceState[] = [
+  "connecting",
+  "listening",
+  "thinking",
+  "speaking",
+  "interrupted",
+  "processing",
+];
 
 export function VoiceButton({ state, disabled = false, onStart, onStop }: VoiceButtonProps) {
   const isActive = activeStates.includes(state);

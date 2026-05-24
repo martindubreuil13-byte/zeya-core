@@ -18,7 +18,8 @@ import {
   updateBusinessProfile,
   updateSessionSummary,
 } from "@/lib/supabase/business-memory";
-import { useVoiceConversation } from "@/hooks/voice/useVoiceConversation";
+import { useOnboardingVoiceConversation } from "@/hooks/voice/useOnboardingVoiceConversation";
+import { PresenceCore } from "@/components/presence";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import type { VoiceState } from "@/types/voice";
 
@@ -61,7 +62,16 @@ const VOICE_STATUS_LABEL: Partial<Record<VoiceState, string>> = {
   thinking: "Processing…",
   processing: "Processing…",
   speaking: "Speaking…",
+  interrupted: "Listening…",
 };
+
+const REALTIME_DEBUG = process.env.NEXT_PUBLIC_REALTIME_DEBUG === "true";
+
+const REALTIME_FIRST_PROMPT =
+  'Say exactly: "Hi, I\'m Zeya. Good to meet you. We\'ll be working together on outreach, so I\'ll ask a few quick questions to understand your business. First, what product or service are we focusing on?"';
+
+const REALTIME_RESUME_PROMPT =
+  'Say exactly: "Hi, I\'m Zeya. Good to have you back. What should we sharpen first?"';
 
 // ─── Animation ────────────────────────────────────────────────────────────────
 
@@ -109,8 +119,9 @@ interface Props {
 
 export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const { user } = useAuth();
-  const voice = useVoiceConversation();
+  const voice = useOnboardingVoiceConversation();
   const { state: voiceState, transcript: voiceTranscript, isConfigured, startConversation, stopConversation } = voice;
+  const isRealtimeVoice = voice.provider === "openai-realtime";
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [chat, setChat] = useState<ChatEntry[]>([]);
@@ -122,6 +133,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  const [callLogOpen, setCallLogOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -131,9 +143,12 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const readinessRef = useRef<ReadinessLevel>("learning");
   const onboardingPhaseRef = useRef<OnboardingPhase>("understand_business");
   const lastVoiceEntryIdRef = useRef<string | null>(null);
+  const lastRealtimeEntryIdRef = useRef<string | null>(null);
   const ttsSpeakingRef = useRef(false);
   const phaseRef = useRef<Phase>("loading");
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const realtimeInitialPromptRef = useRef(REALTIME_FIRST_PROMPT);
+  const realtimeHasStartedRef = useRef(false);
 
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => { memoryRef.current = memory; }, [memory]);
@@ -149,6 +164,11 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     : sending
       ? "thinking"
       : voiceState;
+  const realtimeVoiceActive =
+    isRealtimeVoice &&
+    ["connecting", "listening", "thinking", "speaking", "interrupted", "processing"].includes(
+      voiceDisplayState,
+    );
 
   // ── Message helpers ──────────────────────────────────────────────────────────
 
@@ -201,6 +221,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
   const speakReplyTTS = useCallback(
     async (text: string) => {
+      if (isRealtimeVoice) return;
       if (!isConfigured) return;
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
@@ -236,7 +257,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         }
       }
     },
-    [isConfigured, startConversation],
+    [isConfigured, isRealtimeVoice, startConversation],
   );
 
   // ── Init ──────────────────────────────────────────────────────────────────────
@@ -286,7 +307,11 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         const session = await createSession(bid, "onboarding");
         setSessionId(session.id as string);
 
-        if (isRealResume) {
+        if (isRealtimeVoice) {
+          realtimeInitialPromptRef.current = isRealResume
+            ? REALTIME_RESUME_PROMPT
+            : REALTIME_FIRST_PROMPT;
+        } else if (isRealResume) {
           await delayedZeya("Good to have you back.", 500);
           await delayedZeya(
             "Let me review what I have on the business before we continue.",
@@ -332,7 +357,18 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     }
 
     void init();
-  }, [user, existingBusinessId, delayedZeya, speakReplyTTS, startConversation]);
+  }, [user, existingBusinessId, delayedZeya, isRealtimeVoice, speakReplyTTS, startConversation]);
+
+  const startVoiceFirstConversation = useCallback(() => {
+    if (!isRealtimeVoice) {
+      void startConversation();
+      return;
+    }
+
+    const prompt = realtimeHasStartedRef.current ? undefined : realtimeInitialPromptRef.current;
+    realtimeHasStartedRef.current = true;
+    void startConversation(prompt);
+  }, [isRealtimeVoice, startConversation]);
 
   // ── Scroll ───────────────────────────────────────────────────────────────────
 
@@ -442,11 +478,39 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     if (finalUserEntries.length === 0) return;
     const latest = finalUserEntries[finalUserEntries.length - 1];
     if (latest.id === lastVoiceEntryIdRef.current) return;
+    if (isRealtimeVoice) return;
     if (ttsSpeakingRef.current) return;
     lastVoiceEntryIdRef.current = latest.id;
     void stopConversation();
     setTimeout(() => void callBrain(latest.text), 0);
-  }, [voiceTranscript, stopConversation, callBrain]);
+  }, [voiceTranscript, stopConversation, callBrain, isRealtimeVoice]);
+
+  // ── OpenAI Realtime transcript → chat stream ────────────────────────────────
+
+  useEffect(() => {
+    if (!isRealtimeVoice) return;
+    const finalEntries = voiceTranscript.filter((entry) => entry.isFinal);
+    if (finalEntries.length === 0) return;
+
+    const latest = finalEntries[finalEntries.length - 1];
+    if (latest.id === lastRealtimeEntryIdRef.current) return;
+    lastRealtimeEntryIdRef.current = latest.id;
+
+    if (REALTIME_DEBUG && (latest.role === "user" || !realtimeVoiceActive)) {
+      window.setTimeout(() => {
+        if (latest.role === "agent") {
+          console.info("[Zeya realtime timing] assistant transcript rendered", {
+            t: Math.round(performance.now()),
+          });
+        }
+        addMessage(latest.role === "user" ? "user" : "zeya", latest.text);
+      }, 0);
+    }
+
+    if (sessionId) {
+      void appendMessage(sessionId, latest.role === "user" ? "user" : "assistant", latest.text);
+    }
+  }, [addMessage, isRealtimeVoice, realtimeVoiceActive, sessionId, voiceTranscript]);
 
   // ── Submit handlers ──────────────────────────────────────────────────────────
 
@@ -509,9 +573,162 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     );
   }
 
+  // ── Realtime voice-call UI ────────────────────────────────────────────────────
+  // Rendered instead of the chat/input UI when the OpenAI Realtime provider is
+  // active. Feels like starting a phone call: orb + status copy + single button.
+
+  if (isRealtimeVoice) {
+    const callNotStarted = voiceState === "idle" || voiceState === "disconnected";
+    const callError = voiceState === "error";
+
+    const realtimeStatusLabel: string | null = callNotStarted
+      ? null
+      : callError
+        ? (voice.error ?? "Something went wrong.")
+        : (VOICE_STATUS_LABEL[voiceDisplayState] ?? null);
+
+    return (
+      <main
+        className="relative isolate flex min-h-dvh flex-col items-center justify-center overflow-hidden px-5 py-14"
+        style={{ background: "#0a0709" }}
+      >
+        {/* Ambient backdrop */}
+        <div className="pointer-events-none fixed inset-0 -z-10">
+          <div className="absolute left-1/2 top-1/3 h-[32rem] w-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-zeya-plum/20 blur-atmosphere" />
+          <div className="absolute bottom-0 right-0 h-64 w-64 rounded-full bg-zeya-champagne/6 blur-atmosphere" />
+          <div
+            className="absolute inset-0"
+            style={{ background: "linear-gradient(145deg, #0a0709 0%, #21141d 44%, #3a3437 100%)" }}
+          />
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20, filter: "blur(16px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{ duration: 1.6, ease: EASE }}
+          className="flex flex-col items-center gap-10"
+        >
+          <PresenceCore state={callNotStarted ? "idle" : voiceDisplayState} />
+
+          {/* Status copy */}
+          <div className="flex min-h-[3.5rem] flex-col items-center justify-center gap-1 text-center">
+            <AnimatePresence mode="wait">
+              {callNotStarted ? (
+                <motion.div
+                  key="pre-call"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.6, ease: EASE }}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <p className="text-[0.9375rem] font-light tracking-wide text-zeya-ivory/80">
+                    Zeya is ready.
+                  </p>
+                  <p className="text-sm font-light tracking-wide text-zeya-hush/50">
+                    Tap to start your onboarding call.
+                  </p>
+                </motion.div>
+              ) : realtimeStatusLabel ? (
+                <motion.p
+                  key={realtimeStatusLabel}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.4, ease: EASE }}
+                  className={
+                    callError
+                      ? "max-w-[18rem] text-sm font-light tracking-wide text-zeya-hush/50"
+                      : "text-[0.68rem] font-light tracking-widest text-zeya-hush/38 uppercase"
+                  }
+                >
+                  {realtimeStatusLabel}
+                </motion.p>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          {/* Call button */}
+          <VoiceButton
+            state={voiceDisplayState}
+            disabled={phase === "loading"}
+            onStart={startVoiceFirstConversation}
+            onStop={() => void stopConversation()}
+          />
+        </motion.div>
+
+        {/* Call log — discreet bottom-right button, visible once there is a transcript */}
+        {voiceTranscript.filter((e) => e.isFinal).length > 0 && (
+          <button
+            onClick={() => setCallLogOpen(true)}
+            className="fixed bottom-6 right-6 text-[0.65rem] font-light tracking-widest text-zeya-hush/28 uppercase transition-colors duration-300 hover:text-zeya-hush/55"
+          >
+            Call log
+          </button>
+        )}
+
+        {/* Call log modal */}
+        {callLogOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-end p-4"
+            onClick={() => setCallLogOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 12, filter: "blur(8px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: 8, filter: "blur(6px)" }}
+              transition={{ duration: 0.35, ease: EASE }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm overflow-hidden rounded-presence border border-zeya-graphite/50 bg-zeya-plum/92 shadow-presence backdrop-blur-sm"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-zeya-graphite/30 px-4 py-3">
+                <span className="text-[0.65rem] font-light tracking-widest text-zeya-hush/45 uppercase">
+                  Call log
+                </span>
+                <button
+                  onClick={() => setCallLogOpen(false)}
+                  className="text-sm leading-none text-zeya-hush/35 transition-colors hover:text-zeya-hush/65"
+                  aria-label="Close call log"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Transcript */}
+              <div className="max-h-72 space-y-4 overflow-y-auto px-4 py-4" style={{ scrollbarWidth: "none" }}>
+                {voiceTranscript.filter((e) => e.isFinal).length === 0 ? (
+                  <p className="text-[0.8125rem] font-light text-zeya-hush/35">
+                    No transcript yet.
+                  </p>
+                ) : (
+                  voiceTranscript.filter((e) => e.isFinal).map((entry) => (
+                    <div key={entry.id} className={entry.role === "user" ? "text-right" : "text-left"}>
+                      <p className="mb-0.5 text-[0.62rem] font-light tracking-widest text-zeya-hush/30 uppercase">
+                        {entry.role === "user" ? "You" : "Zeya"}
+                      </p>
+                      <p className="text-[0.8125rem] font-light leading-relaxed text-zeya-ivory/72">
+                        {entry.text}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </main>
+    );
+  }
+
   const inputActive = phase === "question";
   const isMemoryTest = onboardingPhase === "memory_test";
-  const voiceStatusLabel = VOICE_STATUS_LABEL[voiceDisplayState];
+  const voiceStatusLabel = isRealtimeVoice ? undefined : VOICE_STATUS_LABEL[voiceDisplayState];
+  const visibleChat = isRealtimeVoice
+    ? REALTIME_DEBUG
+      ? chat.filter((entry) => entry.role === "user" || !realtimeVoiceActive)
+      : []
+    : chat;
 
   return (
     <main className="relative isolate flex min-h-dvh flex-col items-center overflow-hidden px-5 pb-10 pt-14 sm:justify-center sm:pb-14">
@@ -560,7 +777,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
       <div className="w-full max-w-[32rem] flex-1 overflow-y-auto sm:max-h-[65vh] sm:flex-none">
         <div className="flex flex-col gap-6 py-6">
           <AnimatePresence initial={false}>
-            {chat.map((entry) => (
+            {visibleChat.map((entry) => (
               <motion.div
                 key={entry.id}
                 variants={msgVariants}
@@ -621,8 +838,8 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
               <div className="flex flex-col items-center gap-3 pb-1">
                 <VoiceButton
                   state={voiceDisplayState}
-                  disabled={!inputActive || ttsSpeaking}
-                  onStart={() => void startConversation()}
+                  disabled={!inputActive || (!isRealtimeVoice && ttsSpeaking)}
+                  onStart={startVoiceFirstConversation}
                   onStop={() => void stopConversation()}
                 />
                 <div className="flex min-h-[1.1rem] items-center justify-center">
@@ -645,7 +862,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             )}
 
             {/* "or type" divider */}
-            {isConfigured && (
+            {isConfigured && !realtimeVoiceActive && (
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-zeya-graphite/25" />
                 <span className="text-[0.65rem] font-light tracking-wider text-zeya-hush/22">
@@ -656,7 +873,14 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             )}
 
             {/* Text input */}
-            <div className="relative flex items-end gap-3 rounded-vessel border border-zeya-graphite/50 bg-zeya-plum/40 px-4 py-4 shadow-presence backdrop-blur-sm transition-all duration-300 focus-within:border-zeya-champagne/30 focus-within:bg-zeya-plum/55">
+            <div
+              className={[
+                "relative flex items-end gap-3 rounded-vessel border border-zeya-graphite/50 bg-zeya-plum/40 px-4 py-4 shadow-presence backdrop-blur-sm transition-all duration-300 focus-within:border-zeya-champagne/30 focus-within:bg-zeya-plum/55",
+                realtimeVoiceActive ? "hidden" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
               <textarea
                 ref={inputRef}
                 value={inputValue}

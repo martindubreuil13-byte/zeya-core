@@ -107,7 +107,14 @@ function AuthGate({ onSignIn }: { onSignIn: () => void }) {
 // ─── Workspace view ───────────────────────────────────────────────────────────
 // Voice hook lives here — never mounts during onboarding
 
-const activeVoiceStates = ["connecting", "listening", "thinking", "speaking", "processing"];
+const activeVoiceStates = [
+  "connecting",
+  "listening",
+  "thinking",
+  "speaking",
+  "interrupted",
+  "processing",
+];
 
 function WorkspaceView() {
   const { x, y } = useMousePosition(10, 55, 3);

@@ -90,6 +90,19 @@ const presenceByState: Record<
     bodyShadow:
       "0 0 116px rgb(215 193 155 / 0.18), 0 36px 120px rgb(10 7 9 / 0.62), inset 0 1px 0 rgb(244 238 226 / 0.14), inset 0 -1px 0 rgb(10 7 9 / 0.2)",
   },
+  interrupted: {
+    haloDuration: 2.8,
+    haloScale: [0.96, 1.08, 0.96],
+    haloOpacity: [0.24, 0.46, 0.24],
+    innerDuration: 2.8,
+    innerScale: [0.8, 1.02, 0.8],
+    innerOpacity: [0.26, 0.5, 0.26],
+    coreScale: [0.92, 1.04, 0.92],
+    coreOpacity: [0.74, 0.96, 0.74],
+    rippleOpacity: [0.18, 0],
+    bodyShadow:
+      "0 0 102px rgb(215 193 155 / 0.15), 0 36px 120px rgb(10 7 9 / 0.66), inset 0 1px 0 rgb(244 238 226 / 0.12), inset 0 -1px 0 rgb(10 7 9 / 0.22)",
+  },
   processing: {
     haloDuration: 5.2,
     haloScale: [1, 1.05, 1],

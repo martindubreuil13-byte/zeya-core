@@ -4,11 +4,12 @@ export type VoiceState =
   | "listening"
   | "thinking"
   | "speaking"
+  | "interrupted"
   | "processing"
   | "disconnected"
   | "error";
 
-export type VoiceProvider = "elevenlabs";
+export type VoiceProvider = "elevenlabs" | "openai-realtime";
 
 export type VoiceTranscriptRole = "user" | "agent" | "system";
 
