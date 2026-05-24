@@ -176,6 +176,42 @@ export async function appendMessage(
   return data;
 }
 
+export async function getLatestSession(
+  businessId: string,
+): Promise<{ id: string; intent: string | null; started_at: string } | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("id, intent, started_at")
+    .eq("business_id", businessId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Zeya] getLatestSession failed:", error);
+    return null;
+  }
+  return data as { id: string; intent: string | null; started_at: string } | null;
+}
+
+export async function getSessionMessages(
+  sessionId: string,
+  limit = 20,
+): Promise<{ role: string; content: string }[]> {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("role, content, created_at")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error("[Zeya] getSessionMessages failed:", error);
+    return [];
+  }
+  return (data ?? []) as { role: string; content: string }[];
+}
+
 export async function updateSessionSummary(sessionId: string, summary: string) {
   const { data, error } = await supabase
     .from("sessions")

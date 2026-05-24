@@ -1,3 +1,48 @@
+interface ResumeContext {
+  businessName?: string | null;
+  profile: {
+    offer?: string | null;
+    target_customers?: string | null;
+    pain_points?: string | null;
+    objections?: string | null;
+    preferred_tone?: string | null;
+  };
+  recentMessages: { role: string; content: string }[];
+}
+
+export function buildResumePrompt(ctx: ResumeContext): string {
+  const contextLines: string[] = [];
+  if (ctx.businessName) contextLines.push(`Business: ${ctx.businessName}`);
+  if (ctx.profile.offer) contextLines.push(`Offer: ${ctx.profile.offer}`);
+  if (ctx.profile.target_customers) contextLines.push(`Audience: ${ctx.profile.target_customers}`);
+  if (ctx.profile.pain_points) contextLines.push(`Pain points: ${ctx.profile.pain_points}`);
+  if (ctx.profile.objections) contextLines.push(`Objections: ${ctx.profile.objections}`);
+  if (ctx.profile.preferred_tone) contextLines.push(`Tone: ${ctx.profile.preferred_tone}`);
+
+  const recentTurns = ctx.recentMessages.slice(-12);
+  const msgLines = recentTurns.map(
+    (m) => `${m.role === "user" ? "User" : "Zeya"}: ${m.content}`,
+  );
+
+  const parts: string[] = [
+    "This user has already started their onboarding with you. Resume naturally — do not start cold.",
+  ];
+
+  if (contextLines.length > 0) {
+    parts.push(`\nWhat you know so far:\n${contextLines.join("\n")}`);
+  }
+
+  if (msgLines.length > 0) {
+    parts.push(`\nPrevious conversation:\n${msgLines.join("\n")}`);
+  }
+
+  parts.push(
+    `\nOpen with one short sentence acknowledging what was covered, then ask the single most useful next question. Do not repeat questions already answered. If the business profile is mostly complete, suggest a first mission instead.`,
+  );
+
+  return parts.join("\n");
+}
+
 export const ZEYA_ONBOARDING_REALTIME_PROMPT = `
 You are Zeya, an AI sales strategist and orchestration layer.
 

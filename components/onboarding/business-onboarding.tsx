@@ -13,15 +13,18 @@ import {
   appendMessage,
   createSession,
   getBusinessProfile,
+  getLatestSession,
+  getSessionMessages,
   initBusinessProfile,
   setMemorySummary,
   updateBusinessProfile,
   updateSessionSummary,
 } from "@/lib/supabase/business-memory";
+import { buildResumePrompt } from "@/lib/onboarding/onboarding-prompt";
 import { useOnboardingVoiceConversation } from "@/hooks/voice/useOnboardingVoiceConversation";
 import { PresenceCore } from "@/components/presence";
 import { VoiceButton } from "@/components/voice/VoiceButton";
-import type { VoiceState } from "@/types/voice";
+import type { VoiceState, VoiceTranscriptEntry } from "@/types/voice";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,9 +72,6 @@ const REALTIME_DEBUG = process.env.NEXT_PUBLIC_REALTIME_DEBUG === "true";
 
 const REALTIME_FIRST_PROMPT =
   'Say exactly: "Hi, I\'m Zeya. Good to meet you. We\'ll be working together on outreach, so I\'ll ask a few quick questions to understand your business. First, what product or service are we focusing on?"';
-
-const REALTIME_RESUME_PROMPT =
-  'Say exactly: "Hi, I\'m Zeya. Good to have you back. What should we sharpen first?"';
 
 // ─── Animation ────────────────────────────────────────────────────────────────
 
@@ -134,6 +134,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const [sending, setSending] = useState(false);
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
   const [callLogOpen, setCallLogOpen] = useState(false);
+  const [callLogEntries, setCallLogEntries] = useState<VoiceTranscriptEntry[]>([]);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -144,6 +145,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const onboardingPhaseRef = useRef<OnboardingPhase>("understand_business");
   const lastVoiceEntryIdRef = useRef<string | null>(null);
   const lastRealtimeEntryIdRef = useRef<string | null>(null);
+  const fullTranscriptRef = useRef<VoiceTranscriptEntry[]>([]);
   const ttsSpeakingRef = useRef(false);
   const phaseRef = useRef<Phase>("loading");
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -270,6 +272,8 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
       try {
         let bid = existingBusinessId;
         let isRealResume = false;
+        let resumeBusinessName: string | null = null;
+        let recentMessages: { role: string; content: string }[] = [];
 
         if (!bid) {
           const business = await initBusinessProfile(user!.id);
@@ -290,6 +294,9 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             memoryRef.current = profile;
           }
 
+          resumeBusinessName =
+            typeof existing?.business_name === "string" ? existing.business_name : null;
+
           const hasMeaningfulProfile = rawProfile ? hasNonEmptyValue(rawProfile) : false;
           const hasTopLevelFields =
             typeof existing?.business_name === "string"
@@ -302,6 +309,15 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             typeof memorySummary === "string" && memorySummary.trim().length > 0;
 
           isRealResume = hasMeaningfulProfile || hasTopLevelFields || hasCompletedOnboarding;
+
+          // For realtime: also detect resume from message history even if profile is empty
+          if (isRealtimeVoice) {
+            const latestSession = await getLatestSession(bid);
+            if (latestSession) {
+              recentMessages = await getSessionMessages(latestSession.id, 20);
+              if (!isRealResume && recentMessages.length > 0) isRealResume = true;
+            }
+          }
         }
 
         const session = await createSession(bid, "onboarding");
@@ -309,7 +325,11 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
         if (isRealtimeVoice) {
           realtimeInitialPromptRef.current = isRealResume
-            ? REALTIME_RESUME_PROMPT
+            ? buildResumePrompt({
+                businessName: resumeBusinessName,
+                profile: memoryRef.current,
+                recentMessages,
+              })
             : REALTIME_FIRST_PROMPT;
         } else if (isRealResume) {
           await delayedZeya("Good to have you back.", 500);
@@ -485,7 +505,9 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     setTimeout(() => void callBrain(latest.text), 0);
   }, [voiceTranscript, stopConversation, callBrain, isRealtimeVoice]);
 
-  // ── OpenAI Realtime transcript → chat stream ────────────────────────────────
+  // ── OpenAI Realtime transcript → persistence + call log ─────────────────────
+  // Processes ALL new final entries since the last processed ID to avoid losing
+  // entries when React batches multiple snapshot updates into one render cycle.
 
   useEffect(() => {
     if (!isRealtimeVoice) return;
@@ -494,23 +516,45 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
     const latest = finalEntries[finalEntries.length - 1];
     if (latest.id === lastRealtimeEntryIdRef.current) return;
+
+    // Find the slice of entries not yet processed
+    const lastIdx = lastRealtimeEntryIdRef.current
+      ? finalEntries.findIndex((e) => e.id === lastRealtimeEntryIdRef.current)
+      : -1;
+    const newEntries = lastIdx === -1 ? finalEntries : finalEntries.slice(lastIdx + 1);
+    if (newEntries.length === 0) return;
+
     lastRealtimeEntryIdRef.current = latest.id;
 
-    if (REALTIME_DEBUG && (latest.role === "user" || !realtimeVoiceActive)) {
-      window.setTimeout(() => {
-        if (latest.role === "agent") {
+    for (const entry of newEntries) {
+      // Accumulate full transcript for call log (dedup by id)
+      if (!fullTranscriptRef.current.some((e) => e.id === entry.id)) {
+        fullTranscriptRef.current = [...fullTranscriptRef.current, entry];
+      }
+
+      // Debug: render to chat UI
+      if (REALTIME_DEBUG) {
+        if (entry.role === "agent") {
           console.info("[Zeya realtime timing] assistant transcript rendered", {
             t: Math.round(performance.now()),
           });
         }
-        addMessage(latest.role === "user" ? "user" : "zeya", latest.text);
-      }, 0);
-    }
+        window.setTimeout(() => {
+          addMessage(entry.role === "user" ? "user" : "zeya", entry.text);
+        }, 0);
+      }
 
-    if (sessionId) {
-      void appendMessage(sessionId, latest.role === "user" ? "user" : "assistant", latest.text);
+      // Persist message to DB (both user and assistant)
+      if (sessionId) {
+        void appendMessage(sessionId, entry.role === "user" ? "user" : "assistant", entry.text);
+      }
+
+      // Log each user turn as a memory event for future context
+      if (entry.role === "user" && businessId) {
+        void appendMemoryEvent(businessId, "onboarding_answer", { text: entry.text });
+      }
     }
-  }, [addMessage, isRealtimeVoice, realtimeVoiceActive, sessionId, voiceTranscript]);
+  }, [addMessage, businessId, isRealtimeVoice, sessionId, voiceTranscript]);
 
   // ── Submit handlers ──────────────────────────────────────────────────────────
 
@@ -660,7 +704,10 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
         {/* Call log — discreet bottom-right button, visible once there is a transcript */}
         {voiceTranscript.filter((e) => e.isFinal).length > 0 && (
           <button
-            onClick={() => setCallLogOpen(true)}
+            onClick={() => {
+              setCallLogEntries([...fullTranscriptRef.current]);
+              setCallLogOpen(true);
+            }}
             className="fixed bottom-6 right-6 text-[0.65rem] font-light tracking-widest text-zeya-hush/28 uppercase transition-colors duration-300 hover:text-zeya-hush/55"
           >
             Call log
@@ -697,12 +744,12 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
 
               {/* Transcript */}
               <div className="max-h-72 space-y-4 overflow-y-auto px-4 py-4" style={{ scrollbarWidth: "none" }}>
-                {voiceTranscript.filter((e) => e.isFinal).length === 0 ? (
+                {callLogEntries.length === 0 ? (
                   <p className="text-[0.8125rem] font-light text-zeya-hush/35">
                     No transcript yet.
                   </p>
                 ) : (
-                  voiceTranscript.filter((e) => e.isFinal).map((entry) => (
+                  callLogEntries.map((entry) => (
                     <div key={entry.id} className={entry.role === "user" ? "text-right" : "text-left"}>
                       <p className="mb-0.5 text-[0.62rem] font-light tracking-widest text-zeya-hush/30 uppercase">
                         {entry.role === "user" ? "You" : "Zeya"}
