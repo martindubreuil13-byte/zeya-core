@@ -5,16 +5,6 @@ function getString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
-function getNestedString(event: RealtimeSessionEvent, path: string[]) {
-  let current: unknown = event;
-
-  for (const key of path) {
-    if (!current || typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[key];
-  }
-
-  return getString(current);
-}
 
 export function stateFromRealtimeEvent(event: RealtimeSessionEvent): VoiceState | undefined {
   switch (event.type) {
@@ -62,18 +52,12 @@ export function transcriptFromRealtimeEvent(
     role = "agent";
   }
 
-  if (!text) {
-    text =
-      getNestedString(event, ["item", "content", "0", "transcript"]) ??
-      getNestedString(event, ["response", "output", "0", "content", "0", "transcript"]);
-  }
-
   if (!text?.trim()) return undefined;
 
   return {
     id:
-      getString(event.event_id) ??
       getString(event.item_id) ??
+      getString(event.event_id) ??
       `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     role,
     text,

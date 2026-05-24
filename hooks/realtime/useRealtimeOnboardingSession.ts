@@ -24,6 +24,9 @@ export function useRealtimeOnboardingSession() {
   const [snapshot, setSnapshot] = useState<RealtimeOnboardingSnapshot>(initialSnapshot);
 
   const appendTranscript = useCallback((entry: VoiceTranscriptEntry) => {
+    if (entry.isFinal && transcriptLogRef.current.some((e) => e.isFinal && e.id === entry.id)) {
+      return;
+    }
     transcriptLogRef.current = [...transcriptLogRef.current, entry].slice(-80);
 
     if (REALTIME_DEBUG || process.env.NODE_ENV === "development") {
