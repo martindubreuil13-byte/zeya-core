@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useTransform } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { AmbientBackground } from "@/components/layout";
+import { ZeyaBriefingRoom } from "@/components/briefing-room/ZeyaBriefingRoom";
 import { BusinessOnboarding } from "@/components/onboarding/business-onboarding";
 import { PresenceCore } from "@/components/presence";
 import { VoiceButton } from "@/components/voice/VoiceButton";
@@ -45,8 +46,17 @@ export default function AppPage() {
         </motion.div>
       )}
 
-      {mode === "workspace" && (
-        <WorkspaceView key="workspace" />
+      {mode === "workspace" && businessId && (
+        <motion.div
+          key="briefing"
+          initial={{ opacity: 0, filter: "blur(20px)" }}
+          animate={{ opacity: 1, filter: "blur(0px)" }}
+          exit={{ opacity: 0, filter: "blur(20px)" }}
+          transition={{ duration: 1.0, ease: EASE }}
+          className="contents"
+        >
+          <ZeyaBriefingRoom businessId={businessId} />
+        </motion.div>
       )}
     </AnimatePresence>
   );

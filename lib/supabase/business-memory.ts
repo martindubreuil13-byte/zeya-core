@@ -132,6 +132,23 @@ export async function appendMemoryEvent(
   return data;
 }
 
+export async function getMemoryEvents(
+  businessId: string,
+): Promise<{ event_type: string; content: string; metadata: Record<string, unknown> }[]> {
+  const { data, error } = await supabase
+    .from("memory_events")
+    .select("event_type, content, metadata")
+    .eq("business_id", businessId)
+    .neq("event_type", "processing_checkpoint")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[Zeya] getMemoryEvents failed:", error);
+    return [];
+  }
+  return (data ?? []) as { event_type: string; content: string; metadata: Record<string, unknown> }[];
+}
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 export async function createSession(businessId: string, intent: string) {

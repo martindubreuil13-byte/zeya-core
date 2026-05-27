@@ -118,7 +118,7 @@ interface Props {
 }
 
 export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const voice = useOnboardingVoiceConversation();
   const { state: voiceState, transcript: voiceTranscript, isConfigured, startConversation, stopConversation } = voice;
   const isRealtimeVoice = voice.provider === "openai-realtime";
@@ -151,6 +151,7 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const realtimeInitialPromptRef = useRef(REALTIME_FIRST_PROMPT);
   const realtimeHasStartedRef = useRef(false);
+  const wasRealtimeActiveRef = useRef(false);
 
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => { memoryRef.current = memory; }, [memory]);
@@ -555,6 +556,39 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
       }
     }
   }, [addMessage, businessId, isRealtimeVoice, sessionId, voiceTranscript]);
+
+  // ── Background memory processor trigger ──────────────────────────────────────
+  // Fires ~2.5s after the realtime session disconnects to give trailing messages
+  // time to finish saving before the processor fetches them.
+
+  useEffect(() => {
+    if (!isRealtimeVoice) return;
+    const ACTIVE_STATES: VoiceState[] = [
+      "connecting", "listening", "thinking", "speaking", "interrupted", "processing",
+    ];
+    if (ACTIVE_STATES.includes(voiceState)) {
+      wasRealtimeActiveRef.current = true;
+      return;
+    }
+    if (!wasRealtimeActiveRef.current) return;
+    if (voiceState !== "disconnected") return;
+    if (!sessionId || !businessId || !session?.access_token) return;
+
+    wasRealtimeActiveRef.current = false;
+    const token = session.access_token;
+    const sid = sessionId;
+    const bid = businessId;
+
+    const timer = setTimeout(() => {
+      void fetch("/api/zeya/process-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sessionId: sid, businessId: bid }),
+      }).catch(() => {});
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [voiceState, isRealtimeVoice, sessionId, businessId, session?.access_token]);
 
   // ── Submit handlers ──────────────────────────────────────────────────────────
 

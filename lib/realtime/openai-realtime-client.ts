@@ -23,6 +23,9 @@ export type OpenAIRealtimeClientEvents = {
   onEvent?: (event: RealtimeSessionEvent) => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
+  // Optional overrides — if omitted, defaults to the onboarding session endpoint
+  sessionEndpoint?: string;
+  sessionBody?: Record<string, unknown>;
 };
 
 function devLog(message: string, details?: Record<string, unknown>) {
@@ -207,8 +210,13 @@ export class OpenAIRealtimeClient {
   }
 
   private async createSession() {
-    const response = await fetch("/api/openai/realtime/session", {
+    const endpoint = this.events.sessionEndpoint ?? "/api/openai/realtime/session";
+    const bodyPayload = this.events.sessionBody;
+
+    const response = await fetch(endpoint, {
       method: "POST",
+      headers: bodyPayload ? { "Content-Type": "application/json" } : {},
+      body: bodyPayload ? JSON.stringify(bodyPayload) : undefined,
       cache: "no-store",
     });
     const data = (await response.json()) as RealtimeSessionResponse;
