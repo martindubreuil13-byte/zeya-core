@@ -1,6 +1,29 @@
 // Maps raw business profile + memory_events into the pill/panel data model
 // consumed by ZeyaBriefingRoom. No LLM — pure field mapping + gap detection.
 
+// ─── Mission detail ───────────────────────────────────────────────────────────
+
+export interface MissionDetail {
+  name: string;
+  status: "preparing" | "active" | "paused" | "complete";
+  objective: string;
+  target_segment: string;
+  hypothesis: string;
+  sales_angle: string;
+  success_metric: string;
+  required_inputs: string[];
+  next_action: string;
+}
+
+export function parseMissionDetail(raw: string | null): MissionDetail | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as MissionDetail;
+  } catch {
+    return null;
+  }
+}
+
 export type PillStatus = "confirmed" | "assumed" | "missing" | "draft";
 
 export interface PillData {
@@ -16,6 +39,9 @@ export interface BriefingRoomData {
   memorySummary: string | null;
   pills: PillData[];
   progressPercent: number;
+  lastSessionSynthesis: string | null;
+  strategicFocus: string | null;
+  missionDetail: MissionDetail | null;
 }
 
 interface MemoryEvent {
@@ -44,14 +70,28 @@ export function buildBriefingData(
   const p = rawProfile ?? {};
   const g = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : null);
 
-  // Profile fields
+  // Profile fields — confirmed values (founder-edited or metabolism-extracted + persisted)
   const offerP = g("offer");
   const icpP = g("target_customers");
   const painP = g("pain_points");
   const objP = g("objections");
   const toneP = g("preferred_tone");
+  const proofP = g("proof_points");
+  const salesArgP = g("sales_arguments");
+  const pricingP = g("pricing");
+  const missionP = g("first_mission");
+  // Synthesis fields from memory metabolism engine
+  const currentMissionP = g("current_mission");
+  const lastSessionSynthesis = g("last_session_synthesis");
+  const strategicFocus = g("strategic_focus");
+  // Epistemic layer
+  const knownFactsP = g("known_facts");
+  const assumptionsP = g("assumptions");
+  const validatedLearnP = g("validated_learnings");
+  // Mission control
+  const missionDetail = parseMissionDetail(g("current_mission_detail"));
 
-  // Event fields
+  // Event fields — assumed values (regex-extracted, not yet founder-confirmed)
   const offerE = latest(memoryEvents, "offer");
   const icpE = latest(memoryEvents, "icp");
   const painE = latest(memoryEvents, "pain_point");
@@ -105,8 +145,8 @@ export function buildBriefingData(
     {
       id: "pricing",
       label: "Pricing",
-      status: statusOf(null, pricingE),
-      content: pricingE ?? "Not discussed yet.",
+      status: statusOf(pricingP, pricingE),
+      content: pricingP ?? pricingE ?? "Not discussed yet.",
     },
     {
       id: "tone",
@@ -117,14 +157,14 @@ export function buildBriefingData(
     {
       id: "proof_points",
       label: "Proof Points",
-      status: statusOf(null, proofE),
-      content: proofE ?? "No proof points captured yet.",
+      status: statusOf(proofP, proofE),
+      content: proofP ?? proofE ?? "No proof points captured yet.",
     },
     {
       id: "sales_arguments",
       label: "Sales Arguments",
-      status: statusOf(null, salesArgE),
-      content: salesArgE ?? "Not developed yet.",
+      status: statusOf(salesArgP, salesArgE),
+      content: salesArgP ?? salesArgE ?? "Not developed yet.",
     },
     {
       id: "missing_info",
@@ -136,8 +176,13 @@ export function buildBriefingData(
     {
       id: "first_mission",
       label: "First Mission",
-      status: missionE ? "draft" : "missing",
-      content: missionE ?? "Zeya will recommend a first mission once enough context is captured.",
+      // current_mission (metabolism) > first_mission (onboarding pill edit) > event-based draft
+      status: (currentMissionP ?? missionP) ? "confirmed" : missionE ? "draft" : "missing",
+      content:
+        currentMissionP ??
+        missionP ??
+        missionE ??
+        "Zeya will recommend a first mission once enough context is captured.",
     },
     {
       id: "call_log",
@@ -150,6 +195,25 @@ export function buildBriefingData(
               .join("\n\n")
           : "No call log yet.",
       readOnly: true,
+    },
+    {
+      id: "known_facts",
+      label: "Known Facts",
+      status: knownFactsP ? "confirmed" : "missing",
+      content: knownFactsP ?? "No known facts captured yet.",
+    },
+    {
+      id: "assumptions",
+      label: "Assumptions",
+      // "draft" signals provisional — these are hypotheses, not confirmed truths
+      status: assumptionsP ? "draft" : "missing",
+      content: assumptionsP ?? "No assumptions identified yet.",
+    },
+    {
+      id: "validated_learnings",
+      label: "Validated",
+      status: validatedLearnP ? "confirmed" : "missing",
+      content: validatedLearnP ?? "No validated learnings yet.",
     },
     {
       id: "agent_roster",
@@ -182,5 +246,5 @@ export function buildBriefingData(
   }).length;
   const progressPercent = Math.round((filledCount / coreIds.length) * 100);
 
-  return { businessName, memorySummary, pills, progressPercent };
+  return { businessName, memorySummary, pills, progressPercent, lastSessionSynthesis, strategicFocus, missionDetail };
 }

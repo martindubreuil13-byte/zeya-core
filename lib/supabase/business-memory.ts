@@ -52,6 +52,20 @@ export async function updateBusinessProfile(businessId: string, memory: Partial<
     "pain_points",
     "objections",
     "goals",
+    "proof_points",
+    "sales_arguments",
+    "pricing",
+    "first_mission",
+    "positioning",
+    "last_session_synthesis",
+    "strategic_focus",
+    "current_mission",
+    "unresolved_tensions",
+    "strategic_gaps",
+    "known_facts",
+    "assumptions",
+    "validated_learnings",
+    "current_mission_detail",
   ] as const;
 
   const profileUpdates: Record<string, unknown> = {};

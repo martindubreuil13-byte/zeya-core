@@ -28,7 +28,7 @@ import type { VoiceState, VoiceTranscriptEntry } from "@/types/voice";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Phase = "loading" | "question" | "summary" | "confirmed";
+type Phase = "loading" | "question" | "summary" | "confirmed" | "handoff";
 export type ReadinessLevel = "learning" | "aligning" | "ready";
 
 type OnboardingPhase =
@@ -71,7 +71,7 @@ const VOICE_STATUS_LABEL: Partial<Record<VoiceState, string>> = {
 const REALTIME_DEBUG = process.env.NEXT_PUBLIC_REALTIME_DEBUG === "true";
 
 const REALTIME_FIRST_PROMPT =
-  'Say exactly: "Hi, I\'m Zeya. Good to meet you. We\'ll be working together on outreach, so I\'ll ask a few quick questions to understand your business. First, what product or service are we focusing on?"';
+  'Say exactly: "Hi, I\'m Zeya. I\'ll be your sales development executive — my job is to help you sell your product or service. Let\'s start: what would you like us to focus on?"';
 
 // ─── Animation ────────────────────────────────────────────────────────────────
 
@@ -110,6 +110,21 @@ function hasNonEmptyValue(obj: Record<string, unknown>): boolean {
   );
 }
 
+// ─── Handoff insight ─────────────────────────────────────────────────────────
+// Derives one synthesized sentence from captured memory for the bridge screen.
+// Returns null when context is too thin — the screen degrades gracefully.
+
+function buildHandoffInsight(memory: BusinessMemory): string | null {
+  const offer    = memory.offer?.trim() ?? "";
+  const audience = memory.target_customers?.trim() ?? "";
+  if (offer && audience) {
+    return `The offer is aimed at ${audience.toLowerCase()} — that's enough to begin the first contact sequence.`;
+  }
+  if (offer) return "The core offer is established. That's the anchor everything else builds from.";
+  if (audience) return "The audience is defined. Positioning for that segment is the next layer.";
+  return null;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface Props {
@@ -135,6 +150,8 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
   const [callLogOpen, setCallLogOpen] = useState(false);
   const [callLogEntries, setCallLogEntries] = useState<VoiceTranscriptEntry[]>([]);
+  const [handoffReady, setHandoffReady] = useState(false);
+  const [realtimeCallEnded, setRealtimeCallEnded] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -348,24 +365,25 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
           // speakReplyTTS.finally will open the mic when audio ends.
           const greetingForTTS = [
             firstName ? `Hi, ${firstName}. I'm Zeya.` : "Hi. I'm Zeya.",
-            "We're going to be working together — my role is to help develop the business through outreach, conversations, follow-ups, and eventually identifying opportunities worth pursuing.",
-            "Before I start making calls on your behalf, I need to understand how you think about the offer, who you're trying to reach, and how you want the brand to come across.",
-            "Would it be alright if I asked you a few practical questions first?",
+            "I'll be your sales development executive.",
+            "My job is simple: help you sell your product or service.",
+            "I need to understand what we're selling, who should buy it, and what the market still needs to teach us.",
+            "Let's start. What product or service would you like us to focus on?",
           ].join(" ");
           void speakReplyTTS(greetingForTTS);
 
           await delayedZeya(greeting, 500, "intro");
           await delayedZeya(
-            "We're going to be working together over time. My role is to help develop the business — outreach, conversations, follow-ups, and eventually identifying opportunities worth pursuing.",
+            "I'll be your sales development executive.",
             2000,
           );
           await delayedZeya(
-            "Before I start making calls on your behalf, I need to understand how you think about the offer, who you're trying to reach, and how you want the brand to come across.",
-            4000,
+            "My job is simple: help you sell your product or service. I need to understand what we're selling, who should buy it, and what the market still needs to teach us.",
+            3200,
           );
           await delayedZeya(
-            "Would it be alright if I asked you a few practical questions first?",
-            6200,
+            "Let's start. What product or service would you like us to focus on?",
+            5600,
           );
         }
 
@@ -590,6 +608,72 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     return () => clearTimeout(timer);
   }, [voiceState, isRealtimeVoice, sessionId, businessId, session?.access_token]);
 
+  // ── Handoff trigger ──────────────────────────────────────────────────────────
+  // Single exit point for both text and voice paths.
+  // Ensures memory is processed and memory_summary is written (the useAppMode
+  // completion gate) before signalling the bridge screen that entry is ready.
+
+  const triggerHandoff = useCallback(async () => {
+    setPhase("handoff");
+
+    // Extract structured intelligence from the session transcript.
+    // process-memory is idempotent — deduped via processing_checkpoint.
+    if (sessionId && businessId && session?.access_token) {
+      try {
+        await fetch("/api/zeya/process-memory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ sessionId, businessId }),
+        });
+      } catch (err) {
+        console.error("[Zeya] handoff process-memory failed:", err);
+        // Non-fatal — memory may have been processed by the auto-timer.
+      }
+    }
+
+    // Write memory_summary — this is the signal useAppMode uses to route to
+    // workspace. Without it the user stays in onboarding on every reload.
+    if (businessId) {
+      const summary = buildConversationalSummary(memoryRef.current);
+      const safeSummary = summary.trim() || "Business context captured during onboarding.";
+      try {
+        await setMemorySummary(businessId, safeSummary);
+      } catch {
+        // Best-effort fallback: write a minimal marker so the gate is not stuck.
+        try { await setMemorySummary(businessId, "Onboarding complete."); } catch {}
+      }
+    }
+
+    if (sessionId) {
+      const summary = buildConversationalSummary(memoryRef.current);
+      void updateSessionSummary(sessionId, summary || "Onboarding session completed.").catch(() => {});
+    }
+
+    setHandoffReady(true);
+  }, [sessionId, businessId, session]);
+
+  // ── Voice call ended detection ─────────────────────────────────────────────
+  // Tracks whether the realtime call was active and has now disconnected with
+  // content — the signal to offer the "Complete onboarding" prompt.
+  // Resets when the user restarts the call.
+
+  useEffect(() => {
+    if (!isRealtimeVoice) return;
+    const ACTIVE_STATES: VoiceState[] = [
+      "connecting", "listening", "thinking", "speaking", "interrupted", "processing",
+    ];
+    if (ACTIVE_STATES.includes(voiceState)) {
+      setRealtimeCallEnded(false);
+      return;
+    }
+    if (voiceState === "disconnected" && voiceTranscript.some((e) => e.isFinal)) {
+      setRealtimeCallEnded(true);
+    }
+  }, [isRealtimeVoice, voiceState, voiceTranscript]);
+
   // ── Submit handlers ──────────────────────────────────────────────────────────
 
   async function handleSubmit() {
@@ -620,7 +704,10 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
     setPhase("confirmed");
     setSending(false);
 
-    setTimeout(() => onComplete(), 2800);
+    // After the closing message has been visible, move to the handoff bridge.
+    // triggerHandoff handles process-memory + memory_summary write (idempotent —
+    // memory_summary was already set above, the write is a safe no-op).
+    setTimeout(() => void triggerHandoff(), 2800);
   }
 
   async function handleEdit() {
@@ -648,6 +735,105 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
           className="h-1 w-1 rounded-full bg-zeya-champagne/60"
         />
       </div>
+    );
+  }
+
+  // ── Handoff bridge (both paths) ────────────────────────────────────────────
+  // Rendered after onboarding is confirmed complete — before entering workspace.
+  // Two threshold lines frame the message. The "Enter the Briefing Room" button
+  // appears only once memory processing is done and memory_summary is written.
+
+  if (phase === "handoff") {
+    const insight = buildHandoffInsight(memoryRef.current);
+    return (
+      <main
+        className="relative isolate flex min-h-dvh flex-col items-center justify-center overflow-hidden px-5 py-14"
+        style={{ background: "#0a0709" }}
+      >
+        <div className="pointer-events-none fixed inset-0 -z-10">
+          <div className="absolute left-1/2 top-1/3 h-[32rem] w-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-zeya-plum/15 blur-atmosphere" />
+          <div className="absolute bottom-0 right-0 h-64 w-64 rounded-full bg-zeya-champagne/4 blur-atmosphere" />
+          <div
+            className="absolute inset-0"
+            style={{ background: "linear-gradient(145deg, #0a0709 0%, #21141d 44%, #3a3437 100%)" }}
+          />
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20, filter: "blur(16px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{ duration: 1.8, ease: EASE }}
+          className="flex max-w-sm flex-col items-center gap-9 text-center"
+        >
+          {/* Upper threshold line */}
+          <motion.div
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 1.4, ease: EASE, delay: 0.3 }}
+            className="h-px w-16 origin-center bg-gradient-to-r from-transparent via-zeya-champagne/30 to-transparent"
+          />
+
+          <div className="space-y-5">
+            <p className="text-[0.9375rem] font-light tracking-wide text-zeya-ivory/75">
+              I have enough context to begin working with you operationally.
+            </p>
+            {insight && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 1.2, ease: EASE, delay: 0.9 }}
+                className="text-[0.875rem] font-light leading-relaxed tracking-wide text-zeya-hush/52"
+              >
+                {insight}
+              </motion.p>
+            )}
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 1.0, ease: EASE, delay: 1.3 }}
+              className="text-[0.8125rem] font-light tracking-wide text-zeya-hush/38"
+            >
+              From now on, we continue inside the Briefing Room.
+            </motion.p>
+          </div>
+
+          {/* Lower threshold line */}
+          <motion.div
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 1.4, ease: EASE, delay: 0.5 }}
+            className="h-px w-16 origin-center bg-gradient-to-r from-transparent via-zeya-champagne/18 to-transparent"
+          />
+
+          {/* Entry button — appears once memory processing is complete */}
+          <div className="flex min-h-[3.5rem] items-center justify-center">
+            <AnimatePresence mode="wait">
+              {handoffReady ? (
+                <motion.button
+                  key="enter"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.9, ease: EASE }}
+                  onClick={() => onComplete()}
+                  className="rounded-presence border border-zeya-champagne/22 bg-zeya-champagne/8 px-8 py-3.5 text-sm font-light tracking-wide text-zeya-champagne transition-all duration-300 hover:bg-zeya-champagne/16"
+                >
+                  Enter the Briefing Room
+                </motion.button>
+              ) : (
+                <motion.p
+                  key="preparing"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 0.28, 0] }}
+                  transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+                  className="text-[0.6rem] font-light tracking-widest text-zeya-hush/22 uppercase"
+                >
+                  Preparing your first briefing
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      </main>
     );
   }
 
@@ -691,7 +877,23 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
           {/* Status copy */}
           <div className="flex min-h-[3.5rem] flex-col items-center justify-center gap-1 text-center">
             <AnimatePresence mode="wait">
-              {callNotStarted ? (
+              {callNotStarted && realtimeCallEnded ? (
+                <motion.div
+                  key="post-call"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.6, ease: EASE }}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <p className="text-[0.9375rem] font-light tracking-wide text-zeya-ivory/80">
+                    Onboarding call ended.
+                  </p>
+                  <p className="text-sm font-light tracking-wide text-zeya-hush/50">
+                    Complete onboarding to enter the Briefing Room.
+                  </p>
+                </motion.div>
+              ) : callNotStarted ? (
                 <motion.div
                   key="pre-call"
                   initial={{ opacity: 0, y: 6 }}
@@ -726,13 +928,35 @@ export function BusinessOnboarding({ existingBusinessId, onComplete }: Props) {
             </AnimatePresence>
           </div>
 
-          {/* Call button */}
-          <VoiceButton
-            state={voiceDisplayState}
-            disabled={phase === "loading"}
-            onStart={startVoiceFirstConversation}
-            onStop={() => void stopConversation()}
-          />
+          {/* Call button / completion prompt */}
+          {callNotStarted && realtimeCallEnded ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, ease: EASE }}
+              className="flex flex-col items-center gap-3"
+            >
+              <button
+                onClick={() => void triggerHandoff()}
+                className="rounded-presence border border-zeya-champagne/22 bg-zeya-champagne/8 px-7 py-3 text-sm font-light tracking-wide text-zeya-champagne transition-all duration-300 hover:bg-zeya-champagne/16"
+              >
+                Complete onboarding
+              </button>
+              <button
+                onClick={startVoiceFirstConversation}
+                className="text-[0.7rem] font-light tracking-wide text-zeya-hush/32 transition-colors hover:text-zeya-hush/52"
+              >
+                Continue the conversation
+              </button>
+            </motion.div>
+          ) : (
+            <VoiceButton
+              state={voiceDisplayState}
+              disabled={phase === "loading"}
+              onStart={startVoiceFirstConversation}
+              onStop={() => void stopConversation()}
+            />
+          )}
         </motion.div>
 
         {/* Call log — discreet bottom-right button, visible once there is a transcript */}

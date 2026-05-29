@@ -9,6 +9,24 @@ export interface BusinessMemory {
   pain_points: string | null;
   objections: string | null;
   goals: string | null;
+  // Extended operational fields — promoted from memory_events when founder confirms or edits
+  proof_points: string | null;
+  sales_arguments: string | null;
+  pricing: string | null;
+  first_mission: string | null;
+  // Positioning and synthesis fields — written by the memory metabolism engine
+  positioning: string | null;
+  last_session_synthesis: string | null;
+  strategic_focus: string | null;
+  current_mission: string | null;
+  unresolved_tensions: string | null;
+  strategic_gaps: string | null;
+  // Epistemic layer — what is known, assumed, or validated by market evidence
+  known_facts: string | null;         // newline-separated confirmed facts
+  assumptions: string | null;         // newline-separated working hypotheses
+  validated_learnings: string | null; // newline-separated evidence-backed learnings
+  // Mission control — active structured sales mission (stored as JSON string)
+  current_mission_detail: string | null;
 }
 
 export function emptyBusinessMemory(): BusinessMemory {
@@ -23,6 +41,20 @@ export function emptyBusinessMemory(): BusinessMemory {
     pain_points: null,
     objections: null,
     goals: null,
+    proof_points: null,
+    sales_arguments: null,
+    pricing: null,
+    first_mission: null,
+    positioning: null,
+    last_session_synthesis: null,
+    strategic_focus: null,
+    current_mission: null,
+    unresolved_tensions: null,
+    strategic_gaps: null,
+    known_facts: null,
+    assumptions: null,
+    validated_learnings: null,
+    current_mission_detail: null,
   };
 }
 

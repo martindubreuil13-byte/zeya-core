@@ -4,9 +4,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PresenceCore } from "@/components/presence";
-import { buildBriefingData, type PillData, type PillStatus } from "@/lib/briefing-room/briefing-room-data";
+import { buildBriefingData, parseMissionDetail, type MissionDetail, type PillData, type PillStatus } from "@/lib/briefing-room/briefing-room-data";
 import { buildDailyBrief, type DailyBrief } from "@/lib/briefing-room/daily-brief";
-import { getMemoryEvents, getLatestSession, getSessionMessages } from "@/lib/supabase/business-memory";
+import { getMemoryEvents, getLatestSession, getSessionMessages, updateBusinessProfile } from "@/lib/supabase/business-memory";
+import { getLeadSummary } from "@/lib/supabase/mission-leads";
+import type { BusinessMemory } from "@/lib/memory/extract-business-memory";
+import type { LeadSummary } from "@/lib/leads/types";
+import { LeadIntakePanel } from "@/components/leads/LeadIntakePanel";
 import { useRealtimeBriefingSession } from "@/hooks/realtime/useRealtimeBriefingSession";
 import { supabase } from "@/lib/supabase";
 import type { VoiceState } from "@/types/voice";
@@ -41,6 +45,25 @@ const COLOR = {
   mineral:   "#8e8980",
 } as const;
 
+// ─── Pill → business_profile field map ────────────────────────────────────────
+// Only editable (non-readOnly) pills that have a stable profile home are listed.
+// Pill content written here survives reload and flows into serializeContext().
+
+const PILL_PROFILE_FIELD: Partial<Record<string, keyof BusinessMemory>> = {
+  offer:           "offer",
+  icp:             "target_customers",
+  pain_points:     "pain_points",
+  objections:      "objections",
+  tone:            "preferred_tone",
+  proof_points:    "proof_points",
+  sales_arguments: "sales_arguments",
+  pricing:             "pricing",
+  first_mission:       "first_mission",
+  known_facts:         "known_facts",
+  assumptions:         "assumptions",
+  validated_learnings: "validated_learnings",
+};
+
 // ─── Status indicators ────────────────────────────────────────────────────────
 
 const STATUS_DOT: Record<PillStatus, string> = {
@@ -65,9 +88,25 @@ const STATUS_TEXT: Record<PillStatus, string> = {
 };
 
 // ─── Context serialiser ───────────────────────────────────────────────────────
+// Builds the business context string injected into every briefing voice session.
+// last_session_synthesis is placed first so Zeya opens with continuity awareness.
 
-function serializeContext(pills: PillData[], name: string | null, progress: number): string {
+function serializeContext(
+  pills: PillData[],
+  name: string | null,
+  progress: number,
+  lastSessionSynthesis?: string | null,
+  strategicFocus?: string | null,
+  missionDetail?: MissionDetail | null,
+  leadSummary?: LeadSummary | null,
+): string {
   const lines: string[] = [];
+
+  if (lastSessionSynthesis) {
+    lines.push(`Last session: ${lastSessionSynthesis}`);
+    lines.push("");
+  }
+
   if (name) lines.push(`Business: ${name}`);
   lines.push(`Profile completion: ${progress}%`);
 
@@ -83,6 +122,31 @@ function serializeContext(pills: PillData[], name: string | null, progress: numb
       lines.push(`${pill.label}: ${pill.content.slice(0, 220)}`);
     }
   }
+
+  // Mission detail gives Zeya a clear operational focus for this session.
+  // Falls back to strategicFocus string when no structured mission exists yet.
+  if (missionDetail) {
+    lines.push("");
+    lines.push(`Active mission: ${missionDetail.name}`);
+    lines.push(`Target: ${missionDetail.target_segment}`);
+    lines.push(`Testing: ${missionDetail.hypothesis}`);
+    lines.push(`Angle: ${missionDetail.sales_angle}`);
+    if (missionDetail.required_inputs.length > 0) {
+      lines.push(`Needs before action: ${missionDetail.required_inputs.join(", ")}`);
+    }
+    lines.push(`Next: ${missionDetail.next_action}`);
+  } else if (strategicFocus) {
+    lines.push("");
+    lines.push(`Next focus: ${strategicFocus}`);
+  }
+
+  if (leadSummary && leadSummary.total > 0) {
+    lines.push("");
+    lines.push(
+      `Mission leads: ${leadSummary.total} total — ${leadSummary.likelyMatch} likely match, ${leadSummary.possibleMatch} possible, ${leadSummary.weakMatch} weak. ${leadSummary.selected} selected.`,
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -184,6 +248,11 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
   const [progressPercent, setProgressPercent] = useState(0);
   const [lastSessionStartedAt, setLastSessionStartedAt] = useState<string | null>(null);
   const [eventCount, setEventCount] = useState(0);
+  const [lastSessionSynthesis, setLastSessionSynthesis] = useState<string | null>(null);
+  const [strategicFocus, setStrategicFocus] = useState<string | null>(null);
+  const [missionDetail, setMissionDetail] = useState<MissionDetail | null>(null);
+  const [leadSummary, setLeadSummary]     = useState<LeadSummary | null>(null);
+  const [showLeadIntake, setShowLeadIntake] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // ── UI state ────────────────────────────────────────────────────────────────
@@ -240,6 +309,13 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
         setPills(result.pills);
         setLastSessionStartedAt(dbSession?.started_at ?? null);
         setEventCount(events.length);
+        setLastSessionSynthesis(result.lastSessionSynthesis ?? null);
+        setStrategicFocus(result.strategicFocus ?? null);
+        setMissionDetail(result.missionDetail ?? null);
+
+        // Fetch lead summary for the active mission (non-fatal if unavailable)
+        const mKey = result.missionDetail?.name ?? undefined;
+        void getLeadSummary(businessId!, mKey).then(setLeadSummary).catch(() => {});
       } catch (e) {
         console.error("[Zeya] BriefingRoom load failed:", e);
       } finally {
@@ -255,7 +331,7 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
 
   const businessContext = loading
     ? ""
-    : serializeContext(pills, businessName, progressPercent);
+    : serializeContext(pills, businessName, progressPercent, lastSessionSynthesis, strategicFocus, missionDetail, leadSummary);
 
   const briefingSession = useRealtimeBriefingSession({
     businessContext,
@@ -310,10 +386,29 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
       ),
     );
     setPanelEditing(false);
+
+    // Persist to business_profile so the edit survives reload and flows into
+    // future briefing context. statusOf() will derive "confirmed" automatically
+    // on next load because a profile value is present.
+    const profileField = PILL_PROFILE_FIELD[selectedPillId];
+    if (profileField && businessId && panelDraft.trim()) {
+      const patch: Partial<BusinessMemory> = {};
+      patch[profileField] = panelDraft;
+      void updateBusinessProfile(businessId, patch).catch((err) =>
+        console.error("[Zeya] pill save failed:", selectedPillId, err),
+      );
+    }
   }
 
   function markConfirmed() {
     if (!selectedPillId) return;
+
+    // Resolve the content being confirmed: prefer in-flight local edit, then pill state.
+    const confirmedContent =
+      localEditsRef.current[selectedPillId] ??
+      pills.find((p) => p.id === selectedPillId)?.content ??
+      "";
+
     setPills((prev) =>
       prev.map((p) => (p.id === selectedPillId ? { ...p, status: "confirmed" } : p)),
     );
@@ -326,6 +421,18 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
       return pi && pi.status !== "missing";
     }).length;
     setProgressPercent(Math.round((filled / coreIds.length) * 100));
+
+    // Persist confirmed value to business_profile. Writing the content here
+    // promotes an "assumed" (event-only) value to "confirmed" (profile-backed)
+    // and ensures Zeya carries this understanding into future sessions.
+    const profileField = PILL_PROFILE_FIELD[selectedPillId];
+    if (profileField && businessId && confirmedContent.trim()) {
+      const patch: Partial<BusinessMemory> = {};
+      patch[profileField] = confirmedContent;
+      void updateBusinessProfile(businessId, patch).catch((err) =>
+        console.error("[Zeya] pill confirm failed:", selectedPillId, err),
+      );
+    }
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -690,29 +797,86 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
             <span
               className={[
                 "h-1.5 w-1.5 rounded-full",
-                pills.find((p) => p.id === "first_mission")?.status === "draft"
-                  ? "bg-zeya-champagne/30"
-                  : "bg-zeya-graphite/35",
+                missionDetail
+                  ? "bg-zeya-champagne/55"
+                  : pills.find((p) => p.id === "first_mission")?.status === "draft"
+                    ? "bg-zeya-champagne/30"
+                    : "bg-zeya-graphite/35",
               ].join(" ")}
             />
           </div>
 
           <div className="space-y-3.5">
-            <MissionRow
-              label="Target"
-              value={pills.find((p) => p.id === "icp")?.content}
-            />
-            <MissionRow
-              label="Focus"
-              value="Validate messaging and objection patterns with the first prospect segment."
-            />
-            <MissionRow
-              label="Readiness"
-              value={missionReadiness}
-            />
+            {missionDetail ? (
+              <>
+                <MissionRow label="Mission"  value={missionDetail.name} />
+                <MissionRow label="Target"   value={missionDetail.target_segment} />
+                <MissionRow label="Testing"  value={missionDetail.hypothesis} />
+                <MissionRow label="Angle"    value={missionDetail.sales_angle} />
+                {missionDetail.required_inputs.length > 0 && (
+                  <MissionRow label="Needs"  value={missionDetail.required_inputs.join(" · ")} />
+                )}
+                <MissionRow label="Next"     value={missionDetail.next_action} />
+                {/* Lead intake CTA — shown when prospect list is required */}
+                {missionDetail.required_inputs.includes("prospect_list") && (
+                  <div className="pt-1">
+                    {leadSummary && leadSummary.total > 0 ? (
+                      <button
+                        onClick={() => setShowLeadIntake(true)}
+                        className="text-[0.72rem] font-light tracking-wide text-zeya-champagne/55 transition-colors hover:text-zeya-champagne/78"
+                      >
+                        {leadSummary.total} lead{leadSummary.total !== 1 ? "s" : ""} added
+                        {leadSummary.likelyMatch > 0 && ` · ${leadSummary.likelyMatch} likely match`}
+                        {" "}· Manage
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowLeadIntake(true)}
+                        className="text-[0.72rem] font-light tracking-wide text-zeya-hush/38 transition-colors hover:text-zeya-champagne/60"
+                      >
+                        + Add prospects for this mission
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <MissionRow
+                  label="Target"
+                  value={pills.find((p) => p.id === "icp")?.content}
+                />
+                <MissionRow
+                  label="Focus"
+                  value="Validate messaging and objection patterns with the first prospect segment."
+                />
+                <MissionRow
+                  label="Readiness"
+                  value={missionReadiness}
+                />
+              </>
+            )}
           </div>
         </div>
       </motion.div>
+
+      {/* ────────────────────────────────────────────────────────────────────── */}
+      {/* LEAD INTAKE PANEL                                                      */}
+      {/* ────────────────────────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showLeadIntake && businessId && (
+          <LeadIntakePanel
+            businessId={businessId}
+            missionDetail={missionDetail}
+            businessIcp={pills.find((p) => p.id === "icp")?.content ?? null}
+            onClose={() => setShowLeadIntake(false)}
+            onImported={(summary) => {
+              setLeadSummary(summary);
+              setShowLeadIntake(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ────────────────────────────────────────────────────────────────────── */}
       {/* GLASS DETAIL PANEL                                                     */}
