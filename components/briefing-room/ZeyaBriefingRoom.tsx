@@ -11,6 +11,7 @@ import { getLeadSummary } from "@/lib/supabase/mission-leads";
 import type { BusinessMemory } from "@/lib/memory/extract-business-memory";
 import type { LeadSummary } from "@/lib/leads/types";
 import { LeadIntakePanel } from "@/components/leads/LeadIntakePanel";
+import { MissionControl } from "@/components/leads/MissionControl";
 import { useRealtimeBriefingSession } from "@/hooks/realtime/useRealtimeBriefingSession";
 import { supabase } from "@/lib/supabase";
 import type { VoiceState } from "@/types/voice";
@@ -62,6 +63,7 @@ const PILL_PROFILE_FIELD: Partial<Record<string, keyof BusinessMemory>> = {
   known_facts:         "known_facts",
   assumptions:         "assumptions",
   validated_learnings: "validated_learnings",
+  caller_brief:        "caller_brief",
 };
 
 // ─── Status indicators ────────────────────────────────────────────────────────
@@ -99,6 +101,8 @@ function serializeContext(
   strategicFocus?: string | null,
   missionDetail?: MissionDetail | null,
   leadSummary?: LeadSummary | null,
+  missionReady?: boolean,
+  assignedAgent?: string | null,
 ): string {
   const lines: string[] = [];
 
@@ -145,6 +149,18 @@ function serializeContext(
     lines.push(
       `Mission leads: ${leadSummary.total} total — ${leadSummary.likelyMatch} likely match, ${leadSummary.possibleMatch} possible, ${leadSummary.weakMatch} weak. ${leadSummary.selected} selected.`,
     );
+  }
+
+  if (assignedAgent) {
+    lines.push("");
+    lines.push(`Assigned to: ${assignedAgent}`);
+    lines.push(`Status: Waiting for execution engine.`);
+  } else if (missionReady) {
+    lines.push("");
+    lines.push(`Mission readiness: Ready to prepare caller brief.`);
+  } else if (leadSummary && leadSummary.total > 0) {
+    lines.push("");
+    lines.push(`Mission readiness: Waiting for lead selection.`);
   }
 
   return lines.join("\n");
@@ -252,6 +268,9 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
   const [strategicFocus, setStrategicFocus] = useState<string | null>(null);
   const [missionDetail, setMissionDetail] = useState<MissionDetail | null>(null);
   const [leadSummary, setLeadSummary]     = useState<LeadSummary | null>(null);
+  const [missionReady, setMissionReady]   = useState(false);
+  const [callerBrief, setCallerBrief]     = useState<string | null>(null);
+  const [assignedAgent, setAssignedAgent] = useState<string | null>(null);
   const [showLeadIntake, setShowLeadIntake] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -313,6 +332,11 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
         setStrategicFocus(result.strategicFocus ?? null);
         setMissionDetail(result.missionDetail ?? null);
 
+        // Extract caller brief from business profile
+        const profile = bizRow?.business_profile as Record<string, unknown> | null;
+        const brief = typeof profile?.caller_brief === "string" ? profile.caller_brief : null;
+        setCallerBrief(brief);
+
         // Fetch lead summary for the active mission (non-fatal if unavailable)
         const mKey = result.missionDetail?.name ?? undefined;
         void getLeadSummary(businessId!, mKey).then(setLeadSummary).catch(() => {});
@@ -331,7 +355,7 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
 
   const businessContext = loading
     ? ""
-    : serializeContext(pills, businessName, progressPercent, lastSessionSynthesis, strategicFocus, missionDetail, leadSummary);
+    : serializeContext(pills, businessName, progressPercent, lastSessionSynthesis, strategicFocus, missionDetail, leadSummary, missionReady, assignedAgent);
 
   const briefingSession = useRealtimeBriefingSession({
     businessContext,
@@ -758,16 +782,21 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
                   </div>
                 )}
 
-                {/* End session — minimal, intentional */}
+                {/* End call — prominent and clear */}
                 {briefingSession.connectionStatus === "connected" && (
                   <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 1.2, duration: 0.5 }}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ delay: 0.6, duration: 0.35 }}
                     onClick={() => briefingSession.endSession()}
-                    className="mt-2 text-[0.56rem] font-light tracking-widest text-zeya-hush/25 uppercase transition-colors hover:text-zeya-hush/48"
+                    className={[
+                      "mt-6 rounded-presence border px-4 py-2.5 text-[0.75rem] font-light tracking-wide",
+                      "transition-all duration-200",
+                      "border-zeya-graphite/38 text-zeya-hush/55 hover:border-zeya-graphite/55 hover:text-zeya-hush/78 hover:bg-zeya-aubergine/20",
+                    ].join(" ")}
                   >
-                    End session
+                    End call
                   </motion.button>
                 )}
               </motion.div>
@@ -817,26 +846,37 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
                   <MissionRow label="Needs"  value={missionDetail.required_inputs.join(" · ")} />
                 )}
                 <MissionRow label="Next"     value={missionDetail.next_action} />
-                {/* Lead intake CTA — shown when prospect list is required */}
+                {/* Mission control — shown when prospect list is required */}
                 {missionDetail.required_inputs.includes("prospect_list") && (
-                  <div className="pt-1">
-                    {leadSummary && leadSummary.total > 0 ? (
-                      <button
-                        onClick={() => setShowLeadIntake(true)}
-                        className="text-[0.72rem] font-light tracking-wide text-zeya-champagne/55 transition-colors hover:text-zeya-champagne/78"
-                      >
-                        {leadSummary.total} lead{leadSummary.total !== 1 ? "s" : ""} added
-                        {leadSummary.likelyMatch > 0 && ` · ${leadSummary.likelyMatch} likely match`}
-                        {" "}· Manage
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setShowLeadIntake(true)}
-                        className="text-[0.72rem] font-light tracking-wide text-zeya-hush/38 transition-colors hover:text-zeya-champagne/60"
-                      >
-                        + Add prospects for this mission
-                      </button>
+                  <div className="pt-2 space-y-3 border-t border-zeya-graphite/18">
+                    {businessId && (
+                      <MissionControl
+                        businessId={businessId}
+                        missionKey={missionDetail.name}
+                        missionDetail={missionDetail}
+                        callerBrief={callerBrief}
+                        offer={pills.find((p) => p.id === "offer")?.content ?? null}
+                        icp={pills.find((p) => p.id === "icp")?.content ?? null}
+                        positioning={pills.find((p) => p.id === "positioning")?.content ?? null}
+                        objections={pills.find((p) => p.id === "objections")?.content ?? null}
+                        salesArguments={pills.find((p) => p.id === "sales_arguments")?.content ?? null}
+                        knownFacts={pills.find((p) => p.id === "known_facts")?.content ?? null}
+                        assumptions={pills.find((p) => p.id === "assumptions")?.content ?? null}
+                        validatedLearnings={pills.find((p) => p.id === "validated_learnings")?.content ?? null}
+                        onMissionReadyChange={setMissionReady}
+                      />
                     )}
+                    <button
+                      onClick={() => setShowLeadIntake(true)}
+                      className={[
+                        "text-[0.7rem] font-light tracking-wide transition-colors",
+                        leadSummary && leadSummary.total > 0
+                          ? "text-zeya-hush/42 hover:text-zeya-hush/62"
+                          : "text-zeya-champagne/55 hover:text-zeya-champagne/78"
+                      ].join(" ")}
+                    >
+                      {leadSummary && leadSummary.total > 0 ? "+ Add more prospects" : "+ Add prospects"}
+                    </button>
                   </div>
                 )}
               </>

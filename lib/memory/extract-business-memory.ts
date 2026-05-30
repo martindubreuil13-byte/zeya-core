@@ -27,6 +27,8 @@ export interface BusinessMemory {
   validated_learnings: string | null; // newline-separated evidence-backed learnings
   // Mission control — active structured sales mission (stored as JSON string)
   current_mission_detail: string | null;
+  // Caller brief — prepared talking points for selected prospects (markdown format)
+  caller_brief: string | null;
 }
 
 export function emptyBusinessMemory(): BusinessMemory {
@@ -55,6 +57,7 @@ export function emptyBusinessMemory(): BusinessMemory {
     assumptions: null,
     validated_learnings: null,
     current_mission_detail: null,
+    caller_brief: null,
   };
 }
 
