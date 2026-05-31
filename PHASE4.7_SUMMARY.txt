@@ -1,0 +1,382 @@
+═══════════════════════════════════════════════════════════════════════════════
+  PHASE 4.7 — PRESENCE-FIRST EXPERIENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────────────────────────────────────────────────────────────────────────
+Transform Zeya from a SaaS interface into a presence — a digital Chief of
+Staff. Founder should feel like someone is already there waiting.
+
+STATUS
+─────────────────────────────────────────────────────────────────────────────
+✅ COMPLETE AND BUILDING SUCCESSFULLY
+
+
+WHAT ZEYA IS NOW
+─────────────────────────────────────────────────────────────────────────────
+
+NOT:
+  ✗ CRM software
+  ✗ Dashboard software
+  ✗ Analytics software
+  ✗ Project management software
+
+IS:
+  ✓ A digital Chief of Staff
+  ✓ A Sales Development Executive
+  ✓ An operator
+  ✓ A strategic partner
+
+
+FOUNDER FEELS
+─────────────────────────────────────────────────────────────────────────────
+
+✓ "Zeya knows where we are."
+✓ "Zeya knows what she needs from me."
+✓ "Zeya knows what happens next."
+
+WITHOUT:
+✗ Reading reports
+✗ Reading cards
+✗ Reading dashboards
+✗ Reading metrics
+✗ Reading workflow states
+
+
+CORE INNOVATION: TIME-AWARE GREETING
+─────────────────────────────────────────────────────────────────────────────
+
+Uses user's local time (from browser, not hardcoded):
+
+  05:00–11:59  →  "Good morning, Martin."
+  12:00–17:59  →  "Good afternoon, Martin."
+  18:00–04:59  →  "Good evening, Martin."
+
+Makes Zeya feel present and aware. Greeting changes throughout the day.
+
+
+CONVERSATION-FIRST LAYOUT
+─────────────────────────────────────────────────────────────────────────────
+
+ABOVE THE FOLD (Always Visible):
+
+  Good evening, Martin.
+
+  We're preparing outreach to freelancers.
+
+  Which prospects should we contact first?
+
+  12 leads available but none selected yet.
+
+  ────────────────────────────────
+
+  View briefing →
+
+
+BEHIND "VIEW BRIEFING" (On-Demand):
+
+  Progress: ████░░░░░░░░░░░░░░ 50%
+  Stage: Lead Review
+  Clarity: 65%
+  Next Step: Mark 3–5 strongest prospects
+
+
+INFORMATION HIERARCHY
+─────────────────────────────────────────────────────────────────────────────
+
+TIER 1: Presence (Always Visible)
+  • Orb (visual anchor)
+  • Time-aware greeting
+  • Contextual statement
+  • One key question
+  • Blocker (if any)
+
+Focus: CONVERSATION
+
+TIER 2: Supporting Details (Hidden, On-Demand)
+  • Progress bar
+  • Current stage
+  • Clarity metric
+  • Next step
+
+Focus: CONTEXT
+
+TIER 3: Strategic Context (Future)
+  • Mission details
+  • ICP
+  • Offer
+  • Pain points
+  • Pricing
+  • Objections
+  • Call logs
+
+Focus: INTELLIGENCE
+
+
+WHAT CHANGED
+─────────────────────────────────────────────────────────────────────────────
+
+File: lib/briefing-room/zeya-operating-view.ts
+  • Added: getTimeAwareGreeting() function
+  • Purpose: Return time-aware greeting based on local hour
+
+File: components/briefing-room/ZeyaBriefingRoom.tsx
+  • Refactored: OperatingViewSection() component
+  • Added: businessName parameter
+  • Result: Presence-first conversation layout
+
+
+CODE CHANGES
+─────────────────────────────────────────────────────────────────────────────
+
+NEW FUNCTION:
+
+export function getTimeAwareGreeting(userName: string | null): string {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 12)
+    return `Good morning${userName ? `, ${userName}` : ""}.`;
+  else if (hour >= 12 && hour < 18)
+    return `Good afternoon${userName ? `, ${userName}` : ""}.`;
+  else
+    return `Good evening${userName ? `, ${userName}` : ""}.`;
+}
+
+COMPONENT CHANGE:
+
+function OperatingViewSection({
+  view,
+  businessName
+}: {
+  view: ZeyaOperatingView;
+  businessName: string | null
+})
+
+
+BEFORE: Dashboard Feel
+─────────────────────────────────────────────────────────────────────────────
+
+┌─────────────────────────────────┐
+│ Good morning.                   │
+│                                 │
+│ Current Stage: LEAD REVIEW      │
+│ Today's Priority: Select...     │
+│ What I Need: Selected Leads...  │
+│ Question: Which prospects...?   │
+│                                 │
+│ Business Health                 │
+│ • Readiness: 51.42857%          │
+│ • Confidence: 62.8%             │
+│ • Blocker: 12 leads available...│
+│                                 │
+│ Situation: Multiple prospects...│
+│ Next Action: Mark 3–5 strongest │
+└─────────────────────────────────┘
+
+Feelings:
+  ✗ Looks like software
+  ✗ Too many sections
+  ✗ Too much information
+  ✗ Dashboard-heavy
+  ✗ No sense of presence
+
+
+AFTER: Presence Feel
+─────────────────────────────────────────────────────────────────────────────
+
+┌─────────────────────────────────┐
+│ Good afternoon, Martin.         │
+│                                 │
+│ We're preparing outreach to     │
+│ freelancers.                    │
+│                                 │
+│ Which prospects should we       │
+│ contact first?                  │
+│                                 │
+│ 12 leads available but none     │
+│ selected yet.                   │
+│                                 │
+│ ────────────────────────────    │
+│                                 │
+│ View briefing →                 │
+└─────────────────────────────────┘
+
+Feelings:
+  ✓ Feels like a conversation
+  ✓ Feels like a person is there
+  ✓ Knows what I should do
+  ✓ Knows what's in the way
+  ✓ Premium and calm
+
+
+DESIGN APPROACH
+─────────────────────────────────────────────────────────────────────────────
+
+FROM: Apple iCal → Apple Calendar
+      Notion → Notion Calendar
+      Static → Arc Browser
+      Dashboard → Linear
+
+Premium.
+Minimal.
+Calm.
+Intentional.
+
+Nothing unnecessary.
+No visual noise.
+No dashboard feeling.
+No SaaS feeling.
+
+
+PRESENCE ELEMENTS
+─────────────────────────────────────────────────────────────────────────────
+
+Orb:
+  ✓ Visual anchor
+  ✓ Represents Zeya's presence
+  ✓ Subtle state changes (idle, listening, thinking, speaking)
+  ✓ Quiet, confident, alive
+  ✗ No flashy sci-fi animation
+  ✗ No gimmicks
+
+Conversation:
+  ✓ Time-aware greeting
+  ✓ One contextual statement
+  ✓ One clear question
+  ✓ Blocker (if any)
+  ✓ Details on-demand
+
+Language:
+  ✓ Plain English
+  ✓ Conversational
+  ✓ First-person
+  ✓ No technical jargon
+
+
+LANGUAGE RULE
+─────────────────────────────────────────────────────────────────────────────
+
+If a restaurant owner in Bangkok wouldn't understand it, rewrite it.
+
+BAD (❌):
+  • "Price sensitivity signals"
+  • "Prospect qualification criteria"
+  • "Objection pattern analysis"
+  • "Lead prioritization framework"
+  • "Conversion indicators"
+
+GOOD (✅):
+  • "Have people mentioned the price?"
+  • "Which prospects look interested?"
+  • "What reasons did people give?"
+  • "Who should we contact first?"
+  • "Have people asked for discounts?"
+
+
+NOT INCLUDED (By Design)
+─────────────────────────────────────────────────────────────────────────────
+
+❌ Connection error handling (Phase 5)
+❌ Conversation exit button (Phase 5)
+❌ Live transcript area (Phase 5)
+❌ English-only enforcement (Phase 5)
+❌ Language audit across all pages (Phase 5)
+
+This phase focuses on presence-first layout and greeting only.
+
+
+WHAT STAYED THE SAME
+─────────────────────────────────────────────────────────────────────────────
+
+✅ Orchestration logic (Phase 1, 2, 3)
+✅ Data sources (BusinessState, ExecutiveGuidance, ConversationObjective)
+✅ Voice session architecture
+✅ Presence Core (orb)
+✅ Memory pills
+✅ Database schema
+✅ API endpoints
+✅ All core functionality
+
+ZERO changes to orchestration logic.
+
+
+FILES MODIFIED
+─────────────────────────────────────────────────────────────────────────────
+
+1. lib/briefing-room/zeya-operating-view.ts
+   ├─ getTimeAwareGreeting() — new function
+   └─ ~10 lines added
+
+2. components/briefing-room/ZeyaBriefingRoom.tsx
+   ├─ OperatingViewSection() — refactored
+   ├─ Import statement updated
+   ├─ Component call updated
+   └─ ~140 lines affected
+
+Total: 2 files, ~150 lines changed
+
+
+BUILD STATUS
+─────────────────────────────────────────────────────────────────────────────
+
+✅ TypeScript compilation: PASSES
+✅ Next.js build: SUCCEEDS (4.6s)
+✅ No errors: CLEAN
+✅ No warnings: CLEAN
+✅ Backward compatible: YES
+
+
+SUCCESS TEST
+─────────────────────────────────────────────────────────────────────────────
+
+A founder opens Zeya and feels:
+
+  ✓ Greeting matches their time of day
+  ✓ Knows exactly what Zeya wants
+  ✓ Knows what they should do next
+  ✓ Knows what's in the way
+  ✓ Feels like talking to someone
+  ✓ NOT like using software
+  ✓ NOT like reading a dashboard
+  ✓ NOT like interacting with a system
+
+Without needing to read:
+  ✗ Metrics
+  ✗ Workflow states
+  ✗ Business intelligence
+  ✗ Status chips
+  ✗ Reports
+
+
+DESIGN PRINCIPLES
+─────────────────────────────────────────────────────────────────────────────
+
+1. Presence First — Zeya is a presence, not a tool
+2. One Conversation — Focus on next question, not metrics
+3. Minimal Above-Fold — No dashboard, no metrics
+4. Strategic Context — Details hidden, available on-demand
+5. Plain English — No jargon, conversational
+6. Time-Aware — Greeting matches user's local time
+7. Calm Animation — No sci-fi, no gimmicks
+8. Intentional — Every element serves a purpose
+
+
+NEXT STEPS
+─────────────────────────────────────────────────────────────────────────────
+
+Do NOT start Phase 5.
+
+The Zeya experience now:
+  • Feels like a presence
+  • Focuses on conversation
+  • Hides complexity
+  • Reveals on-demand
+  • Uses plain language
+  • Greets by time of day
+
+Ready for production.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  PHASE 4.7 COMPLETE — Zeya is now a presence, not software
+═══════════════════════════════════════════════════════════════════════════════

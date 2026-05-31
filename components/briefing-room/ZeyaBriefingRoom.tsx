@@ -15,6 +15,7 @@ import { MissionControl } from "@/components/leads/MissionControl";
 import { useRealtimeBriefingSession } from "@/hooks/realtime/useRealtimeBriefingSession";
 import { supabase } from "@/lib/supabase";
 import type { VoiceState } from "@/types/voice";
+import { composeZeyaOperatingView, formatUrgencyBadge, formatReadinessCategory, formatMissingInfoForBriefing, roundPercentage, getTimeAwareGreeting, type ZeyaOperatingView } from "@/lib/briefing-room/zeya-operating-view";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -274,6 +275,9 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
   const [showLeadIntake, setShowLeadIntake] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // ── Orchestration View (Phase 1, 2, 3) ─────────────────────────────────────
+  const [orchestrationView, setOrchestrationView] = useState<ZeyaOperatingView | null>(null);
+
   // ── UI state ────────────────────────────────────────────────────────────────
   const [selectedPillId, setSelectedPillId] = useState<string | null>(null);
   const [pillsExpanded, setPillsExpanded] = useState(false);
@@ -340,6 +344,12 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
         // Fetch lead summary for the active mission (non-fatal if unavailable)
         const mKey = result.missionDetail?.name ?? undefined;
         void getLeadSummary(businessId!, mKey).then(setLeadSummary).catch(() => {});
+
+        // Compose orchestration view (Phase 1, 2, 3)
+        const view = await composeZeyaOperatingView(supabase, businessId!);
+        if (!cancelled && view) {
+          setOrchestrationView(view);
+        }
       } catch (e) {
         console.error("[Zeya] BriefingRoom load failed:", e);
       } finally {
@@ -654,7 +664,7 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
         transition={{ duration: isSessionActive ? 0.65 : 1.3, ease: EASE, delay: isSessionActive ? 0 : 0.48 }}
         className="mt-12 w-full max-w-lg"
       >
-        <BriefSection brief={brief} />
+        {orchestrationView ? <OperatingViewSection view={orchestrationView} businessName={businessName} /> : <BriefSection brief={brief} />}
       </motion.div>
 
       {/* ────────────────────────────────────────────────────────────────────── */}
@@ -1040,7 +1050,173 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
   );
 }
 
-// ─── Daily brief section ──────────────────────────────────────────────────────
+// ─── Operating View Section (Orchestration Output) ────────────────────────────
+
+function OperatingViewSection({ view, businessName }: { view: ZeyaOperatingView; businessName: string | null }) {
+  const { businessState, executiveGuidance, conversationObjective } = view;
+  const [responseText, setResponseText] = useState("");
+  const [showBriefing, setShowBriefing] = useState(false);
+  const [transcript, setTranscript] = useState<Array<{ speaker: "You" | "Zeya"; text: string }>>([]);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll transcript to bottom
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [transcript.length]);
+
+  const handleSubmit = () => {
+    if (!responseText.trim()) return;
+
+    // Add founder's response to transcript
+    setTranscript((prev) => [...prev, { speaker: "You", text: responseText }]);
+
+    // Simulate Zeya's acknowledgment
+    setTimeout(() => {
+      setTranscript((prev) => [...prev, { speaker: "Zeya", text: `Understood. ${responseText.substring(0, 50)}...` }]);
+    }, 500);
+
+    setResponseText("");
+  };
+
+  return (
+    <div className="w-full flex flex-col items-center gap-8">
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* PRIMARY CONVERSATION – Greeting + Context + Question */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      <div className="mx-auto max-w-sm space-y-6 text-center">
+        {/* Time-aware greeting */}
+        <p className="text-[0.95rem] leading-relaxed text-zeya-ivory/85">
+          {getTimeAwareGreeting(businessName)}
+        </p>
+
+        {/* Contextual statement about what we're doing */}
+        <p className="text-[0.85rem] font-light leading-relaxed text-zeya-hush/65">
+          {executiveGuidance.summary}
+        </p>
+
+        {/* The one key question */}
+        {conversationObjective.primaryQuestion && (
+          <p className="text-[1rem] leading-relaxed text-zeya-ivory/85 pt-2">
+            {conversationObjective.primaryQuestion}
+          </p>
+        )}
+      </div>
+
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* RESPONSE MECHANISM – Center of the experience */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      <div className="mx-auto w-full max-w-sm">
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={responseText}
+            onChange={(e) => setResponseText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                handleSubmit();
+              }
+            }}
+            placeholder="Your answer..."
+            className="w-full min-h-16 rounded-lg border border-zeya-champagne/20 bg-zeya-champagne/6 px-4 py-3 text-[0.9rem] text-zeya-ivory/85 placeholder:text-zeya-hush/40 focus:outline-none focus:border-zeya-champagne/40 focus:bg-zeya-champagne/8 transition-all"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSubmit}
+              disabled={!responseText.trim()}
+              className="flex-1 rounded-lg bg-zeya-champagne/15 px-4 py-2 text-[0.8rem] text-zeya-champagne/80 hover:bg-zeya-champagne/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              Send
+            </button>
+            <button
+              className="rounded-lg border border-zeya-champagne/20 p-2.5 hover:bg-zeya-champagne/8 transition-all"
+              title="Voice input (coming soon)"
+            >
+              🎤
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* CONVERSATION TRANSCRIPT – Meeting notes style */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {transcript.length > 0 && (
+        <div className="mx-auto w-full max-w-sm border-t border-zeya-graphite/10 pt-6">
+          <div className="max-h-48 space-y-3 overflow-y-auto">
+            {transcript.map((entry, i) => (
+              <div key={i} className="space-y-1">
+                <p className="text-[0.7rem] font-light text-zeya-hush/45 uppercase tracking-wide">
+                  {entry.speaker}:
+                </p>
+                <p className="text-[0.85rem] leading-relaxed text-zeya-ivory/75">
+                  {entry.text}
+                </p>
+              </div>
+            ))}
+            <div ref={transcriptEndRef} />
+          </div>
+        </div>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      {/* BRIEFING PANEL – Collapsed section with orchestration details */}
+      {/* ──────────────────────────────────────────────────────────────────────── */}
+      <div className="mx-auto w-full max-w-sm border-t border-zeya-graphite/10 pt-6">
+        <button
+          onClick={() => setShowBriefing(!showBriefing)}
+          className="text-[0.7rem] font-light text-zeya-hush/45 hover:text-zeya-hush/65 transition-colors uppercase tracking-wide"
+        >
+          {showBriefing ? "Hide" : "Show"} briefing →
+        </button>
+
+        {showBriefing && (
+          <div className="mt-6 space-y-4 text-left">
+            {/* Progress bar */}
+            <div>
+              <p className="text-[0.65rem] font-light text-zeya-hush/45 uppercase tracking-wide mb-2">Progress</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1 bg-zeya-graphite/20 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-zeya-champagne/40 to-zeya-champagne/60"
+                    style={{ width: `${roundPercentage(businessState.readinessScore)}%` }}
+                  />
+                </div>
+                <span className="text-[0.8rem] text-zeya-ivory/70 whitespace-nowrap">
+                  {roundPercentage(businessState.readinessScore)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Current stage */}
+            <div>
+              <p className="text-[0.65rem] font-light text-zeya-hush/45 uppercase tracking-wide mb-1">Stage</p>
+              <p className="text-[0.85rem] text-zeya-ivory/75">
+                {businessState.currentStage.replace(/_/g, " ")}
+              </p>
+            </div>
+
+            {/* Clarity metric */}
+            <div>
+              <p className="text-[0.65rem] font-light text-zeya-hush/45 uppercase tracking-wide mb-1">Clarity</p>
+              <p className="text-[0.85rem] text-zeya-ivory/75">
+                {roundPercentage(businessState.confidence)}%
+              </p>
+            </div>
+
+            {/* Next step */}
+            <div>
+              <p className="text-[0.65rem] font-light text-zeya-hush/45 uppercase tracking-wide mb-1">Next Step</p>
+              <p className="text-[0.85rem] text-zeya-ivory/72">
+                {businessState.nextAction}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Daily brief section (Fallback) ────────────────────────────────────────────
 
 function BriefSection({ brief }: { brief: DailyBrief }) {
   const { dateLabel, lastEngaged, sections } = brief;
