@@ -3,6 +3,8 @@
 
 import type { WorkforceMember, WorkItem, WorkforceState, WorkforceEvaluation } from "./workforce-types";
 import type { Mission } from "@/lib/mission/mission-types";
+
+export type { WorkforceEvaluation };
 import {
   calculateMemberAvailability,
   canMemberTakeWork,
@@ -344,7 +346,13 @@ export function evaluateWorkforceState(
 
   return {
     state,
-    readinessFactors,
+    readinessFactors: {
+      hasMission: readinessFactors.missionExists > 0,
+      missionHasAction: readinessFactors.missionHasAction > 0,
+      hasAvailableMember: readinessFactors.memberAvailable > 0,
+      hasRequiredCapability: readinessFactors.capabilityExists > 0,
+      hasReadyWorkItem: readinessFactors.workItemReady > 0,
+    },
     executionBlockers,
     memberBlockers,
     workItemBlockers,
