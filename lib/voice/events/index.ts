@@ -47,3 +47,7 @@ export type { CallOutcome, OutcomeValue, RecommendedAction, OutcomeDetectionResu
 export { buildCallOutcomeFromConversation, processAndStoreOutcome, getOutcomeByConversationId, getAllOutcomes, getOutcomesByWorkerBrief, getOutcomeStats, clearAllOutcomes } from "../outcomes/call-outcome-processor";
 export { outcomeStore, OutcomeStore } from "../outcomes/call-outcome-store";
 export { detectOutcome } from "../outcomes/call-outcome-builder";
+
+// Memory event processing
+export type { MemoryEvent, MemoryType, MemoryEventSource } from "../../memory/events";
+export { processCallOutcomeToMemoryEvent, getAllMemoryEvents, getMemoryEventStats, getMemoryEventsByWorkerBrief } from "../../memory/events";

@@ -4,6 +4,8 @@ import type { CapturedElevenLabsConversation } from "../events/elevenlabs-conver
 import { detectOutcome } from "./call-outcome-builder";
 import { outcomeStore } from "./call-outcome-store";
 import type { CallOutcome } from "./call-outcome-types";
+import { processCallOutcomeToMemoryEvent } from "../../memory/events/memory-event-processor";
+import { persistOutcome } from "../persistence/persistence-manager";
 
 /**
  * Generate a unique outcome ID
@@ -55,6 +57,12 @@ export function processAndStoreOutcome(
 
   // Store in memory
   outcomeStore.saveOutcome(outcome);
+
+  // Persist outcome to Supabase (fire and forget)
+  persistOutcome(outcome);
+
+  // Convert to memory event
+  processCallOutcomeToMemoryEvent(outcome);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[outcome-processor] Generated outcome:", {
