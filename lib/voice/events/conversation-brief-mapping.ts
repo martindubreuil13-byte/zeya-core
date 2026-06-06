@@ -53,6 +53,13 @@ class MappingStore {
     return this.briefToConversation.get(workerBriefId) ?? null;
   }
 
+  getBusinessIdByWorkerBriefId(workerBriefId: string): string | null {
+    const conversationId = this.briefToConversation.get(workerBriefId);
+    if (!conversationId) return null;
+    const mapping = this.conversationToMapping.get(conversationId);
+    return mapping?.businessId ?? null;
+  }
+
   hasMapping(conversationId: string): boolean {
     return this.conversationToMapping.has(conversationId);
   }

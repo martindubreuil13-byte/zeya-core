@@ -85,11 +85,22 @@ export async function POST(req: NextRequest) {
       timestamp: webhookData.event_timestamp,
     });
 
+    // Extract workerBriefId if provided (for linking dispatch context to webhook)
+    const workerBriefId =
+      req.nextUrl.searchParams.get("workerBriefId") ||
+      req.headers.get("X-Worker-Brief-Id") ||
+      undefined;
+
+    if (workerBriefId) {
+      console.log("[webhook] 🔵 Webhook route: Found workerBriefId in request context", { workerBriefId });
+    }
+
     // Process the webhook
     console.log("[webhook] 🔵 Webhook route: Starting webhook processing");
     const result = await processElevenLabsWebhook(
       payload,
-      payload as unknown as Record<string, unknown>
+      payload as unknown as Record<string, unknown>,
+      workerBriefId
     );
 
     console.log("[webhook] 🔵 Webhook route: Webhook processing completed", {

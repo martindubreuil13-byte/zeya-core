@@ -52,7 +52,8 @@ function markAsSeen(
 
 export async function processElevenLabsWebhook(
   webhook: unknown,
-  rawPayload?: Record<string, unknown>
+  rawPayload?: Record<string, unknown>,
+  workerBriefId?: string
 ): Promise<ProcessedWebhookResult> {
   if (!isPostCallTranscriptionWebhook(webhook)) {
     return {
@@ -97,22 +98,49 @@ export async function processElevenLabsWebhook(
 
     // Generate CallOutcome from conversation
     console.log("[event-processor] 🔵 Generating CallOutcome from conversation", { conversationId });
-    const workerBriefId = mappingStore.getWorkerBriefId(conversationId);
-    const businessId = mappingStore.getBusinessId(conversationId);
-    const missionId = mappingStore.getMissionId(conversationId);
+
+    // Try to get mapping by conversationId first
+    let resolvedWorkerBriefId = mappingStore.getWorkerBriefId(conversationId);
+    let businessId = mappingStore.getBusinessId(conversationId);
+    let missionId = mappingStore.getMissionId(conversationId);
+
+    // If workerBriefId provided in request, try to resolve by that
+    if (workerBriefId && !businessId) {
+      const briefinessId = mappingStore.getBusinessIdByWorkerBriefId(workerBriefId);
+      const briefMissionId = mappingStore.getConversationId(workerBriefId)
+        ? mappingStore.getMissionId(mappingStore.getConversationId(workerBriefId) || "")
+        : null;
+
+      if (briefinessId) {
+        resolvedWorkerBriefId = workerBriefId;
+        businessId = briefinessId;
+        missionId = briefMissionId;
+
+        // Register new mapping with real conversationId using data from provisional mapping
+        if (briefMissionId) {
+          mappingStore.createMapping(conversationId, workerBriefId, briefMissionId, briefinessId);
+          console.log("[event-processor] 🟢 Updated mapping with real conversationId", {
+            conversationId,
+            workerBriefId,
+            businessId,
+            missionId: briefMissionId,
+          });
+        }
+      }
+    }
 
     console.log("[event-processor] 🔵 Retrieved context from mapping", {
       conversationId,
-      workerBriefId,
+      workerBriefId: resolvedWorkerBriefId,
       businessId,
       missionId,
     });
 
-    await processAndStoreOutcome(conversation, workerBriefId, businessId);
+    await processAndStoreOutcome(conversation, resolvedWorkerBriefId, businessId);
 
     console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
       conversationId,
-      workerBriefId,
+      workerBriefId: resolvedWorkerBriefId,
     });
 
     return {
