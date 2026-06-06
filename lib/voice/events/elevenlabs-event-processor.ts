@@ -45,10 +45,10 @@ function markAsSeen(
   seenWebhooks.add(key);
 }
 
-export function processElevenLabsWebhook(
+export async function processElevenLabsWebhook(
   webhook: unknown,
   rawPayload?: Record<string, unknown>
-): ProcessedWebhookResult {
+): Promise<ProcessedWebhookResult> {
   if (!isPostCallTranscriptionWebhook(webhook)) {
     return {
       success: false,
@@ -88,7 +88,7 @@ export function processElevenLabsWebhook(
 
     // Generate CallOutcome from conversation
     const workerBriefId = mappingStore.getWorkerBriefId(conversationId);
-    processAndStoreOutcome(conversation, workerBriefId);
+    await processAndStoreOutcome(conversation, workerBriefId);
 
     return {
       success: true,

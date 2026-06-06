@@ -48,21 +48,21 @@ export function buildCallOutcomeFromConversation(
 /**
  * Process and store a CallOutcome
  */
-export function processAndStoreOutcome(
+export async function processAndStoreOutcome(
   conversation: CapturedElevenLabsConversation,
   workerBriefId: string | null = null
-): CallOutcome {
+): Promise<CallOutcome> {
   // Build outcome
   const outcome = buildCallOutcomeFromConversation(conversation, workerBriefId);
 
   // Store in memory
   outcomeStore.saveOutcome(outcome);
 
-  // Persist outcome to Supabase (fire and forget)
-  persistOutcome(outcome);
+  // Persist outcome to Supabase (wait for completion)
+  await persistOutcome(outcome);
 
-  // Convert to memory event
-  processCallOutcomeToMemoryEvent(outcome);
+  // Convert to memory event and persist
+  await processCallOutcomeToMemoryEvent(outcome);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[outcome-processor] Generated outcome:", {

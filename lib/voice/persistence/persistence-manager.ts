@@ -17,29 +17,66 @@ import {
 
 /**
  * Persist a CallOutcome to Supabase
- * Failures are logged but do not block outcome processing
+ * Waits for persistence to complete before returning
  */
 export async function persistOutcome(outcome: CallOutcome): Promise<void> {
-  // Fire and forget - don't await
-  saveOutcome(outcome).catch((error) => {
-    console.error("[persistence-manager] Failed to persist outcome:", {
-      outcomeId: outcome.outcomeId,
+  console.log("[persistence] Persistence Start", {
+    conversationId: outcome.conversationId,
+    workerBriefId: outcome.workerBriefId,
+    outcomeType: outcome.outcome,
+  });
+
+  return saveOutcome(outcome).then((success) => {
+    if (success) {
+      console.log("[persistence] Persistence Success", {
+        conversationId: outcome.conversationId,
+        workerBriefId: outcome.workerBriefId,
+        outcomeType: outcome.outcome,
+      });
+    } else {
+      console.error("[persistence] Persistence Failure (no error returned)", {
+        conversationId: outcome.conversationId,
+        workerBriefId: outcome.workerBriefId,
+        outcomeType: outcome.outcome,
+      });
+    }
+  }).catch((error) => {
+    console.error("[persistence] Persistence Failure", {
+      conversationId: outcome.conversationId,
+      workerBriefId: outcome.workerBriefId,
+      outcomeType: outcome.outcome,
       error: error instanceof Error ? error.message : "Unknown error",
     });
+    throw error;
   });
 }
 
 /**
  * Persist a MemoryEvent to Supabase
- * Failures are logged but do not block memory event processing
+ * Waits for persistence to complete before returning
  */
 export async function persistMemoryEvent(event: MemoryEvent): Promise<void> {
-  // Fire and forget - don't await
-  saveMemoryEvent(event).catch((error) => {
-    console.error("[persistence-manager] Failed to persist memory event:", {
+  return saveMemoryEvent(event).then((success) => {
+    if (success) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[persistence] Memory event persisted:", {
+          memoryEventId: event.memoryEventId,
+          memoryType: event.memoryType,
+        });
+      }
+    } else {
+      console.error("[persistence] Memory event persistence failed (no error returned)", {
+        memoryEventId: event.memoryEventId,
+        memoryType: event.memoryType,
+      });
+    }
+  }).catch((error) => {
+    console.error("[persistence] Memory event persistence error", {
       memoryEventId: event.memoryEventId,
+      memoryType: event.memoryType,
       error: error instanceof Error ? error.message : "Unknown error",
     });
+    throw error;
   });
 }
 

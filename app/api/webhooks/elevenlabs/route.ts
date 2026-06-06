@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Process the webhook
-    const result = processElevenLabsWebhook(
+    const result = await processElevenLabsWebhook(
       payload,
       payload as unknown as Record<string, unknown>
     );
