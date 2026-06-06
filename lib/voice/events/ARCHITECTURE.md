@@ -1,68 +1,67 @@
-# ElevenLabs Webhook Event Ingestion — Phase 12A-2
+# ElevenLabs Post-Call Webhook Infrastructure — Phase 12A-2 (Corrected)
 
-**Status**: In-Memory Event Processing (No Persistence)
+**Status**: In-Memory Post-Call Webhook Processing (No Persistence)
+
+**Last Updated**: 2026-06-06 (Corrected from lifecycle event model to post-call webhook model)
+
+---
 
 ## Overview
 
-This layer receives and processes ElevenLabs call lifecycle events. Events flow through validators, are processed through a coordinator, and stored in in-memory caches.
+This layer receives and processes ElevenLabs post-call webhooks after phone calls complete. A single webhook containing the complete call data (transcript, summary, duration, extracted fields) is received after the call ends and analysis is complete.
 
-**No database writes. No persistence. Pure event flow.**
+**No database writes. No persistence. Pure event flow and in-memory storage.**
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ ElevenLabs Service                                           │
-│ (Real world: call happening, agent talking to prospect)     │
-└───────────────────────┬──────────────────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────┐
-         │ session_created webhook payload  │
-         └───────────────┬──────────────────┘
-                         ↓
-         ┌──────────────────────────────────────────┐
-         │ POST /api/webhooks/elevenlabs            │
-         │ (Route handler)                          │
-         └──────────────┬───────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────────────┐
-         │ Parse JSON payload                       │
-         │ Error handling for malformed requests    │
-         └──────────────┬───────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────────────┐
-         │ isValidElevenLabsEvent()                 │
-         │ Type guard: validates structure          │
-         └──────────────┬───────────────────────────┘
-                        ↓ (valid)
-         ┌──────────────────────────────────────────┐
-         │ processElevenLabsEvent()                 │
-         │ Routes to handler based on event type    │
-         └──────────────┬───────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────────────┐
-         │ BRANCH 1: session_created                │
-         │ → sessionStore.createSession()           │
-         │                                          │
-         │ BRANCH 2: session_started                │
-         │ → sessionStore.startSession()            │
-         │                                          │
-         │ BRANCH 3: session_ended                  │
-         │ → sessionStore.endSession()              │
-         │ → transcriptStore.captureTranscript()    │
-         │ → outcomeStore.saveOutcome()             │
-         └──────────────┬───────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────────────┐
-         │ ProcessedEvent (success/failure result)  │
-         └──────────────┬───────────────────────────┘
-                        ↓
-         ┌──────────────────────────────────────────┐
-         │ Return JSON response (200 or 400)        │
-         │ { success, eventType, sessionId, ... }   │
-         └──────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ ElevenLabs Agent (Veya)                                     │
+│ Call via Telnyx SIP Trunk → Prospect answers                │
+│ Agent and prospect speak → Call ends                         │
+└────────────────┬────────────────────────────────────────────┘
+                 ↓
+        [ElevenLabs Processing]
+        - Transcript captured
+        - Summary generated
+        - Sentiment analyzed
+        - Data extracted
+        - (~1-5 seconds)
+                 ↓
+┌─────────────────────────────────────────────────────────────┐
+│ POST /api/webhooks/elevenlabs                               │
+│ ElevenLabs sends single webhook:                            │
+│                                                              │
+│ {                                                            │
+│   "type": "post_call_transcription",                        │
+│   "event_timestamp": 1717662600,                            │
+│   "data": {                                                  │
+│     "conversation_id": "conv_abc123",                       │
+│     "transcript": [...],                                    │
+│     "summary": "User interested...",                        │
+│     "call_duration": 287,                                   │
+│     "extracted_data": {...}                                 │
+│   }                                                          │
+│ }                                                            │
+└────────────────┬────────────────────────────────────────────┘
+                 ↓
+         [Signature Verification]
+         HMAC-SHA256 (if secret configured)
+                 ↓
+         [Validation]
+         Type guard: isPostCallTranscriptionWebhook()
+                 ↓
+         [Deduplication]
+         Check event_timestamp + conversation_id
+                 ↓
+         [Storage]
+         conversationStore.saveConversation()
+         (in-memory Map)
+                 ↓
+         [Response]
+         HTTP 200 OK with result
 ```
 
 ---
@@ -71,684 +70,501 @@ This layer receives and processes ElevenLabs call lifecycle events. Events flow 
 
 ### 1. Event Types (`elevenlabs-event-types.ts`)
 
-Defines TypeScript interfaces for three event types:
+Defines TypeScript interfaces for ElevenLabs webhooks:
 
-#### `ElevenLabsSessionCreated`
+#### `ElevenLabsPostCallTranscriptionWebhook`
 ```typescript
 {
-  event_type: "session_created",
-  session_id: string,
-  agent_id: string,
-  status: string,
-  phone_number_called?: string,
-  from_number?: string,
-  timestamp: string
-}
-```
-
-#### `ElevenLabsSessionStarted`
-```typescript
-{
-  event_type: "session_started",
-  session_id: string,
-  agent_id: string,
-  started_at: string,
-  timestamp: string
-}
-```
-
-#### `ElevenLabsSessionEnded`
-```typescript
-{
-  event_type: "session_ended",
-  session_id: string,
-  agent_id: string,
-  ended_at: string,
-  duration_secs?: number,
-  reason?: string,
-  timestamp: string,
-  transcript?: {
-    text: string,
-    segments?: Array<{
-      speaker: "agent" | "customer",
-      text: string,
+  type: "post_call_transcription",
+  event_timestamp: number,  // Unix timestamp
+  data: {
+    conversation_id: string,      // e.g., "conv_abc123def"
+    agent_id: string,
+    status: "done" | "failed",
+    transcript: Array<{
+      role: "user" | "agent",
+      message: string,
       timestamp?: number
-    }>
-  },
-  call_summary?: {
-    outcome_type?: string,      // "interested", "not_interested", etc.
-    sentiment?: string,         // "positive", "neutral", "negative"
-    key_points?: string[],
-    next_action?: string
+    }>,
+    summary?: string,
+    call_duration?: number,
+    extracted_data?: Record<string, unknown>,  // Collected vars
+    has_audio?: boolean,
+    has_user_audio?: boolean,
+    has_response_audio?: boolean,
+    user_id?: string,
+    agent_name?: string,
+    metadata?: Record<string, unknown>
   }
 }
 ```
 
-### 2. Event Validator (`elevenlabs-event-validator.ts`)
+#### `ElevenLabsPostCallAudioWebhook`
+- `type: "post_call_audio"`
+- Contains base64-encoded audio of call
+- Minimal metadata
 
-Type guards for discriminating event types:
+#### `ElevenLabsPostCallInitiationFailureWebhook`
+- `type: "post_call_initiation_failure"`
+- Sent if call fails to initiate
+- Contains error details
 
-- `isSessionCreated(event): boolean`
-- `isSessionStarted(event): boolean`
-- `isSessionEnded(event): boolean`
-- `isValidElevenLabsEvent(event): boolean` — accepts any of the three
+---
 
-### 3. Session Store (`call-session-store.ts`)
+### 2. Event Validation (`elevenlabs-event-validator.ts`)
 
-In-memory Map-based store tracking session lifecycle:
+Type guards for discriminating webhook types:
+
+- `isPostCallTranscriptionWebhook(event)` — True if valid post-call-transcription
+- `isValidElevenLabsWebhook(event)` — True if any valid ElevenLabs webhook
+
+**Validation checks**:
+- `type` field matches expected value
+- `event_timestamp` is a number
+- Required `data` fields are present and correct types
+- `transcript` is an array
+
+---
+
+### 3. Conversation Store (`elevenlabs-conversation-store.ts`)
+
+In-memory Map-based store for complete post-call conversations:
 
 ```typescript
-CallSession {
-  sessionId: string,
+CapturedElevenLabsConversation {
+  conversationId: string,
   agentId: string,
-  status: "created" | "started" | "ended",
-  phoneNumberCalled?: string,
-  fromNumber?: string,
-  createdAt: string,
-  startedAt?: string,
-  endedAt?: string,
-  duration?: number
+  status: "done" | "failed",
+  transcript: Array<{ role, message, timestamp }>,
+  summary?: string,
+  callDuration?: number,
+  extractedData?: Record<string, unknown>,
+  hasAudio?: boolean,
+  hasUserAudio?: boolean,
+  hasResponseAudio?: boolean,
+  userId?: string,
+  agentName?: string,
+  metadata?: Record<string, unknown>,
+  eventTimestamp: number,
+  receivedAt: string,
+  rawPayload?: Record<string, unknown>
 }
 ```
 
 **Functions**:
-- `createSession()` — Sets status="created"
-- `startSession()` — Sets status="started", records startedAt
-- `endSession()` — Sets status="ended", records duration
-- `getSession(sessionId)` — Retrieves session or null
-- `getAllSessions()` — Returns all tracked sessions
-- `hasSession(sessionId)` — Boolean check
-- `clear()` — Clears all sessions (for testing)
+- `saveConversation(id, agentId, data, timestamp, rawPayload)` — Store conversation
+- `getConversation(conversationId)` — Retrieve by ID or null
+- `hasConversation(conversationId)` — Boolean check
+- `getAllConversations()` — Return all stored conversations
+- `getConversationsSince(seconds)` — Recent conversations
+- `clear()` — Clear all (for testing)
 
-### 4. Transcript Store (`transcript-capture.ts`)
+**Singleton**: `conversationStore` module-level instance
 
-In-memory Map-based store for call transcripts:
+---
+
+### 4. Event Processor (`elevenlabs-event-processor.ts`)
+
+Orchestrates webhook processing:
 
 ```typescript
-CapturedTranscript {
-  sessionId: string,
-  fullText: string,
-  segments: Array<{
-    speaker: "agent" | "customer",
-    text: string,
-    timestamp?: number
-  }>,
-  capturedAt: string
-}
+processElevenLabsWebhook(webhook, rawPayload): ProcessedWebhookResult
 ```
 
-**Functions**:
-- `captureTranscript(sessionId, fullText, segments)` — Stores transcript
-- `getTranscript(sessionId)` — Retrieves or null
-- `hasTranscript(sessionId)` — Boolean check
-- `getAllTranscripts()` — Returns all transcripts
-- `clear()` — Clears all (for testing)
-
-### 5. Outcome Store (`call-outcome-store.ts`)
-
-In-memory Map-based store for call results:
-
+**ProcessedWebhookResult**:
 ```typescript
-StoredCallOutcome {
-  sessionId: string,
-  outcome?: string,           // "interested", "not_interested", etc.
-  sentiment?: string,         // "positive", "neutral", "negative"
-  duration?: number,
-  keyPoints?: string[],
-  nextAction?: string,
-  storedAt: string
-}
-```
-
-**Functions**:
-- `saveOutcome(sessionId, outcome, sentiment, duration, keyPoints, nextAction)`
-- `getOutcome(sessionId)` — Retrieves or null
-- `hasOutcome(sessionId)` — Boolean check
-- `getAllOutcomes()` — Returns all outcomes
-- `clear()` — Clears all (for testing)
-
-### 6. Event Processor (`elevenlabs-event-processor.ts`)
-
-Orchestrates event handling:
-
-```typescript
-processElevenLabsEvent(event: unknown): ProcessedEvent
-
-ProcessedEvent {
+{
   success: boolean,
-  eventType: string,
-  sessionId: string,
+  type: string,
+  conversationId: string,
+  duplicate?: boolean,
   message: string
 }
 ```
 
 **Flow**:
-1. `session_created` event
-   - Call `sessionStore.createSession()`
-   - Return success
+1. Validate webhook structure
+2. Check for duplicates using `(event_timestamp, conversation_id)` key
+3. If duplicate: return `{ success: true, duplicate: true, ... }`
+4. If new: save to conversationStore, mark as seen, return success
+5. If error: return failure message
 
-2. `session_started` event
-   - Look up session by ID
-   - Call `sessionStore.startSession()`
-   - Return success or "not found" error
+**Deduplication**: Uses in-memory Set to track seen webhook keys. Prevents duplicate processing of retried webhooks.
 
-3. `session_ended` event
-   - Look up session by ID
-   - Call `sessionStore.endSession(duration)`
-   - If transcript provided: call `transcriptStore.captureTranscript()`
-   - If call_summary provided: call `outcomeStore.saveOutcome()`
-   - Return success or "not found" error
+---
 
-**Helper functions**:
-- `getSessionState(sessionId)` — Returns { session, transcript, outcome }
-- `getAllState()` — Returns { sessions, transcripts, outcomes }
-- `clearAllState()` — Clears all stores (for testing)
+### 5. Signature Verification (`elevenlabs-signature-verifier.ts`)
 
-### 7. Webhook Route (`app/api/webhooks/elevenlabs/route.ts`)
+HMAC-SHA256 signature verification helpers:
 
-HTTP POST endpoint:
+- `verifyElevenLabsSignature(rawBody, signature, secret): boolean`
+- `shouldVerifySignature(): boolean` — Checks if secret is configured
+- `getWebhookSecret(): string | null` — Get secret from env
+- `logSignatureWarning(isDevelopment)` — Dev-only warning
+
+**Behavior**:
+- If `ELEVENLABS_WEBHOOK_SECRET` env var exists: **require signature**
+- If not set: skip verification with development warning
+- Uses constant-time comparison (crypto.timingSafeEqual)
+
+---
+
+### 6. Webhook Route (`app/api/webhooks/elevenlabs/route.ts`)
+
+HTTP POST endpoint: `POST /api/webhooks/elevenlabs`
 
 **Request**:
 ```json
 {
-  "event_type": "session_ended",
-  "session_id": "session_abc123",
-  ...
+  "type": "post_call_transcription",
+  "event_timestamp": 1717662600,
+  "data": { ... }
 }
 ```
 
-**Response (Success)**:
+**Response (Success - New)**:
 ```json
 {
   "success": true,
-  "eventType": "session_ended",
-  "sessionId": "session_abc123",
-  "message": "Session ended: session_abc123 (duration: 287s)"
+  "type": "post_call_transcription",
+  "conversationId": "conv_abc123",
+  "message": "Post-call webhook processed for conversation conv_abc123"
 }
 ```
 
-**Response (Invalid Event)**:
+**Response (Success - Duplicate)**:
+```json
+{
+  "success": true,
+  "type": "post_call_transcription",
+  "conversationId": "conv_abc123",
+  "duplicate": true,
+  "message": "Duplicate webhook for conversation conv_abc123"
+}
+```
+
+**Response (Invalid Structure)**:
 ```json
 {
   "success": false,
-  "error": "Invalid event structure"
+  "error": "Invalid webhook structure"
 }
+```
+
+**HTTP Status Codes**:
+- `200` — Webhook processed successfully (new or duplicate)
+- `400` — Malformed JSON or invalid structure
+- `401` — Signature verification failed
+- `500` — Unexpected server error
+
+---
+
+## Complete Call Lifecycle Example
+
+### 1. WorkerBrief Dispatch (Phase 12A-3)
+```
+Zeya creates WorkerBrief for prospect
+→ Dispatch to ElevenLabs
+→ GET /v1/convai/agents/{agentId}/sessions returns conversation_id
+→ Track conversation_id in mapping
+```
+
+### 2. Phone Call (Real-time)
+```
+ElevenLabs initiates SIP INVITE to Telnyx
+→ Telnyx routes to prospect's phone
+→ Prospect answers
+→ Agent (Veya) greets and converses
+→ Agent determines interest, extracts info
+→ One party hangs up
+→ Call ends
+```
+
+**No webhooks sent during call. No session_created, session_started events.**
+
+### 3. ElevenLabs Post-Processing
+```
+Call audio → transcription
+Transcript → summary generation
+Transcript → sentiment analysis
+Transcript → data extraction (if configured)
+Metadata → call duration, status
+→ (~1-5 seconds total)
+```
+
+### 4. Post-Call Webhook
+```
+POST /api/webhooks/elevenlabs
+
+{
+  "type": "post_call_transcription",
+  "event_timestamp": 1717662600,
+  "data": {
+    "conversation_id": "conv_6801ktc2w5p0fqfrkvc41wcrdfev",
+    "agent_id": "agent_xyz",
+    "status": "done",
+    "transcript": [
+      { "role": "agent", "message": "Hi, this is Veya..." },
+      { "role": "user", "message": "Hi, thanks for calling" },
+      ...
+    ],
+    "summary": "User expressed interest in product demo",
+    "call_duration": 287,
+    "extracted_data": {
+      "collected_variables": {
+        "name": "Jane Doe",
+        "email": "jane@example.com"
+      }
+    }
+  }
+}
+```
+
+### 5. Zeya Processing
+```
+HTTP 200 response sent to ElevenLabs
+↓
+conversationStore saves complete conversation data
+↓
+Ready for Phase 12A-3: Link to WorkerBrief
+↓
+Ready for Phase 12A-4: Build CallOutcome
 ```
 
 ---
 
-## Example Call Lifecycle
+## Test Scenarios
 
-### 1. Call Initiated by Zeya
-
-(Not part of webhook, but context)
-
-```typescript
-// Zeya calls ElevenLabs API to initiate call
-POST /v1/convai/agents/{agentId}/sessions
-{
-  "phone": {
-    "phone_number_to_dial": "+1-555-0100",
-    "from_number": "+1-555-5555"
-  },
-  ...
-}
-// Response: { session_id: "session_abc123" }
-```
-
-### 2. ElevenLabs Sends `session_created`
-
+### Scenario 1: Valid Post-Call Webhook
 ```bash
 curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
   -H "Content-Type: application/json" \
   -d '{
-    "event_type": "session_created",
-    "session_id": "session_abc123",
-    "agent_id": "agent_xyz",
-    "status": "queued",
-    "phone_number_called": "+1-555-0100",
-    "from_number": "+1-555-5555",
-    "timestamp": "2026-06-06T10:30:00Z"
-  }'
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "eventType": "session_created",
-  "sessionId": "session_abc123",
-  "message": "Session created: session_abc123"
-}
-```
-
-**Internal State**:
-```typescript
-sessionStore.getSession("session_abc123")
-// {
-//   sessionId: "session_abc123",
-//   agentId: "agent_xyz",
-//   status: "created",
-//   phoneNumberCalled: "+1-555-0100",
-//   fromNumber: "+1-555-5555",
-//   createdAt: "2026-06-06T10:30:00Z"
-// }
-```
-
-### 3. ElevenLabs Sends `session_started`
-
-```bash
-curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_type": "session_started",
-    "session_id": "session_abc123",
-    "agent_id": "agent_xyz",
-    "started_at": "2026-06-06T10:30:05Z",
-    "timestamp": "2026-06-06T10:30:05Z"
-  }'
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "eventType": "session_started",
-  "sessionId": "session_abc123",
-  "message": "Session started: session_abc123"
-}
-```
-
-**Internal State**:
-```typescript
-sessionStore.getSession("session_abc123")
-// {
-//   ...,
-//   status: "started",
-//   startedAt: "2026-06-06T10:30:05Z"
-// }
-```
-
-### 4. ElevenLabs Sends `session_ended`
-
-```bash
-curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_type": "session_ended",
-    "session_id": "session_abc123",
-    "agent_id": "agent_xyz",
-    "ended_at": "2026-06-06T10:35:00Z",
-    "duration_secs": 287,
-    "reason": "customer_hangup",
-    "timestamp": "2026-06-06T10:35:00Z",
-    "transcript": {
-      "text": "Agent: Hi Jane, this is Veya... Customer: Hi thanks for calling...",
-      "segments": [
-        {
-          "speaker": "agent",
-          "text": "Hi Jane, this is Veya with Zeya. Do you have a few minutes?"
-        },
-        {
-          "speaker": "customer",
-          "text": "Hi! Thanks for calling. Yes, I do."
-        },
-        {
-          "speaker": "agent",
-          "text": "Great! I wanted to follow up on those leads you downloaded..."
-        },
-        {
-          "speaker": "customer",
-          "text": "Oh yes, they were really helpful!"
-        }
-      ]
-    },
-    "call_summary": {
-      "outcome_type": "interested",
-      "sentiment": "positive",
-      "key_points": ["wants demo", "budget approved for next quarter"],
-      "next_action": "send product demo link and schedule follow-up"
+    "type": "post_call_transcription",
+    "event_timestamp": 1717662600,
+    "data": {
+      "conversation_id": "conv_test_001",
+      "agent_id": "agent_xyz",
+      "status": "done",
+      "transcript": [
+        { "role": "agent", "message": "Hi Jane" },
+        { "role": "user", "message": "Hi there" }
+      ],
+      "summary": "User interested",
+      "call_duration": 120,
+      "extracted_data": { "name": "Jane" }
     }
   }'
 ```
 
-**Response**:
+**Response**: `HTTP 200`
 ```json
 {
   "success": true,
-  "eventType": "session_ended",
-  "sessionId": "session_abc123",
-  "message": "Session ended: session_abc123 (duration: 287s)"
+  "type": "post_call_transcription",
+  "conversationId": "conv_test_001",
+  "message": "Post-call webhook processed for conversation conv_test_001"
 }
 ```
 
-**Internal State — Session**:
+**State**:
 ```typescript
-sessionStore.getSession("session_abc123")
+conversationStore.getConversation("conv_test_001")
 // {
-//   sessionId: "session_abc123",
+//   conversationId: "conv_test_001",
 //   agentId: "agent_xyz",
-//   status: "ended",
-//   phoneNumberCalled: "+1-555-0100",
-//   fromNumber: "+1-555-5555",
-//   createdAt: "2026-06-06T10:30:00Z",
-//   startedAt: "2026-06-06T10:30:05Z",
-//   endedAt: "2026-06-06T10:35:00Z",
-//   duration: 287
+//   status: "done",
+//   transcript: [...],
+//   summary: "User interested",
+//   callDuration: 120,
+//   extractedData: { name: "Jane" },
+//   eventTimestamp: 1717662600,
+//   receivedAt: "2026-06-06T12:30:00.000Z"
 // }
 ```
 
-**Internal State — Transcript**:
-```typescript
-transcriptStore.getTranscript("session_abc123")
-// {
-//   sessionId: "session_abc123",
-//   fullText: "Agent: Hi Jane...",
-//   segments: [...],
-//   capturedAt: "2026-06-06T10:35:00Z"
-// }
+### Scenario 2: Duplicate Webhook
+```bash
+# Send same webhook twice
+curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "post_call_transcription",
+    "event_timestamp": 1717662600,
+    "data": {
+      "conversation_id": "conv_test_001",
+      ...
+    }
+  }'
+
+# First request: HTTP 200, success: true
+# Second request: HTTP 200, success: true, duplicate: true
 ```
 
-**Internal State — Outcome**:
-```typescript
-outcomeStore.getOutcome("session_abc123")
-// {
-//   sessionId: "session_abc123",
-//   outcome: "interested",
-//   sentiment: "positive",
-//   duration: 287,
-//   keyPoints: ["wants demo", "budget approved for next quarter"],
-//   nextAction: "send product demo link and schedule follow-up",
-//   storedAt: "2026-06-06T10:35:00Z"
-// }
+### Scenario 3: Invalid Payload
+```bash
+curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
+  -H "Content-Type: application/json" \
+  -d '{ "type": "invalid" }'
 ```
 
-**Full State**:
-```typescript
-getSessionState("session_abc123")
-// {
-//   session: { ...CallSession... },
-//   transcript: { ...CapturedTranscript... },
-//   outcome: { ...StoredCallOutcome... }
-// }
+**Response**: `HTTP 400`
+```json
+{
+  "success": false,
+  "error": "Invalid webhook structure"
+}
 ```
 
----
+### Scenario 4: Malformed JSON
+```bash
+curl -X POST http://localhost:3000/api/webhooks/elevenlabs \
+  -H "Content-Type: application/json" \
+  -d '{ invalid json'
+```
 
-## Testing
-
-### Test Scenario: Complete Call Lifecycle
-
-```typescript
-import { processElevenLabsEvent, getSessionState, clearAllState } from "@/lib/voice/events";
-
-// Clear previous state
-clearAllState();
-
-// 1. Session created
-const created = processElevenLabsEvent({
-  event_type: "session_created",
-  session_id: "session_test_001",
-  agent_id: "agent_xyz",
-  status: "queued",
-  timestamp: new Date().toISOString(),
-});
-expect(created.success).toBe(true);
-
-// 2. Session started
-const started = processElevenLabsEvent({
-  event_type: "session_started",
-  session_id: "session_test_001",
-  agent_id: "agent_xyz",
-  started_at: new Date().toISOString(),
-  timestamp: new Date().toISOString(),
-});
-expect(started.success).toBe(true);
-
-// 3. Session ended
-const ended = processElevenLabsEvent({
-  event_type: "session_ended",
-  session_id: "session_test_001",
-  agent_id: "agent_xyz",
-  ended_at: new Date().toISOString(),
-  duration_secs: 287,
-  timestamp: new Date().toISOString(),
-  transcript: {
-    text: "Full conversation...",
-    segments: [
-      { speaker: "agent", text: "Hi..." },
-      { speaker: "customer", text: "Hello..." },
-    ],
-  },
-  call_summary: {
-    outcome_type: "interested",
-    sentiment: "positive",
-    key_points: ["wants demo"],
-    next_action: "send demo",
-  },
-});
-expect(ended.success).toBe(true);
-
-// Verify full state
-const state = getSessionState("session_test_001");
-expect(state.session).toBeDefined();
-expect(state.session?.status).toBe("ended");
-expect(state.session?.duration).toBe(287);
-expect(state.transcript).toBeDefined();
-expect(state.transcript?.fullText).toBe("Full conversation...");
-expect(state.outcome).toBeDefined();
-expect(state.outcome?.outcome).toBe("interested");
+**Response**: `HTTP 400`
+```json
+{
+  "success": false,
+  "error": "Malformed JSON"
+}
 ```
 
 ---
 
-## Future Integration: Persistence (Phase 12B)
+## Data Retrieval: Push vs. Pull
 
-### Supabase Tables Required
+### Option A: Push (Webhooks) — Used in Phase 12A-2 ✅
+**Method**: ElevenLabs sends webhook after call ends
+**Latency**: ~1-5 seconds after call ends
+**Reliability**: Automatic (ElevenLabs handles retries)
+**Usage**: Primary mechanism for receiving call data
 
-```sql
-CREATE TABLE elevenlabs_sessions (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id TEXT UNIQUE NOT NULL,
-  agent_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  phone_number_called TEXT,
-  from_number TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  started_at TIMESTAMP,
-  ended_at TIMESTAMP,
-  duration_seconds INTEGER,
-  created_timestamp TIMESTAMP
-);
+### Option B: Pull (REST API) — Fallback for Phase 12B ⚠️
+**Method**: Poll `GET /v1/conversations/{conversation_id}`
+**Latency**: On-demand (no polling in 12A-2)
+**Reliability**: Manual polling required
+**Usage**: Can be implemented as fallback if webhook doesn't arrive
 
-CREATE TABLE call_transcripts (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id TEXT NOT NULL REFERENCES elevenlabs_sessions(session_id),
-  full_text TEXT NOT NULL,
-  segments JSONB NOT NULL,
-  captured_at TIMESTAMP DEFAULT NOW()
-);
+---
 
-CREATE TABLE call_outcomes (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id TEXT NOT NULL REFERENCES elevenlabs_sessions(session_id),
-  outcome_type TEXT,
-  sentiment TEXT,
-  key_points TEXT[],
-  next_action TEXT,
-  stored_at TIMESTAMP DEFAULT NOW()
-);
+## Files Structure
+
 ```
+lib/voice/events/
+├── elevenlabs-event-types.ts           # Webhook type definitions
+├── elevenlabs-event-validator.ts       # Type guards
+├── elevenlabs-conversation-store.ts    # In-memory conversation storage
+├── elevenlabs-event-processor.ts       # Webhook processing logic
+├── elevenlabs-signature-verifier.ts    # HMAC-SHA256 verification
+├── index.ts                            # Public exports
+└── ARCHITECTURE.md                     # This file
 
-### Migration Path
-
-**Phase 12A** (Current):
-- ✅ Receive events
-- ✅ Validate events
-- ✅ In-memory storage
-- ✅ Return success/failure
-
-**Phase 12B** (Next):
-- [ ] Replace sessionStore with Supabase queries
-- [ ] Replace transcriptStore with Supabase writes
-- [ ] Replace outcomeStore with Supabase writes
-- [ ] Add error handling for DB failures
-- [ ] Keep in-memory cache for fast lookups (optional)
-
-**Simple swap**:
-```typescript
-// Before (Phase 12A)
-const session = sessionStore.getSession(sessionId);
-
-// After (Phase 12B)
-const session = await supabase
-  .from("elevenlabs_sessions")
-  .select("*")
-  .eq("session_id", sessionId)
-  .single();
+app/api/webhooks/elevenlabs/
+└── route.ts                            # POST /api/webhooks/elevenlabs
 ```
 
 ---
 
-## Future Enhancement: Webhook Signature Verification (Phase 12B)
+## Removed Files (Old Lifecycle Model)
 
-Currently: Accept any JSON POST
+These files are no longer needed (replaced by single webhook model):
+- ❌ `call-session-store.ts` — Replaced by conversationStore
+- ❌ `transcript-capture.ts` — Merged into conversationStore
+- ❌ `call-outcome-store.ts` — Separate from webhook processing
 
-Future: Verify HMAC-SHA256 signature
+---
 
-```typescript
-// Not implemented yet
-const signature = req.headers.get("x-elevenlabs-signature");
-const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
+## Environment Configuration
 
-// Verify: crypto.timingSafeEqual(signature, computed)
-// If invalid: return 401 Unauthorized
+**Optional** (for signature verification):
+```
+ELEVENLABS_WEBHOOK_SECRET=<webhook_signing_secret>
 ```
 
----
-
-## Files Summary
-
-### Created (8 files)
-
-1. **lib/voice/events/elevenlabs-event-types.ts** (47 lines)
-   - ElevenLabsSessionCreated
-   - ElevenLabsSessionStarted
-   - ElevenLabsSessionEnded
-   - ElevenLabsEvent union type
-
-2. **lib/voice/events/elevenlabs-event-validator.ts** (37 lines)
-   - isSessionCreated()
-   - isSessionStarted()
-   - isSessionEnded()
-   - isValidElevenLabsEvent()
-
-3. **lib/voice/events/call-session-store.ts** (66 lines)
-   - CallSession interface
-   - SessionStore class (in-memory Map)
-   - createSession(), startSession(), endSession(), getSession()
-
-4. **lib/voice/events/transcript-capture.ts** (56 lines)
-   - TranscriptSegment interface
-   - CapturedTranscript interface
-   - TranscriptStore class (in-memory Map)
-   - captureTranscript(), getTranscript()
-
-5. **lib/voice/events/call-outcome-store.ts** (54 lines)
-   - StoredCallOutcome interface
-   - OutcomeStore class (in-memory Map)
-   - saveOutcome(), getOutcome()
-
-6. **lib/voice/events/elevenlabs-event-processor.ts** (159 lines)
-   - processElevenLabsEvent()
-   - processSessionCreated/Started/Ended()
-   - getSessionState(), getAllState(), clearAllState()
-
-7. **app/api/webhooks/elevenlabs/route.ts** (42 lines)
-   - POST /api/webhooks/elevenlabs
-   - JSON parsing, validation, processing
-   - Error handling
-
-8. **lib/voice/events/index.ts** (22 lines)
-   - Exports all modules
-
-**Total**: 383 lines of TypeScript
-
-### No Files Modified
+If not set: Signature verification is skipped (development mode warning logged)
 
 ---
 
-## Key Architectural Decisions
+## Integration Points (Future Phases)
 
-### 1. In-Memory Only (Phase 12A)
-No database writes yet. Pure event flow. Simplifies testing and deployment.
+### Phase 12A-3: WorkerBrief Correlation
+- Map `conversation_id` to `workerBriefId`
+- Look up WorkerBrief when webhook arrives
+- Use brief context for CallOutcome creation
 
-**Rationale**: Decouple event ingestion from persistence. Phase 12B adds DB.
-
-### 2. Type Guards Over Try-Catch
-Use `isSessionCreated()` instead of try-catch for type discrimination.
-
-**Rationale**: Explicit, type-safe, no exceptions for normal control flow.
-
-### 3. Separate Stores
-Three separate stores (session, transcript, outcome) instead of one monolithic store.
-
-**Rationale**: 
-- Sessions track lifecycle
-- Transcripts store large text
-- Outcomes capture result data
-- Can migrate each independently to DB
-
-### 4. Process-Level Caching
-Each store is a singleton module-level variable, not per-request.
-
-**Rationale**: Data lives across requests. Works for Phase 12A. Phase 12B replaces with persistent DB.
-
-### 5. No Async/Await
-All operations are synchronous (in-memory reads/writes).
-
-**Rationale**: No I/O. Phase 12B will add async DB calls.
-
----
-
-## Integration with Existing Zeya Systems
-
-### Alignment with Existing Architecture
-
-- ✅ Follows Next.js App Router pattern (`app/api/webhooks/elevenlabs/route.ts`)
-- ✅ Uses TypeScript with strict types (matches codebase)
-- ✅ Validates inputs before processing (matches security patterns)
-- ✅ Returns structured responses (matches API conventions)
-- ✅ No external dependencies beyond Next.js/TypeScript (matches philosophy)
-
-### Connection Points (Phase 12B+)
-
-- **WorkerBrief**: Session ID maps to workerBriefId (tracked separately)
-- **CallOutcome**: outcomeStore data flows into CallOutcome builder
-- **Memory Events**: Outcomes trigger MemoryEvent creation (Phase 12C)
-- **Zeya Orchestration**: Outcomes inform next ExecutionPlan (Phase 13)
-
----
-
-## What's Next
-
-### Phase 12A-3: WorkerBrief → ElevenLabs Dispatch
-- Implement ElevenLabsProvider
-- Call ElevenLabs API to initiate outbound call
-- Store session ID for webhook correlation
-
-### Phase 12A-4: Webhook → CallOutcome Conversion
-- Look up WorkerBrief by session ID
-- Build CallOutcome from webhook data + brief context
-- (Persist to database in Phase 12B)
+### Phase 12A-4: CallOutcome Creation
+- Use webhook data to build CallOutcome
+- Transcript from webhook
+- Summary from webhook
+- Sentiment analysis from ElevenLabs analysis
+- Extracted data fields
 
 ### Phase 12B: Persistence
-- Replace in-memory stores with Supabase tables
-- Add webhook signature verification
-- Implement TTL/cleanup for old sessions
+- Replace conversationStore (Map) with Supabase table
+- Add signature verification requirement
+- Add webhook retry logic
+- Store raw webhook payload for audit
+
+### Phase 12C: Memory Integration
+- Create MemoryEvent from CallOutcome
+- Feed into Zeya learning loop
+- Track patterns for strategy adjustment
 
 ---
 
-**Phase 12A-2 Status**: ✅ Complete
+## Design Principles
 
-All event handling infrastructure in place. Ready for dispatch (Phase 12A-3) and outcome conversion (Phase 12A-4).
+1. **Single Event Model**: One webhook type per call (post_call_transcription)
+2. **Complete Data**: All call information in one webhook
+3. **Asynchronous**: Webhook sent after ElevenLabs processing complete
+4. **Idempotent**: Duplicate webhooks safely handled
+5. **Secure**: HMAC-SHA256 signature verification (optional, required when secret set)
+6. **Stateless**: Webhook processor has no side effects beyond storage
+7. **Auditable**: Raw payload stored for debugging
+
+---
+
+## What Changed from Old Model
+
+| Aspect | Old (Wrong) | New (Correct) |
+|--------|------------|---------------|
+| **Events** | session_created, started, ended | post_call_transcription only |
+| **Timing** | Real-time (3 events) | After-call (1 event) |
+| **Data** | Spread across 3 events | All in one event |
+| **Store** | 3 separate stores | 1 consolidated store |
+| **Model** | Session lifecycle | Post-call data snapshot |
+
+---
+
+## Current Limitations
+
+- **In-memory only**: Data lost on process restart
+- **No persistence**: Must add database in Phase 12B
+- **No signature verification**: Optional (enabled by env var)
+- **No deduplication TTL**: Keeps all seen webhooks in memory
+- **No retry logic**: ElevenLabs retries, Zeya accepts all
+- **No conversation_id → workerBriefId mapping**: Added in Phase 12A-3
+- **No CallOutcome creation**: Added in Phase 12A-4
+
+---
+
+## Success Criteria (Phase 12A-2 Corrected)
+
+✅ POST to `/api/webhooks/elevenlabs` with valid payload returns HTTP 200  
+✅ Webhook data stored in `conversationStore`  
+✅ Duplicate webhooks return 200 with `duplicate: true`  
+✅ Invalid payloads return HTTP 400  
+✅ No database writes  
+✅ No UI  
+✅ Type-safe via TypeScript  
+✅ Signature verification prepared (optional)  
+
+---
+
+**Phase 12A-2 Status**: ✅ **CORRECTED**
+
+Architecture now reflects actual ElevenLabs post-call webhook behavior. Single event model, complete conversation data, deduplication, and idempotent processing all in place.
+
+Ready for Phase 12A-3: WorkerBrief correlation.

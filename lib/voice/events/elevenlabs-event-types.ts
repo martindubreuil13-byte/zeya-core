@@ -1,47 +1,53 @@
-// ElevenLabs event types — call lifecycle events from ElevenLabs webhook
+// ElevenLabs event types — post-call webhook from ElevenLabs Conversational AI
 
-export type ElevenLabsEventType = "session_created" | "session_started" | "session_ended";
-
-export interface ElevenLabsSessionCreated {
-  event_type: "session_created";
-  session_id: string;
-  agent_id: string;
-  status: string;
-  phone_number_called?: string;
-  from_number?: string;
-  timestamp: string;
+export interface ElevenLabsTranscriptSegment {
+  role: "user" | "agent";
+  message: string;
+  timestamp?: number;
 }
 
-export interface ElevenLabsSessionStarted {
-  event_type: "session_started";
-  session_id: string;
+export interface ElevenLabsPostCallTranscriptionData {
+  conversation_id: string;
   agent_id: string;
-  started_at: string;
-  timestamp: string;
+  status: "done" | "failed";
+  user_id?: string;
+  agent_name?: string;
+  transcript: ElevenLabsTranscriptSegment[];
+  summary?: string;
+  call_duration?: number;
+  extracted_data?: Record<string, unknown>;
+  has_audio?: boolean;
+  has_user_audio?: boolean;
+  has_response_audio?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
-export interface ElevenLabsSessionEnded {
-  event_type: "session_ended";
-  session_id: string;
-  agent_id: string;
-  ended_at: string;
-  duration_secs?: number;
-  reason?: string;
-  timestamp: string;
-  transcript?: {
-    text: string;
-    segments?: Array<{
-      speaker: "agent" | "customer";
-      text: string;
-      timestamp?: number;
-    }>;
-  };
-  call_summary?: {
-    outcome_type?: string;
-    sentiment?: string;
-    key_points?: string[];
-    next_action?: string;
+export interface ElevenLabsPostCallTranscriptionWebhook {
+  type: "post_call_transcription";
+  event_timestamp: number;
+  data: ElevenLabsPostCallTranscriptionData;
+}
+
+export interface ElevenLabsPostCallAudioWebhook {
+  type: "post_call_audio";
+  event_timestamp: number;
+  data: {
+    conversation_id: string;
+    agent_id: string;
+    audio: string; // base64-encoded audio
   };
 }
 
-export type ElevenLabsEvent = ElevenLabsSessionCreated | ElevenLabsSessionStarted | ElevenLabsSessionEnded;
+export interface ElevenLabsPostCallInitiationFailureWebhook {
+  type: "post_call_initiation_failure";
+  event_timestamp: number;
+  data: {
+    agent_id: string;
+    error: string;
+  };
+}
+
+export type ElevenLabsWebhook =
+  | ElevenLabsPostCallTranscriptionWebhook
+  | ElevenLabsPostCallAudioWebhook
+  | ElevenLabsPostCallInitiationFailureWebhook;

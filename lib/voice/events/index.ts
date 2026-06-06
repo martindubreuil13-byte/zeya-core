@@ -1,28 +1,28 @@
-// ElevenLabs events module — event types, validators, stores, and processor
+// ElevenLabs events module — post-call webhook handling
 
+// Event types
 export type {
-  ElevenLabsEventType,
-  ElevenLabsSessionCreated,
-  ElevenLabsSessionStarted,
-  ElevenLabsSessionEnded,
-  ElevenLabsEvent,
+  ElevenLabsWebhook,
+  ElevenLabsPostCallTranscriptionWebhook,
+  ElevenLabsPostCallTranscriptionData,
+  ElevenLabsTranscriptSegment,
 } from "./elevenlabs-event-types";
 
+// Event validation
+export { isPostCallTranscriptionWebhook, isValidElevenLabsWebhook } from "./elevenlabs-event-validator";
+
+// Conversation storage
+export type { CapturedElevenLabsConversation } from "./elevenlabs-conversation-store";
+export { conversationStore, ConversationStore } from "./elevenlabs-conversation-store";
+
+// Event processing
+export { processElevenLabsWebhook, getConversation, getAllConversations, clearAllState } from "./elevenlabs-event-processor";
+export type { ProcessedWebhookResult } from "./elevenlabs-event-processor";
+
+// Signature verification
 export {
-  isSessionCreated,
-  isSessionStarted,
-  isSessionEnded,
-  isValidElevenLabsEvent,
-} from "./elevenlabs-event-validator";
-
-export type { CallSession, CallSessionStatus } from "./call-session-store";
-export { sessionStore, SessionStore } from "./call-session-store";
-
-export type { TranscriptSegment, CapturedTranscript } from "./transcript-capture";
-export { transcriptStore, TranscriptStore } from "./transcript-capture";
-
-export type { StoredCallOutcome } from "./call-outcome-store";
-export { outcomeStore, OutcomeStore } from "./call-outcome-store";
-
-export { processElevenLabsEvent, getSessionState, getAllState, clearAllState } from "./elevenlabs-event-processor";
-export type { ProcessedEvent } from "./elevenlabs-event-processor";
+  verifyElevenLabsSignature,
+  shouldVerifySignature,
+  getWebhookSecret,
+  logSignatureWarning,
+} from "./elevenlabs-signature-verifier";

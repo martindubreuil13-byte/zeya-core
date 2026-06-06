@@ -1,174 +1,115 @@
-// ElevenLabs event processor — orchestrates event handling across stores
+// ElevenLabs event processor — handles post-call webhook data
 
-import {
-  isSessionCreated,
-  isSessionStarted,
-  isSessionEnded,
-} from "./elevenlabs-event-validator";
-import type {
-  ElevenLabsEvent,
-  ElevenLabsSessionCreated,
-  ElevenLabsSessionStarted,
-  ElevenLabsSessionEnded,
-} from "./elevenlabs-event-types";
-import { sessionStore } from "./call-session-store";
-import { transcriptStore } from "./transcript-capture";
-import { outcomeStore } from "./call-outcome-store";
+import { isPostCallTranscriptionWebhook } from "./elevenlabs-event-validator";
+import type { ElevenLabsPostCallTranscriptionWebhook } from "./elevenlabs-event-types";
+import { conversationStore } from "./elevenlabs-conversation-store";
 
-export interface ProcessedEvent {
+export interface ProcessedWebhookResult {
   success: boolean;
-  eventType: string;
-  sessionId: string;
+  type: string;
+  conversationId: string;
+  duplicate?: boolean;
   message: string;
 }
 
-export function processElevenLabsEvent(event: unknown): ProcessedEvent {
-  if (isSessionCreated(event)) {
-    return processSessionCreated(event);
-  }
-
-  if (isSessionStarted(event)) {
-    return processSessionStarted(event);
-  }
-
-  if (isSessionEnded(event)) {
-    return processSessionEnded(event);
-  }
-
-  return {
-    success: false,
-    eventType: "unknown",
-    sessionId: "",
-    message: "Unknown or invalid event type",
-  };
+// Simple deduplication: track conversation_id + event_timestamp
+interface SeenWebhookKey {
+  eventTimestamp: number;
+  conversationId: string;
 }
 
-function processSessionCreated(event: ElevenLabsSessionCreated): ProcessedEvent {
+const seenWebhooks = new Set<string>();
+
+function getWebhookKey(
+  eventTimestamp: number,
+  conversationId: string
+): string {
+  return `${eventTimestamp}:${conversationId}`;
+}
+
+function isDuplicate(
+  eventTimestamp: number,
+  conversationId: string
+): boolean {
+  const key = getWebhookKey(eventTimestamp, conversationId);
+  return seenWebhooks.has(key);
+}
+
+function markAsSeen(
+  eventTimestamp: number,
+  conversationId: string
+): void {
+  const key = getWebhookKey(eventTimestamp, conversationId);
+  seenWebhooks.add(key);
+}
+
+export function processElevenLabsWebhook(
+  webhook: unknown,
+  rawPayload?: Record<string, unknown>
+): ProcessedWebhookResult {
+  if (!isPostCallTranscriptionWebhook(webhook)) {
+    return {
+      success: false,
+      type: "unknown",
+      conversationId: "",
+      message: "Invalid webhook structure or unsupported type",
+    };
+  }
+
+  const webhook_typed = webhook as ElevenLabsPostCallTranscriptionWebhook;
+  const conversationId = webhook_typed.data.conversation_id;
+  const eventTimestamp = webhook_typed.event_timestamp;
+
+  // Check for duplicates
+  if (isDuplicate(eventTimestamp, conversationId)) {
+    return {
+      success: true,
+      type: "post_call_transcription",
+      conversationId,
+      duplicate: true,
+      message: `Duplicate webhook for conversation ${conversationId}`,
+    };
+  }
+
   try {
-    sessionStore.createSession(
-      event.session_id,
-      event.agent_id,
-      event.phone_number_called,
-      event.from_number
+    // Save conversation to store
+    conversationStore.saveConversation(
+      conversationId,
+      webhook_typed.data.agent_id,
+      webhook_typed.data,
+      eventTimestamp,
+      rawPayload
     );
 
+    // Mark as seen
+    markAsSeen(eventTimestamp, conversationId);
+
     return {
       success: true,
-      eventType: "session_created",
-      sessionId: event.session_id,
-      message: `Session created: ${event.session_id}`,
+      type: "post_call_transcription",
+      conversationId,
+      message: `Post-call webhook processed for conversation ${conversationId}`,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return {
       success: false,
-      eventType: "session_created",
-      sessionId: event.session_id,
-      message: `Failed to process session_created: ${message}`,
+      type: "post_call_transcription",
+      conversationId,
+      message: `Failed to process post-call webhook: ${message}`,
     };
   }
 }
 
-function processSessionStarted(event: ElevenLabsSessionStarted): ProcessedEvent {
-  try {
-    const session = sessionStore.startSession(event.session_id);
-
-    if (!session) {
-      return {
-        success: false,
-        eventType: "session_started",
-        sessionId: event.session_id,
-        message: `Session not found: ${event.session_id}`,
-      };
-    }
-
-    return {
-      success: true,
-      eventType: "session_started",
-      sessionId: event.session_id,
-      message: `Session started: ${event.session_id}`,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      success: false,
-      eventType: "session_started",
-      sessionId: event.session_id,
-      message: `Failed to process session_started: ${message}`,
-    };
-  }
+export function getConversation(conversationId: string) {
+  return conversationStore.getConversation(conversationId);
 }
 
-function processSessionEnded(event: ElevenLabsSessionEnded): ProcessedEvent {
-  try {
-    // End the session
-    const session = sessionStore.endSession(event.session_id, event.duration_secs);
-
-    if (!session) {
-      return {
-        success: false,
-        eventType: "session_ended",
-        sessionId: event.session_id,
-        message: `Session not found: ${event.session_id}`,
-      };
-    }
-
-    // Capture transcript if provided
-    if (event.transcript) {
-      transcriptStore.captureTranscript(
-        event.session_id,
-        event.transcript.text,
-        event.transcript.segments ?? []
-      );
-    }
-
-    // Save outcome if provided
-    if (event.call_summary) {
-      outcomeStore.saveOutcome(
-        event.session_id,
-        event.call_summary.outcome_type,
-        event.call_summary.sentiment,
-        event.duration_secs,
-        event.call_summary.key_points,
-        event.call_summary.next_action
-      );
-    }
-
-    return {
-      success: true,
-      eventType: "session_ended",
-      sessionId: event.session_id,
-      message: `Session ended: ${event.session_id} (duration: ${event.duration_secs}s)`,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      success: false,
-      eventType: "session_ended",
-      sessionId: event.session_id,
-      message: `Failed to process session_ended: ${message}`,
-    };
-  }
-}
-
-export function getSessionState(sessionId: string) {
-  return {
-    session: sessionStore.getSession(sessionId),
-    transcript: transcriptStore.getTranscript(sessionId),
-    outcome: outcomeStore.getOutcome(sessionId),
-  };
-}
-
-export function getAllState() {
-  return {
-    sessions: sessionStore.getAllSessions(),
-    transcripts: transcriptStore.getAllTranscripts(),
-    outcomes: outcomeStore.getAllOutcomes(),
-  };
+export function getAllConversations() {
+  return conversationStore.getAllConversations();
 }
 
 export function clearAllState() {
-  sessionStore.clear();
-  transcriptStore.clear();
-  outcomeStore.clear();
+  conversationStore.clear();
+  seenWebhooks.clear();
 }
