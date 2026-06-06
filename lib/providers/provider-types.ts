@@ -1,0 +1,27 @@
+export type ProviderType = "MOCK" | "TWILIO";
+
+export type ProviderDispatchStatus = "SIMULATED" | "DISPATCHED" | "FAILED";
+
+export interface ProviderDispatchRequest {
+  workerBriefId: string;
+  missionId: string;
+  targetName: string | null;
+  targetPhone: string | null;
+  objective: string;
+  dynamicVariables: Record<string, string | number | boolean | null>;
+}
+
+export interface ProviderDispatchResult {
+  providerType: ProviderType;
+  providerCallId: string;
+  status: ProviderDispatchStatus;
+  message: string;
+  createdAt: string;
+}
+
+export interface ProviderWebhookEvent {
+  providerType: ProviderType;
+  providerCallId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+}
