@@ -109,16 +109,27 @@ export async function processElevenLabsWebhook(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    const code = (error as any)?.code;
+    const details = (error as any)?.details;
+
     console.error("[event-processor] 🔴 Failed to process webhook", {
       conversationId,
       error: message,
+      code,
+      details,
       stack: error instanceof Error ? error.stack : undefined,
     });
+
     return {
       success: false,
       type: "post_call_transcription",
       conversationId,
       message: `Failed to process post-call webhook: ${message}`,
+      error: {
+        code: code || "UNKNOWN",
+        message,
+        details,
+      },
     };
   }
 }

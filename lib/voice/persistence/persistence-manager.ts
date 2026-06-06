@@ -15,9 +15,16 @@ import {
   loadRecentMemoryEvents,
 } from "./memory-event-repository";
 
+export type PersistOutcomeError = {
+  code?: string;
+  message: string;
+  details?: string;
+};
+
 /**
  * Persist a CallOutcome to Supabase
  * Waits for persistence to complete before returning
+ * Throws error with full details if persistence fails
  */
 export async function persistOutcome(outcome: CallOutcome): Promise<void> {
   console.log("[persistence-manager] 🔵 persistOutcome: Starting", {
@@ -26,35 +33,47 @@ export async function persistOutcome(outcome: CallOutcome): Promise<void> {
     outcomeType: outcome.outcome,
   });
 
-  return saveOutcome(outcome).then((success) => {
-    if (success) {
+  try {
+    const result = await saveOutcome(outcome);
+
+    if (result.success) {
       console.log("[persistence-manager] 🟢 persistOutcome: Success", {
         conversationId: outcome.conversationId,
         workerBriefId: outcome.workerBriefId,
         outcomeType: outcome.outcome,
       });
-    } else {
-      console.error("[persistence-manager] 🔴 persistOutcome: Failed (no error details)", {
-        conversationId: outcome.conversationId,
-        workerBriefId: outcome.workerBriefId,
-        outcomeType: outcome.outcome,
-      });
-      throw new Error("Outcome persistence returned false without error details");
+      return;
     }
-  }).catch((error) => {
+
+    console.error("[persistence-manager] 🔴 persistOutcome: Failed", {
+      conversationId: outcome.conversationId,
+      workerBriefId: outcome.workerBriefId,
+      outcomeType: outcome.outcome,
+      error: result.error,
+    });
+
+    const error = result.error || { code: "UNKNOWN", message: "Unknown error" };
+    const err = new Error(error.message);
+    (err as any).code = error.code;
+    (err as any).details = error.details;
+    throw err;
+  } catch (error) {
     console.error("[persistence-manager] 🔴 persistOutcome: Exception", {
       conversationId: outcome.conversationId,
       workerBriefId: outcome.workerBriefId,
       outcomeType: outcome.outcome,
       error: error instanceof Error ? error.message : "Unknown error",
+      code: (error as any)?.code,
+      details: (error as any)?.details,
     });
     throw error;
-  });
+  }
 }
 
 /**
  * Persist a MemoryEvent to Supabase
  * Waits for persistence to complete before returning
+ * Throws error with full details if persistence fails
  */
 export async function persistMemoryEvent(event: MemoryEvent): Promise<void> {
   console.log("[persistence-manager] 🔵 persistMemoryEvent: Starting", {
@@ -62,27 +81,38 @@ export async function persistMemoryEvent(event: MemoryEvent): Promise<void> {
     memoryType: event.memoryType,
   });
 
-  return saveMemoryEvent(event).then((success) => {
-    if (success) {
+  try {
+    const result = await saveMemoryEvent(event);
+
+    if (result.success) {
       console.log("[persistence-manager] 🟢 persistMemoryEvent: Success", {
         memoryEventId: event.memoryEventId,
         memoryType: event.memoryType,
       });
-    } else {
-      console.error("[persistence-manager] 🔴 persistMemoryEvent: Failed (no error details)", {
-        memoryEventId: event.memoryEventId,
-        memoryType: event.memoryType,
-      });
-      throw new Error("Memory event persistence returned false without error details");
+      return;
     }
-  }).catch((error) => {
+
+    console.error("[persistence-manager] 🔴 persistMemoryEvent: Failed", {
+      memoryEventId: event.memoryEventId,
+      memoryType: event.memoryType,
+      error: result.error,
+    });
+
+    const error = result.error || { code: "UNKNOWN", message: "Unknown error" };
+    const err = new Error(error.message);
+    (err as any).code = error.code;
+    (err as any).details = error.details;
+    throw err;
+  } catch (error) {
     console.error("[persistence-manager] 🔴 persistMemoryEvent: Exception", {
       memoryEventId: event.memoryEventId,
       memoryType: event.memoryType,
       error: error instanceof Error ? error.message : "Unknown error",
+      code: (error as any)?.code,
+      details: (error as any)?.details,
     });
     throw error;
-  });
+  }
 }
 
 /**

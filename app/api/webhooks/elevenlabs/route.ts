@@ -123,26 +123,40 @@ export async function POST(req: NextRequest) {
 
     const statusCode = result.success ? 200 : 400;
 
-    return NextResponse.json(
-      {
-        success: result.success,
-        type: result.type,
-        conversationId: result.conversationId,
-        duplicate: result.duplicate,
-        message: result.message,
-      },
-      { status: statusCode }
-    );
+    const response: any = {
+      success: result.success,
+      type: result.type,
+      conversationId: result.conversationId,
+      duplicate: result.duplicate,
+      message: result.message,
+    };
+
+    if ((result as any).error) {
+      response.error = (result as any).error;
+    }
+
+    return NextResponse.json(response, { status: statusCode });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    const code = (error as any)?.code;
+    const details = (error as any)?.details;
 
     console.error("[webhook] 🔴 Webhook route: Unexpected error", {
       message,
+      code,
+      details,
       stack: error instanceof Error ? error.stack : undefined,
     });
 
     return NextResponse.json(
-      { success: false, error: message },
+      {
+        success: false,
+        error: {
+          code: code || "UNEXPECTED_ERROR",
+          message,
+          details,
+        },
+      },
       { status: 500 }
     );
   }

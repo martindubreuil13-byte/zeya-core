@@ -23,21 +23,32 @@ export interface PersistedMemoryEvent {
   summary?: string;
 }
 
+export type SaveMemoryEventResult = {
+  success: boolean;
+  error?: {
+    code?: string;
+    message: string;
+    details?: string;
+  };
+};
+
 /**
  * Save MemoryEvent to Supabase memory_events table
  * Maps Phase 12A MemoryEvent fields to actual memory_events schema
  * Note: Requires business_id; if not available, defaults to empty string (caller must provide context)
  */
-export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): Promise<boolean> {
+export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): Promise<SaveMemoryEventResult> {
   console.log("[memory-event-repo] 🔵 Checking Supabase client", {
     configured: !!supabase,
   });
 
   if (!supabase) {
+    const error = { code: "SUPABASE_NOT_CONFIGURED", message: "Supabase client not initialized" };
     console.error("[memory-event-repo] 🔴 Supabase not configured, skipping persistence", {
       memoryType: event.memoryType,
+      error: error.message,
     });
-    return false;
+    return { success: false, error };
   }
 
   try {
@@ -60,13 +71,18 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
       ]);
 
     if (error) {
+      const errorObj = {
+        code: error.code || "UNKNOWN",
+        message: error.message || "Unknown Supabase error",
+        details: error.details || undefined,
+      };
       console.error("[memory-event-repo] 🔴 Supabase INSERT failed", {
         memoryType: event.memoryType,
-        error: error.message,
-        code: error.code,
-        details: error.details,
+        error: errorObj.message,
+        code: errorObj.code,
+        details: errorObj.details,
       });
-      return false;
+      return { success: false, error: errorObj };
     }
 
     console.log("[memory-event-repo] 🟢 Memory event successfully inserted", {
@@ -74,15 +90,20 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
       source: event.source,
     });
 
-    return true;
+    return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    const errorObj = {
+      code: "UNEXPECTED_ERROR",
+      message,
+      details: error instanceof Error ? error.stack : undefined,
+    };
     console.error("[memory-event-repo] 🔴 Unexpected error saving memory event", {
       memoryType: event.memoryType,
       message,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return false;
+    return { success: false, error: errorObj };
   }
 }
 

@@ -77,7 +77,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/webhooks/elevenlab
   -d "$TEST_PAYLOAD")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
-BODY=$(echo "$RESPONSE" | head -n -1)
+BODY=$(echo "$RESPONSE" | sed '$ d')
 
 if [ "$HTTP_CODE" = "200" ]; then
   echo "✅ HTTP 200 - Signature verified successfully!"

@@ -30,11 +30,20 @@ export interface PersistedOutcome {
   meeting_date?: string;
 }
 
+export type SaveOutcomeResult = {
+  success: boolean;
+  error?: {
+    code?: string;
+    message: string;
+    details?: string;
+  };
+};
+
 /**
  * Save CallOutcome to Supabase call_outcomes table
  * Maps Phase 12A CallOutcome fields to actual call_outcomes schema
  */
-export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
+export async function saveOutcome(outcome: CallOutcome): Promise<SaveOutcomeResult> {
   console.log("[outcome-repo] 🔵 Checking Supabase client", {
     configured: !!supabase,
     url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -42,10 +51,12 @@ export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
   });
 
   if (!supabase) {
+    const error = { code: "SUPABASE_NOT_CONFIGURED", message: "Supabase client not initialized" };
     console.error("[outcome-repo] 🔴 Supabase not configured, skipping persistence", {
       conversationId: outcome.conversationId,
+      error: error.message,
     });
-    return false;
+    return { success: false, error };
   }
 
   try {
@@ -71,13 +82,18 @@ export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
       ]);
 
     if (error) {
+      const errorObj = {
+        code: error.code || "UNKNOWN",
+        message: error.message || "Unknown Supabase error",
+        details: error.details || undefined,
+      };
       console.error("[outcome-repo] 🔴 Supabase INSERT failed", {
         conversationId: outcome.conversationId,
-        error: error.message,
-        code: error.code,
-        details: error.details,
+        error: errorObj.message,
+        code: errorObj.code,
+        details: errorObj.details,
       });
-      return false;
+      return { success: false, error: errorObj };
     }
 
     console.log("[outcome-repo] 🟢 Outcome successfully inserted into call_outcomes", {
@@ -85,15 +101,20 @@ export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
       outcome: outcome.outcome,
     });
 
-    return true;
+    return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    const errorObj = {
+      code: "UNEXPECTED_ERROR",
+      message,
+      details: error instanceof Error ? error.stack : undefined,
+    };
     console.error("[outcome-repo] 🔴 Unexpected error saving outcome", {
       conversationId: outcome.conversationId,
       message,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return false;
+    return { success: false, error: errorObj };
   }
 }
 
