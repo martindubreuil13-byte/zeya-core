@@ -20,7 +20,7 @@ import {
  * Waits for persistence to complete before returning
  */
 export async function persistOutcome(outcome: CallOutcome): Promise<void> {
-  console.log("[persistence] Persistence Start", {
+  console.log("[persistence-manager] 🔵 persistOutcome: Starting", {
     conversationId: outcome.conversationId,
     workerBriefId: outcome.workerBriefId,
     outcomeType: outcome.outcome,
@@ -28,20 +28,21 @@ export async function persistOutcome(outcome: CallOutcome): Promise<void> {
 
   return saveOutcome(outcome).then((success) => {
     if (success) {
-      console.log("[persistence] Persistence Success", {
+      console.log("[persistence-manager] 🟢 persistOutcome: Success", {
         conversationId: outcome.conversationId,
         workerBriefId: outcome.workerBriefId,
         outcomeType: outcome.outcome,
       });
     } else {
-      console.error("[persistence] Persistence Failure (no error returned)", {
+      console.error("[persistence-manager] 🔴 persistOutcome: Failed (no error details)", {
         conversationId: outcome.conversationId,
         workerBriefId: outcome.workerBriefId,
         outcomeType: outcome.outcome,
       });
+      throw new Error("Outcome persistence returned false without error details");
     }
   }).catch((error) => {
-    console.error("[persistence] Persistence Failure", {
+    console.error("[persistence-manager] 🔴 persistOutcome: Exception", {
       conversationId: outcome.conversationId,
       workerBriefId: outcome.workerBriefId,
       outcomeType: outcome.outcome,
@@ -56,22 +57,26 @@ export async function persistOutcome(outcome: CallOutcome): Promise<void> {
  * Waits for persistence to complete before returning
  */
 export async function persistMemoryEvent(event: MemoryEvent): Promise<void> {
+  console.log("[persistence-manager] 🔵 persistMemoryEvent: Starting", {
+    memoryEventId: event.memoryEventId,
+    memoryType: event.memoryType,
+  });
+
   return saveMemoryEvent(event).then((success) => {
     if (success) {
-      if (process.env.NODE_ENV === "development") {
-        console.log("[persistence] Memory event persisted:", {
-          memoryEventId: event.memoryEventId,
-          memoryType: event.memoryType,
-        });
-      }
-    } else {
-      console.error("[persistence] Memory event persistence failed (no error returned)", {
+      console.log("[persistence-manager] 🟢 persistMemoryEvent: Success", {
         memoryEventId: event.memoryEventId,
         memoryType: event.memoryType,
       });
+    } else {
+      console.error("[persistence-manager] 🔴 persistMemoryEvent: Failed (no error details)", {
+        memoryEventId: event.memoryEventId,
+        memoryType: event.memoryType,
+      });
+      throw new Error("Memory event persistence returned false without error details");
     }
   }).catch((error) => {
-    console.error("[persistence] Memory event persistence error", {
+    console.error("[persistence-manager] 🔴 persistMemoryEvent: Exception", {
       memoryEventId: event.memoryEventId,
       memoryType: event.memoryType,
       error: error instanceof Error ? error.message : "Unknown error",

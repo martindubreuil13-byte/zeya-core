@@ -74,6 +74,8 @@ export async function processElevenLabsWebhook(
   }
 
   try {
+    console.log("[event-processor] 🔵 Saving conversation to in-memory store", { conversationId });
+
     // Save conversation to store
     const conversation = conversationStore.saveConversation(
       conversationId,
@@ -83,12 +85,21 @@ export async function processElevenLabsWebhook(
       rawPayload
     );
 
+    console.log("[event-processor] 🟢 Conversation saved to in-memory store", { conversationId });
+
     // Mark as seen
     markAsSeen(eventTimestamp, conversationId);
 
     // Generate CallOutcome from conversation
+    console.log("[event-processor] 🔵 Generating CallOutcome from conversation", { conversationId });
     const workerBriefId = mappingStore.getWorkerBriefId(conversationId);
+
     await processAndStoreOutcome(conversation, workerBriefId);
+
+    console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
+      conversationId,
+      workerBriefId,
+    });
 
     return {
       success: true,
@@ -98,6 +109,11 @@ export async function processElevenLabsWebhook(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[event-processor] 🔴 Failed to process webhook", {
+      conversationId,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return {
       success: false,
       type: "post_call_transcription",

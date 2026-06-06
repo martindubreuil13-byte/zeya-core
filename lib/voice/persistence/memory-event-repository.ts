@@ -29,12 +29,23 @@ export interface PersistedMemoryEvent {
  * Note: Requires business_id; if not available, defaults to empty string (caller must provide context)
  */
 export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): Promise<boolean> {
+  console.log("[memory-event-repo] 🔵 Checking Supabase client", {
+    configured: !!supabase,
+  });
+
   if (!supabase) {
-    console.warn("[memory-event-repo] Supabase not configured, skipping persistence");
+    console.error("[memory-event-repo] 🔴 Supabase not configured, skipping persistence", {
+      memoryType: event.memoryType,
+    });
     return false;
   }
 
   try {
+    console.log("[memory-event-repo] 🔵 Inserting memory event into memory_events table", {
+      memoryType: event.memoryType,
+      source: event.source,
+    });
+
     const { error } = await supabase
       .from("memory_events")
       .insert([
@@ -49,26 +60,27 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
       ]);
 
     if (error) {
-      console.error("[memory-event-repo] Error saving memory event:", {
+      console.error("[memory-event-repo] 🔴 Supabase INSERT failed", {
         memoryType: event.memoryType,
         error: error.message,
+        code: error.code,
+        details: error.details,
       });
       return false;
     }
 
-    if (process.env.NODE_ENV === "development") {
-      console.log("[memory-event-repo] Saved memory event:", {
-        memoryType: event.memoryType,
-        source: event.source,
-      });
-    }
+    console.log("[memory-event-repo] 🟢 Memory event successfully inserted", {
+      memoryType: event.memoryType,
+      source: event.source,
+    });
 
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[memory-event-repo] Unexpected error saving memory event:", {
+    console.error("[memory-event-repo] 🔴 Unexpected error saving memory event", {
       memoryType: event.memoryType,
       message,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     return false;
   }

@@ -52,26 +52,39 @@ export async function processAndStoreOutcome(
   conversation: CapturedElevenLabsConversation,
   workerBriefId: string | null = null
 ): Promise<CallOutcome> {
+  console.log("[outcome-processor] 🔵 Building CallOutcome from conversation", {
+    conversationId: conversation.conversationId,
+    workerBriefId,
+  });
+
   // Build outcome
   const outcome = buildCallOutcomeFromConversation(conversation, workerBriefId);
 
+  console.log("[outcome-processor] 🟢 CallOutcome built", {
+    conversationId: conversation.conversationId,
+    outcome: outcome.outcome,
+    confidence: outcome.confidence,
+  });
+
   // Store in memory
+  console.log("[outcome-processor] 🔵 Storing outcome in memory");
   outcomeStore.saveOutcome(outcome);
+  console.log("[outcome-processor] 🟢 Outcome stored in memory");
 
   // Persist outcome to Supabase (wait for completion)
+  console.log("[outcome-processor] 🔵 Persisting outcome to Supabase");
   await persistOutcome(outcome);
+  console.log("[outcome-processor] 🟢 Outcome persisted to Supabase");
 
   // Convert to memory event and persist
+  console.log("[outcome-processor] 🔵 Creating and persisting memory event");
   await processCallOutcomeToMemoryEvent(outcome);
+  console.log("[outcome-processor] 🟢 Memory event persisted");
 
-  if (process.env.NODE_ENV === "development") {
-    console.log("[outcome-processor] Generated outcome:", {
-      conversationId: conversation.conversationId,
-      outcome: outcome.outcome,
-      confidence: outcome.confidence,
-      recommendedAction: outcome.recommendedAction,
-    });
-  }
+  console.log("[outcome-processor] 🟢 Complete outcome processing pipeline finished", {
+    conversationId: conversation.conversationId,
+    outcome: outcome.outcome,
+  });
 
   return outcome;
 }

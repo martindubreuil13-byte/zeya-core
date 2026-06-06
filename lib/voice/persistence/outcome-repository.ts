@@ -35,12 +35,26 @@ export interface PersistedOutcome {
  * Maps Phase 12A CallOutcome fields to actual call_outcomes schema
  */
 export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
+  console.log("[outcome-repo] 🔵 Checking Supabase client", {
+    configured: !!supabase,
+    url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
+
   if (!supabase) {
-    console.warn("[outcome-repo] Supabase not configured, skipping persistence");
+    console.error("[outcome-repo] 🔴 Supabase not configured, skipping persistence", {
+      conversationId: outcome.conversationId,
+    });
     return false;
   }
 
   try {
+    console.log("[outcome-repo] 🔵 Inserting outcome into call_outcomes table", {
+      conversationId: outcome.conversationId,
+      outcome: outcome.outcome,
+      workerBriefId: outcome.workerBriefId,
+    });
+
     const { error } = await supabase
       .from("call_outcomes")
       .insert([
@@ -57,27 +71,27 @@ export async function saveOutcome(outcome: CallOutcome): Promise<boolean> {
       ]);
 
     if (error) {
-      console.error("[outcome-repo] Error saving outcome:", {
+      console.error("[outcome-repo] 🔴 Supabase INSERT failed", {
         conversationId: outcome.conversationId,
         error: error.message,
+        code: error.code,
+        details: error.details,
       });
       return false;
     }
 
-    if (process.env.NODE_ENV === "development") {
-      console.log("[outcome-repo] Saved outcome:", {
-        conversationId: outcome.conversationId,
-        outcome: outcome.outcome,
-        confidence: outcome.confidence,
-      });
-    }
+    console.log("[outcome-repo] 🟢 Outcome successfully inserted into call_outcomes", {
+      conversationId: outcome.conversationId,
+      outcome: outcome.outcome,
+    });
 
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[outcome-repo] Unexpected error saving outcome:", {
+    console.error("[outcome-repo] 🔴 Unexpected error saving outcome", {
       conversationId: outcome.conversationId,
       message,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     return false;
   }

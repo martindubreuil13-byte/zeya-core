@@ -61,8 +61,17 @@ const VOICEMAIL_KEYWORDS = [
  * Uses rules-based classification (no AI/LLM)
  */
 export function detectOutcome(conversation: CapturedElevenLabsConversation): OutcomeDetectionResult {
+  console.log("[outcome-builder] 🔵 Detecting outcome from conversation", {
+    conversationId: conversation.conversationId,
+    status: conversation.status,
+    summaryLength: conversation.summary?.length || 0,
+    transcriptSegments: conversation.transcript.length,
+    callDuration: conversation.callDuration,
+  });
+
   // Check call status
   if (conversation.status === "failed") {
+    console.log("[outcome-builder] 🟡 Outcome: Call failed", { conversationId: conversation.conversationId });
     return {
       outcome: "unknown",
       confidence: 0.3,
@@ -79,6 +88,7 @@ export function detectOutcome(conversation: CapturedElevenLabsConversation): Out
 
   // Check for voicemail first (short call, no interaction, voicemail keywords)
   if (isVoicemail(conversation, summary, transcriptText)) {
+    console.log("[outcome-builder] 🟢 Outcome detected: voicemail", { conversationId: conversation.conversationId });
     return {
       outcome: "voicemail",
       confidence: 0.95,
@@ -99,6 +109,7 @@ export function detectOutcome(conversation: CapturedElevenLabsConversation): Out
 
   // Check for callback request
   if (hasKeywords(summary, CALLBACK_KEYWORDS) || hasKeywords(transcriptText, CALLBACK_KEYWORDS)) {
+    console.log("[outcome-builder] 🟢 Outcome detected: callback_requested", { conversationId: conversation.conversationId });
     return {
       outcome: "callback_requested",
       confidence: 0.9,
@@ -109,6 +120,7 @@ export function detectOutcome(conversation: CapturedElevenLabsConversation): Out
 
   // Check for disinterest BEFORE interest (to avoid matching "not interested" as "interested")
   if (hasKeywords(summary, DISINTEREST_KEYWORDS) || hasKeywords(transcriptText, DISINTEREST_KEYWORDS)) {
+    console.log("[outcome-builder] 🟢 Outcome detected: not_interested", { conversationId: conversation.conversationId });
     return {
       outcome: "not_interested",
       confidence: 0.8,
@@ -119,6 +131,7 @@ export function detectOutcome(conversation: CapturedElevenLabsConversation): Out
 
   // Check for interest
   if (hasKeywords(summary, INTEREST_KEYWORDS) || hasKeywords(transcriptText, INTEREST_KEYWORDS)) {
+    console.log("[outcome-builder] 🟢 Outcome detected: interested", { conversationId: conversation.conversationId });
     return {
       outcome: "interested",
       confidence: 0.85,
@@ -136,6 +149,11 @@ export function detectOutcome(conversation: CapturedElevenLabsConversation): Out
   }
 
   // Default to unknown with follow-up action
+  console.log("[outcome-builder] 🟡 Outcome detected: unknown (no keywords matched)", {
+    conversationId: conversation.conversationId,
+    summaryLength: summary.length,
+    transcriptLength: transcriptText.length,
+  });
   return {
     outcome: "unknown",
     confidence: 0.3,
