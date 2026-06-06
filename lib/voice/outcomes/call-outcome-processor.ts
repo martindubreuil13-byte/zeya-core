@@ -96,12 +96,22 @@ export async function processAndStoreOutcome(
   }
 
   // Convert to memory event and persist
-  console.log("[outcome-processor] 🔵 Creating and persisting memory event", {
+  console.log("[outcome-processor] 🔵 Processing memory event", {
     conversationId: outcome.conversationId,
     workerBriefId: outcome.workerBriefId,
     outcome: outcome.outcome,
-    businessId,
+    businessId: businessId || "MISSING",
   });
+
+  // Skip memory event creation if businessId unavailable
+  if (!businessId) {
+    console.warn("[outcome-processor] 🟡 Skipping memory event: businessId not available in mapping", {
+      conversationId: outcome.conversationId,
+      workerBriefId: outcome.workerBriefId,
+      reason: "Mapping must be registered before webhook for memory events to be created",
+    });
+    return outcome;
+  }
 
   try {
     await processCallOutcomeToMemoryEvent(outcome, businessId);
@@ -117,7 +127,8 @@ export async function processAndStoreOutcome(
       businessId,
       error: memoryError instanceof Error ? memoryError.message : "Unknown error",
     });
-    throw memoryError;
+    // Don't fail entire webhook if memory event fails - call outcome was already saved
+    console.warn("[outcome-processor] 🟡 Continuing despite memory event error - call_outcomes already persisted");
   }
 
   console.log("[outcome-processor] 🟢 Complete outcome processing pipeline finished", {

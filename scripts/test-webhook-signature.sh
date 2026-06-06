@@ -21,13 +21,55 @@ echo "Base URL: $BASE_URL"
 echo "Secret length: ${#SECRET}"
 echo ""
 
-# Create test payload
-TEST_PAYLOAD=$(cat <<'EOF'
+# Test data
+CONVERSATION_ID="test_conv_12345"
+WORKER_BRIEF_ID="test_brief_67890"
+MISSION_ID="test_mission_abcde"
+BUSINESS_ID="550e8400-e29b-41d4-a716-446655440000"
+
+echo "========================================"
+echo "Step 1: Register test mapping (REQUIRED)"
+echo "========================================"
+echo ""
+echo "Registering mapping with:"
+echo "  conversationId: $CONVERSATION_ID"
+echo "  workerBriefId: $WORKER_BRIEF_ID"
+echo "  missionId: $MISSION_ID"
+echo "  businessId: $BUSINESS_ID"
+echo ""
+
+MAPPING_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/webhooks/elevenlabs/test-mapping" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"conversationId\": \"$CONVERSATION_ID\",
+    \"workerBriefId\": \"$WORKER_BRIEF_ID\",
+    \"missionId\": \"$MISSION_ID\",
+    \"businessId\": \"$BUSINESS_ID\"
+  }")
+
+MAPPING_CODE=$(echo "$MAPPING_RESPONSE" | tail -n 1)
+MAPPING_BODY=$(echo "$MAPPING_RESPONSE" | sed '$ d')
+
+if [ "$MAPPING_CODE" = "200" ]; then
+  echo "✅ Mapping registered successfully"
+  echo "Response: $MAPPING_BODY"
+else
+  echo "❌ Failed to register mapping (HTTP $MAPPING_CODE)"
+  echo "Response: $MAPPING_BODY"
+  echo ""
+  echo "Cannot continue without mapping. businessId will be null."
+  exit 1
+fi
+
+echo ""
+
+# Create test payload (must match CONVERSATION_ID from mapping)
+TEST_PAYLOAD=$(cat <<EOF
 {
   "type": "post_call_transcription",
   "event_timestamp": 1717651200,
   "data": {
-    "conversation_id": "test_conv_12345",
+    "conversation_id": "$CONVERSATION_ID",
     "agent_id": "test_agent_abc",
     "status": "done",
     "summary": "Test conversation for signature verification",
@@ -59,14 +101,21 @@ else
   SIGNATURE=$(echo -n "$TEST_PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')
 fi
 
-echo "✅ Payload created"
+echo "✅ Payload created (conversationId: $CONVERSATION_ID)"
 echo "✅ Signature computed: ${SIGNATURE:0:32}..."
 echo ""
 
-# Test 1: Valid signature
+# Test 1: Valid signature with registered mapping
 echo "========================================"
-echo "Test 1: Valid signature (should return 200)"
+echo "Test 1: Valid signature with registered mapping (should return 200)"
 echo "========================================"
+echo ""
+echo "Now webhook processing will:"
+echo "  1. Retrieve businessId from mapping"
+echo "  2. Create CallOutcome"
+echo "  3. Create MemoryEvent with businessId"
+echo "  4. Insert into Supabase (NOT NULL businessId = $BUSINESS_ID)"
+echo ""
 echo ""
 echo "Running: POST $BASE_URL/api/webhooks/elevenlabs"
 echo ""
