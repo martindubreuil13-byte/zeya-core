@@ -71,6 +71,20 @@ class ConversationStore {
     return this.getAllConversations().filter((c) => c.eventTimestamp > cutoff);
   }
 
+  getLatestConversation(): CapturedElevenLabsConversation | null {
+    const conversations = this.getAllConversations();
+    if (conversations.length === 0) return null;
+    return conversations.reduce((latest, current) =>
+      current.eventTimestamp > latest.eventTimestamp ? current : latest
+    );
+  }
+
+  getConversationIdsSorted(): string[] {
+    return this.getAllConversations()
+      .sort((a, b) => b.eventTimestamp - a.eventTimestamp)
+      .map((c) => c.conversationId);
+  }
+
   clear(): void {
     this.conversations.clear();
   }

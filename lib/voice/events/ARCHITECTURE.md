@@ -467,6 +467,101 @@ app/api/webhooks/elevenlabs/
 
 ---
 
+## Debugging & Observability
+
+### Status Endpoint
+**Route**: `GET /api/webhooks/elevenlabs/status`
+
+**Purpose**: Check webhook delivery status at a glance
+
+**Response**:
+```json
+{
+  "conversationsReceived": 2,
+  "latestConversationId": "conv_test_debug_002",
+  "latestReceivedAt": "2026-06-06T08:34:06.133Z",
+  "latestStatus": "done",
+  "latestDuration": 45,
+  "conversationIds": [
+    "conv_test_debug_002",
+    "conv_test_debug_001"
+  ]
+}
+```
+
+**Usage**: After a call, open this endpoint to verify webhook arrived:
+```bash
+curl https://zeya.mindrasolutions.com/api/webhooks/elevenlabs/status
+```
+
+### Conversation Inspection Endpoint
+**Route**: `GET /api/webhooks/elevenlabs/conversation/{conversationId}`
+
+**Purpose**: Inspect a specific conversation's details
+
+**Response (Production)**:
+```json
+{
+  "conversationId": "conv_test_debug_001",
+  "agentId": "agent_xyz",
+  "status": "done",
+  "receivedAt": "2026-06-06T08:34:03.026Z",
+  "eventTimestamp": 1717662600,
+  "callDuration": 287,
+  "summary": "User interested in demo",
+  "transcriptSegmentCount": 2,
+  "extractedDataKeys": ["name"],
+  "userId": null,
+  "agentName": null,
+  "hasAudio": false,
+  "hasUserAudio": false,
+  "hasResponseAudio": false
+}
+```
+
+**Response (Development Only)**: In development mode, also includes:
+```json
+{
+  "transcript": [...],
+  "extractedData": {...},
+  "metadata": {...}
+}
+```
+
+**Usage**: Check details of a specific conversation:
+```bash
+curl https://zeya.mindrasolutions.com/api/webhooks/elevenlabs/conversation/conv_abc123
+```
+
+**Error Response** (404):
+```json
+{
+  "error": "Conversation not found"
+}
+```
+
+### Development Logging
+When `NODE_ENV === "development"`, webhook processing logs:
+- Conversation received (ID, duration, segment count, timestamp)
+- Duplicate detection
+- Validation failures
+- Signature verification failures
+
+Example console output:
+```
+[webhook] Conversation received: {
+  conversationId: 'conv_test_debug_001',
+  duration: 287,
+  segments: 2,
+  status: 'done',
+  receivedAt: '2026-06-06T08:34:03.026Z'
+}
+```
+
+**Never logs**: API keys, full transcripts (in production), or sensitive data
+
+---
+
 ## Removed Files (Old Lifecycle Model)
 
 These files are no longer needed (replaced by single webhook model):

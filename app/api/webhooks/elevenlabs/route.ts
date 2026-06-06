@@ -9,6 +9,13 @@ import {
   getWebhookSecret,
   logSignatureWarning,
 } from "@/lib/voice/events/elevenlabs-signature-verifier";
+import {
+  logWebhookReceived,
+  logWebhookDuplicate,
+  logValidationFailed,
+  logSignatureVerificationFailed,
+} from "@/lib/voice/events/elevenlabs-webhook-logger";
+import { conversationStore } from "@/lib/voice/events/elevenlabs-conversation-store";
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,6 +35,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (!secret || !verifyElevenLabsSignature(rawBody, signature, secret)) {
+        logSignatureVerificationFailed();
         return NextResponse.json(
           { success: false, error: "Invalid signature" },
           { status: 401 }
@@ -50,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     // Validate webhook structure
     if (!isValidElevenLabsWebhook(payload)) {
+      logValidationFailed("Invalid webhook structure or type");
       return NextResponse.json(
         { success: false, error: "Invalid webhook structure" },
         { status: 400 }
@@ -70,6 +79,18 @@ export async function POST(req: NextRequest) {
       payload,
       payload as unknown as Record<string, unknown>
     );
+
+    // Log successful processing
+    if (result.success) {
+      if (result.duplicate) {
+        logWebhookDuplicate(result.conversationId);
+      } else {
+        const conversation = conversationStore.getConversation(result.conversationId);
+        if (conversation) {
+          logWebhookReceived(conversation);
+        }
+      }
+    }
 
     const statusCode = result.success ? 200 : 400;
 
