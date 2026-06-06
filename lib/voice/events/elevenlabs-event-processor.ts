@@ -12,6 +12,11 @@ export interface ProcessedWebhookResult {
   conversationId: string;
   duplicate?: boolean;
   message: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
 }
 
 // Simple deduplication: track conversation_id + event_timestamp
