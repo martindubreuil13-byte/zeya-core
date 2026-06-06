@@ -79,6 +79,7 @@ export type VoiceServiceOptions = {
   agentId: string;
   provider?: VoiceProvider;
   userId?: string;
+  workerBriefId?: string; // Linked to webhook context for memory_events
   diagnosticFallbackToWebSocket?: boolean;
 };
 

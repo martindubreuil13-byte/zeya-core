@@ -68,6 +68,13 @@ export async function processElevenLabsWebhook(
   const conversationId = webhook_typed.data.conversation_id;
   const eventTimestamp = webhook_typed.event_timestamp;
 
+  // Extract workerBriefId from webhook's user_id field if not provided as parameter
+  // ElevenLabs returns user_id in webhook if it was passed during conversation init
+  if (!workerBriefId && webhook_typed.data.user_id) {
+    workerBriefId = webhook_typed.data.user_id;
+    console.log("[event-processor] 🟢 Found workerBriefId in webhook user_id field", { workerBriefId });
+  }
+
   // Check for duplicates
   if (isDuplicate(eventTimestamp, conversationId)) {
     return {

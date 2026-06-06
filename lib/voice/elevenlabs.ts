@@ -13,6 +13,7 @@ type ElevenLabsConversation = Awaited<ReturnType<typeof Conversation.startSessio
 type ConversationTokenResponse = {
   conversationToken?: string;
   mode?: "conversation-token";
+  workerBriefId?: string;
   error?: string;
 };
 
@@ -376,8 +377,13 @@ async function readMicrophonePermission(): Promise<PermissionState | "unsupporte
   }
 }
 
-async function resolveConversationToken() {
-  const response = await fetch("/api/elevenlabs/conversation-token", {
+async function resolveConversationToken(workerBriefId?: string) {
+  const url = new URL("/api/elevenlabs/conversation-token", window.location.origin);
+  if (workerBriefId) {
+    url.searchParams.set("workerBriefId", workerBriefId);
+  }
+
+  const response = await fetch(url.toString(), {
     method: "GET",
     cache: "no-store",
   });
@@ -392,7 +398,7 @@ async function resolveConversationToken() {
     throw new Error("ElevenLabs conversation token response was empty.");
   }
 
-  return data.conversationToken;
+  return { token: data.conversationToken, workerBriefId: data.workerBriefId };
 }
 
 async function resolveSignedUrl() {
@@ -650,19 +656,29 @@ export async function createElevenLabsSession(
   events.onMicPermissionChange?.(initialMicPermission);
   devLog("mic permission before start", { status: initialMicPermission });
 
+  // Resolve conversation token, passing workerBriefId for webhook linkage
+  const tokenResult = transport === "webrtc"
+    ? await resolveConversationToken(options.workerBriefId)
+    : null;
+
   const transportOptions: PartialOptions =
     transport === "webrtc"
-      ? { conversationToken: await resolveConversationToken() }
+      ? { conversationToken: tokenResult!.token }
       : { signedUrl: await resolveSignedUrl() };
+
   devLog("connection credential resolved", {
     mode: transport === "webrtc" ? "conversation-token" : "signed-url",
     hasAgentId: Boolean(options.agentId),
+    hasWorkerBriefId: Boolean(options.workerBriefId),
   });
 
-  devLog("session start requested", { transport });
+  // Use workerBriefId as userId if provided (will be returned in webhook)
+  const userId = options.workerBriefId || options.userId;
+
+  devLog("session start requested", { transport, hasUserId: Boolean(userId) });
   const conversation: ElevenLabsConversation = await Conversation.startSession({
     ...transportOptions,
-    userId: options.userId,
+    userId,
     onConversationCreated: (nextConversation) => {
       devLog("conversation object created", {
         conversationId:
