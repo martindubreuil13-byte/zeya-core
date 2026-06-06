@@ -98,8 +98,17 @@ export async function processElevenLabsWebhook(
     // Generate CallOutcome from conversation
     console.log("[event-processor] 🔵 Generating CallOutcome from conversation", { conversationId });
     const workerBriefId = mappingStore.getWorkerBriefId(conversationId);
+    const businessId = mappingStore.getBusinessId(conversationId);
+    const missionId = mappingStore.getMissionId(conversationId);
 
-    await processAndStoreOutcome(conversation, workerBriefId);
+    console.log("[event-processor] 🔵 Retrieved context from mapping", {
+      conversationId,
+      workerBriefId,
+      businessId,
+      missionId,
+    });
+
+    await processAndStoreOutcome(conversation, workerBriefId, businessId);
 
     console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
       conversationId,

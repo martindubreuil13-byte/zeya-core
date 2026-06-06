@@ -50,7 +50,8 @@ export function buildCallOutcomeFromConversation(
  */
 export async function processAndStoreOutcome(
   conversation: CapturedElevenLabsConversation,
-  workerBriefId: string | null = null
+  workerBriefId: string | null = null,
+  businessId: string | null = null
 ): Promise<CallOutcome> {
   console.log("[outcome-processor] 🔵 Building CallOutcome from conversation", {
     conversationId: conversation.conversationId,
@@ -72,14 +73,52 @@ export async function processAndStoreOutcome(
   console.log("[outcome-processor] 🟢 Outcome stored in memory");
 
   // Persist outcome to Supabase (wait for completion)
-  console.log("[outcome-processor] 🔵 Persisting outcome to Supabase");
-  await persistOutcome(outcome);
-  console.log("[outcome-processor] 🟢 Outcome persisted to Supabase");
+  console.log("[outcome-processor] 🔵 Persisting outcome to Supabase", {
+    outcomeId: outcome.outcomeId,
+    conversationId: outcome.conversationId,
+    workerBriefId: outcome.workerBriefId,
+    outcome: outcome.outcome,
+  });
+
+  try {
+    await persistOutcome(outcome);
+    console.log("[outcome-processor] 🟢 Outcome persisted to Supabase successfully", {
+      outcomeId: outcome.outcomeId,
+      conversationId: outcome.conversationId,
+    });
+  } catch (outcomeError) {
+    console.error("[outcome-processor] 🔴 Outcome persistence failed", {
+      outcomeId: outcome.outcomeId,
+      conversationId: outcome.conversationId,
+      error: outcomeError instanceof Error ? outcomeError.message : "Unknown error",
+    });
+    throw outcomeError;
+  }
 
   // Convert to memory event and persist
-  console.log("[outcome-processor] 🔵 Creating and persisting memory event");
-  await processCallOutcomeToMemoryEvent(outcome);
-  console.log("[outcome-processor] 🟢 Memory event persisted");
+  console.log("[outcome-processor] 🔵 Creating and persisting memory event", {
+    conversationId: outcome.conversationId,
+    workerBriefId: outcome.workerBriefId,
+    outcome: outcome.outcome,
+    businessId,
+  });
+
+  try {
+    await processCallOutcomeToMemoryEvent(outcome, businessId);
+    console.log("[outcome-processor] 🟢 Memory event persisted successfully", {
+      conversationId: outcome.conversationId,
+      workerBriefId: outcome.workerBriefId,
+      businessId,
+    });
+  } catch (memoryError) {
+    console.error("[outcome-processor] 🔴 Memory event persistence failed", {
+      conversationId: outcome.conversationId,
+      workerBriefId: outcome.workerBriefId,
+      businessId,
+      error: memoryError instanceof Error ? memoryError.message : "Unknown error",
+    });
+    throw memoryError;
+  }
 
   console.log("[outcome-processor] 🟢 Complete outcome processing pipeline finished", {
     conversationId: conversation.conversationId,

@@ -55,20 +55,40 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
     console.log("[memory-event-repo] 🔵 Inserting memory event into memory_events table", {
       memoryType: event.memoryType,
       source: event.source,
+      workerBriefId: event.workerBriefId,
+      conversationId: event.conversationId,
+    });
+
+    // Trace businessId source
+    console.log("[memory-event-repo] 🔵 businessId trace", {
+      "businessId parameter": businessId || null,
+      "businessId source": businessId ? "conversation-brief-mapping" : "NOT PROVIDED",
+      "businessId available": !!businessId,
+      "MemoryEvent has workerBriefId": !!event.workerBriefId,
+      "MemoryEvent has conversationId": !!event.conversationId,
+    });
+
+    const insertPayload = {
+      business_id: businessId || null,
+      event_type: event.memoryType,
+      content: JSON.stringify(event.payload || {}),
+      metadata: event.payload,
+      source: event.source,
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log("[memory-event-repo] 🔵 INSERT payload", {
+      business_id: insertPayload.business_id,
+      business_id_type: typeof insertPayload.business_id,
+      business_id_is_null: insertPayload.business_id === null,
+      event_type: insertPayload.event_type,
+      source: insertPayload.source,
+      metadata_keys: insertPayload.metadata ? Object.keys(insertPayload.metadata) : [],
     });
 
     const { error } = await supabase
       .from("memory_events")
-      .insert([
-        {
-          business_id: businessId || "",
-          event_type: event.memoryType,
-          content: JSON.stringify(event.payload || {}),
-          metadata: event.payload,
-          source: event.source,
-          updated_at: new Date().toISOString(),
-        },
-      ]);
+      .insert([insertPayload]);
 
     if (error) {
       const errorObj = {
@@ -81,6 +101,11 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
         error: errorObj.message,
         code: errorObj.code,
         details: errorObj.details,
+        insert_attempted_with: {
+          business_id: insertPayload.business_id,
+          event_type: insertPayload.event_type,
+          source: insertPayload.source,
+        },
       });
       return { success: false, error: errorObj };
     }
@@ -88,6 +113,7 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
     console.log("[memory-event-repo] 🟢 Memory event successfully inserted", {
       memoryType: event.memoryType,
       source: event.source,
+      business_id: insertPayload.business_id,
     });
 
     return { success: true };

@@ -9,15 +9,18 @@ import { persistMemoryEvent } from "../../voice/persistence/persistence-manager"
 /**
  * Process a CallOutcome and create a MemoryEvent
  */
-export async function processCallOutcomeToMemoryEvent(callOutcome: CallOutcome): Promise<MemoryEvent> {
+export async function processCallOutcomeToMemoryEvent(
+  callOutcome: CallOutcome,
+  businessId: string | null = null
+): Promise<MemoryEvent> {
   // Build memory event from outcome
   const buildResult = buildMemoryEvent(callOutcome);
 
   // Store memory event
   memoryEventStore.saveMemoryEvent(buildResult.memoryEvent);
 
-  // Persist memory event to Supabase (wait for completion)
-  await persistMemoryEvent(buildResult.memoryEvent);
+  // Persist memory event to Supabase with business context (wait for completion)
+  await persistMemoryEvent(buildResult.memoryEvent, businessId);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[memory-event-processor] Generated memory event:", {

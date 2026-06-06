@@ -3,36 +3,50 @@
 export interface ConversationBriefMapping {
   conversationId: string;
   workerBriefId: string;
+  missionId: string;
+  businessId: string;
   createdAt: string;
 }
 
 class MappingStore {
-  // conversation_id -> worker_brief_id
-  private conversationToBrief: Map<string, string> = new Map();
+  // conversation_id -> full mapping
+  private conversationToMapping: Map<string, ConversationBriefMapping> = new Map();
   // worker_brief_id -> conversation_id
   private briefToConversation: Map<string, string> = new Map();
-  // metadata for debugging
-  private mappings: Map<string, ConversationBriefMapping> = new Map();
 
   createMapping(
     conversationId: string,
-    workerBriefId: string
+    workerBriefId: string,
+    missionId: string,
+    businessId: string
   ): ConversationBriefMapping {
     const mapping: ConversationBriefMapping = {
       conversationId,
       workerBriefId,
+      missionId,
+      businessId,
       createdAt: new Date().toISOString(),
     };
 
-    this.conversationToBrief.set(conversationId, workerBriefId);
+    this.conversationToMapping.set(conversationId, mapping);
     this.briefToConversation.set(workerBriefId, conversationId);
-    this.mappings.set(conversationId, mapping);
 
     return mapping;
   }
 
   getWorkerBriefId(conversationId: string): string | null {
-    return this.conversationToBrief.get(conversationId) ?? null;
+    const mapping = this.conversationToMapping.get(conversationId);
+    return mapping?.workerBriefId ?? null;
+  }
+
+  getBusinessId(conversationId: string): string | null {
+    const mapping = this.conversationToMapping.get(conversationId);
+    return mapping?.businessId ?? null;
+  }
+
+  getMissionId(conversationId: string): string | null {
+    const mapping = this.conversationToMapping.get(conversationId);
+    return mapping?.missionId ?? null;
   }
 
   getConversationId(workerBriefId: string): string | null {
@@ -40,24 +54,23 @@ class MappingStore {
   }
 
   hasMapping(conversationId: string): boolean {
-    return this.conversationToBrief.has(conversationId);
+    return this.conversationToMapping.has(conversationId);
   }
 
   getMapping(conversationId: string): ConversationBriefMapping | null {
-    return this.mappings.get(conversationId) ?? null;
+    return this.conversationToMapping.get(conversationId) ?? null;
   }
 
   getAllMappings(): ConversationBriefMapping[] {
-    return Array.from(this.mappings.values());
+    return Array.from(this.conversationToMapping.values());
   }
 
   removeMappingByConversation(conversationId: string): boolean {
-    const workerBriefId = this.conversationToBrief.get(conversationId);
-    if (!workerBriefId) return false;
+    const mapping = this.conversationToMapping.get(conversationId);
+    if (!mapping) return false;
 
-    this.conversationToBrief.delete(conversationId);
-    this.briefToConversation.delete(workerBriefId);
-    this.mappings.delete(conversationId);
+    this.conversationToMapping.delete(conversationId);
+    this.briefToConversation.delete(mapping.workerBriefId);
 
     return true;
   }
@@ -66,17 +79,15 @@ class MappingStore {
     const conversationId = this.briefToConversation.get(workerBriefId);
     if (!conversationId) return false;
 
-    this.conversationToBrief.delete(conversationId);
+    this.conversationToMapping.delete(conversationId);
     this.briefToConversation.delete(workerBriefId);
-    this.mappings.delete(conversationId);
 
     return true;
   }
 
   clear(): void {
-    this.conversationToBrief.clear();
+    this.conversationToMapping.clear();
     this.briefToConversation.clear();
-    this.mappings.clear();
   }
 }
 

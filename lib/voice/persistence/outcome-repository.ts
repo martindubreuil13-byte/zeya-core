@@ -66,20 +66,26 @@ export async function saveOutcome(outcome: CallOutcome): Promise<SaveOutcomeResu
       workerBriefId: outcome.workerBriefId,
     });
 
+    const insertPayload = {
+      worker_brief_id: outcome.workerBriefId,
+      outcome_type: outcome.outcome,
+      summary: outcome.summary,
+      next_action: outcome.recommendedAction,
+      call_duration_seconds: outcome.callDuration,
+      transcript: outcome.extractedData,
+      raw_provider_payload: outcome.extractedData,
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log("[outcome-repo] 🔵 INSERT payload", {
+      worker_brief_id: insertPayload.worker_brief_id,
+      outcome_type: insertPayload.outcome_type,
+      call_duration_seconds: insertPayload.call_duration_seconds,
+    });
+
     const { error } = await supabase
       .from("call_outcomes")
-      .insert([
-        {
-          worker_brief_id: outcome.workerBriefId,
-          outcome_type: outcome.outcome,
-          summary: outcome.summary,
-          next_action: outcome.recommendedAction,
-          call_duration_seconds: outcome.callDuration,
-          transcript: outcome.extractedData,
-          raw_provider_payload: outcome.extractedData,
-          updated_at: new Date().toISOString(),
-        },
-      ]);
+      .insert([insertPayload]);
 
     if (error) {
       const errorObj = {

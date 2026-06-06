@@ -11,14 +11,18 @@ import type { ElevenLabsPostCallTranscriptionData } from "./elevenlabs-event-typ
  */
 export function registerConversationMapping(
   conversationId: string,
-  workerBriefId: string
+  workerBriefId: string,
+  missionId: string,
+  businessId: string
 ): void {
-  mappingStore.createMapping(conversationId, workerBriefId);
+  mappingStore.createMapping(conversationId, workerBriefId, missionId, businessId);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[test] Registered mapping:", {
       conversationId,
       workerBriefId,
+      missionId,
+      businessId,
     });
   }
 }
@@ -29,6 +33,8 @@ export function registerConversationMapping(
  */
 export function createTestConversationWithBrief(
   workerBriefId: string,
+  missionId: string,
+  businessId: string,
   conversationOverrides?: Partial<ElevenLabsPostCallTranscriptionData>
 ): CapturedElevenLabsConversation {
   const now = Date.now() / 1000;
@@ -56,13 +62,15 @@ export function createTestConversationWithBrief(
     now
   );
 
-  // Register mapping
-  mappingStore.createMapping(conversationId, workerBriefId);
+  // Register mapping with business context
+  mappingStore.createMapping(conversationId, workerBriefId, missionId, businessId);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[test] Created test conversation:", {
       conversationId,
       workerBriefId,
+      missionId,
+      businessId,
       duration: data.call_duration,
     });
   }

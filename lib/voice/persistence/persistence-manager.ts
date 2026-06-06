@@ -75,14 +75,15 @@ export async function persistOutcome(outcome: CallOutcome): Promise<void> {
  * Waits for persistence to complete before returning
  * Throws error with full details if persistence fails
  */
-export async function persistMemoryEvent(event: MemoryEvent): Promise<void> {
+export async function persistMemoryEvent(event: MemoryEvent, businessId?: string | null): Promise<void> {
   console.log("[persistence-manager] 🔵 persistMemoryEvent: Starting", {
     memoryEventId: event.memoryEventId,
     memoryType: event.memoryType,
+    businessId,
   });
 
   try {
-    const result = await saveMemoryEvent(event);
+    const result = await saveMemoryEvent(event, businessId || undefined);
 
     if (result.success) {
       console.log("[persistence-manager] 🟢 persistMemoryEvent: Success", {
