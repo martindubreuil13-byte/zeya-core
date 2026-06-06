@@ -41,3 +41,9 @@ export type { ConversationContext } from "./conversation-context-resolver";
 
 // Test utilities (development only)
 export { registerConversationMapping, createTestConversationWithBrief, clearAllMappingsAndConversations } from "./conversation-brief-testing";
+
+// CallOutcome processing
+export type { CallOutcome, OutcomeValue, RecommendedAction, OutcomeDetectionResult } from "../outcomes/call-outcome-types";
+export { buildCallOutcomeFromConversation, processAndStoreOutcome, getOutcomeByConversationId, getAllOutcomes, getOutcomesByWorkerBrief, getOutcomeStats, clearAllOutcomes } from "../outcomes/call-outcome-processor";
+export { outcomeStore, OutcomeStore } from "../outcomes/call-outcome-store";
+export { detectOutcome } from "../outcomes/call-outcome-builder";

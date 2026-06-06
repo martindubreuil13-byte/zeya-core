@@ -3,6 +3,8 @@
 import { isPostCallTranscriptionWebhook } from "./elevenlabs-event-validator";
 import type { ElevenLabsPostCallTranscriptionWebhook } from "./elevenlabs-event-types";
 import { conversationStore } from "./elevenlabs-conversation-store";
+import { mappingStore } from "./conversation-brief-mapping";
+import { processAndStoreOutcome } from "../outcomes/call-outcome-processor";
 
 export interface ProcessedWebhookResult {
   success: boolean;
@@ -73,7 +75,7 @@ export function processElevenLabsWebhook(
 
   try {
     // Save conversation to store
-    conversationStore.saveConversation(
+    const conversation = conversationStore.saveConversation(
       conversationId,
       webhook_typed.data.agent_id,
       webhook_typed.data,
@@ -83,6 +85,10 @@ export function processElevenLabsWebhook(
 
     // Mark as seen
     markAsSeen(eventTimestamp, conversationId);
+
+    // Generate CallOutcome from conversation
+    const workerBriefId = mappingStore.getWorkerBriefId(conversationId);
+    processAndStoreOutcome(conversation, workerBriefId);
 
     return {
       success: true,
