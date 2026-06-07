@@ -21,13 +21,17 @@ function generateOutcomeId(): string {
  */
 export function buildCallOutcomeFromConversation(
   conversation: CapturedElevenLabsConversation,
-  workerBriefId: string | null = null
-): CallOutcome {
+  workerBriefId: string | null = null,
+  missionId?: string | null,
+  businessId?: string | null,
+  targetName?: string | null,
+  targetPhone?: string | null
+): CallOutcome & { missionId?: string | null; businessId?: string | null; targetName?: string | null; targetPhone?: string | null } {
   // Detect outcome using rules
   const detection = detectOutcome(conversation);
 
-  // Build outcome object
-  const outcome: CallOutcome = {
+  // Build outcome object with extended traceability fields
+  const outcome: any = {
     outcomeId: generateOutcomeId(),
     conversationId: conversation.conversationId,
     workerBriefId: workerBriefId,
@@ -40,6 +44,11 @@ export function buildCallOutcomeFromConversation(
     callDuration: conversation.callDuration,
     transcriptLength: conversation.transcript.length,
     createdAt: new Date().toISOString(),
+    // Task 4: Add traceability fields
+    missionId: missionId || null,
+    businessId: businessId || null,
+    targetName: targetName || null,
+    targetPhone: targetPhone || null,
   };
 
   return outcome;
@@ -51,15 +60,26 @@ export function buildCallOutcomeFromConversation(
 export async function processAndStoreOutcome(
   conversation: CapturedElevenLabsConversation,
   workerBriefId: string | null = null,
-  businessId: string | null = null
+  businessId: string | null = null,
+  missionId?: string | null,
+  targetName?: string | null,
+  targetPhone?: string | null
 ): Promise<CallOutcome> {
   console.log("[outcome-processor] 🔵 Building CallOutcome from conversation", {
     conversationId: conversation.conversationId,
     workerBriefId,
+    missionId,
   });
 
-  // Build outcome
-  const outcome = buildCallOutcomeFromConversation(conversation, workerBriefId);
+  // Build outcome with traceability fields
+  const outcome = buildCallOutcomeFromConversation(
+    conversation,
+    workerBriefId,
+    missionId,
+    businessId,
+    targetName,
+    targetPhone
+  ) as any;
 
   console.log("[outcome-processor] 🟢 CallOutcome built", {
     conversationId: conversation.conversationId,

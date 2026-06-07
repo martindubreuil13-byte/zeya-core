@@ -377,10 +377,23 @@ async function readMicrophonePermission(): Promise<PermissionState | "unsupporte
   }
 }
 
-async function resolveConversationToken(workerBriefId?: string) {
+async function resolveConversationToken(
+  workerBriefId?: string,
+  dynamicVariables?: Record<string, string | number | boolean | null>
+) {
   const url = new URL("/api/elevenlabs/conversation-token", window.location.origin);
   if (workerBriefId) {
     url.searchParams.set("workerBriefId", workerBriefId);
+  }
+
+  // Task 2: Pass dynamic variables to endpoint
+  if (dynamicVariables && typeof dynamicVariables === "object") {
+    Object.entries(dynamicVariables).forEach(([key, value]) => {
+      if (value !== null && value !== undefined) {
+        // Add each variable as a separate query param
+        url.searchParams.append("dynamicVariable", `${key}=${String(value)}`);
+      }
+    });
   }
 
   const response = await fetch(url.toString(), {
@@ -388,7 +401,7 @@ async function resolveConversationToken(workerBriefId?: string) {
     cache: "no-store",
   });
 
-  const data = (await response.json()) as ConversationTokenResponse;
+  const data = (await response.json()) as ConversationTokenResponse & { dynamicVariablesPassedCount?: number };
 
   if (!response.ok) {
     throw new Error(data.error ?? "Unable to prepare ElevenLabs WebRTC connection.");
@@ -656,9 +669,10 @@ export async function createElevenLabsSession(
   events.onMicPermissionChange?.(initialMicPermission);
   devLog("mic permission before start", { status: initialMicPermission });
 
-  // Resolve conversation token, passing workerBriefId for webhook linkage
+  // Task 2: Resolve conversation token with dynamic variables for context injection
+  // Pass workerBriefId for webhook linkage AND dynamic variables for Veya's context
   const tokenResult = transport === "webrtc"
-    ? await resolveConversationToken(options.workerBriefId)
+    ? await resolveConversationToken(options.workerBriefId, options.dynamicVariables)
     : null;
 
   const transportOptions: PartialOptions =

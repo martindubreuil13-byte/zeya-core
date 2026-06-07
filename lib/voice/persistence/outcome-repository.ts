@@ -75,6 +75,12 @@ export async function saveOutcome(outcome: CallOutcome): Promise<SaveOutcomeResu
       transcript: outcome.extractedData,
       raw_provider_payload: outcome.extractedData,
       updated_at: new Date().toISOString(),
+      // Task 4: Add traceability fields
+      conversation_id: (outcome as any).conversationId || null,
+      mission_id: (outcome as any).missionId || null,
+      business_id: (outcome as any).businessId || null,
+      target_name: (outcome as any).targetName || null,
+      target_phone: (outcome as any).targetPhone || null,
     };
 
     console.log("[outcome-repo] 🔵 INSERT payload", {

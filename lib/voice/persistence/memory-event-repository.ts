@@ -75,6 +75,10 @@ export async function saveMemoryEvent(event: MemoryEvent, businessId?: string): 
       metadata: event.payload,
       source: event.source,
       updated_at: new Date().toISOString(),
+      // Task 4: Add traceability fields
+      worker_brief_id: event.workerBriefId || null,
+      conversation_id: event.conversationId || null,
+      outcome_id: event.sourceId || null,
     };
 
     console.log("[memory-event-repo] 🔵 INSERT payload", {

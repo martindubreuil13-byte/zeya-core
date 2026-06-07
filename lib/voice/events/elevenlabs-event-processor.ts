@@ -5,6 +5,10 @@ import type { ElevenLabsPostCallTranscriptionWebhook } from "./elevenlabs-event-
 import { conversationStore } from "./elevenlabs-conversation-store";
 import { mappingStore } from "./conversation-brief-mapping";
 import { processAndStoreOutcome } from "../outcomes/call-outcome-processor";
+import {
+  getMappingByWorkerBriefId,
+  saveBriefConversationMapping,
+} from "../persistence/brief-conversation-mapping-repository";
 
 export interface ProcessedWebhookResult {
   success: boolean;
@@ -106,26 +110,52 @@ export async function processElevenLabsWebhook(
     // Generate CallOutcome from conversation
     console.log("[event-processor] 🔵 Generating CallOutcome from conversation", { conversationId });
 
-    // Try to get mapping by conversationId first
+    // Task 5: Try to get mapping from persistent storage first (survives restart)
     let resolvedWorkerBriefId = mappingStore.getWorkerBriefId(conversationId);
     let businessId = mappingStore.getBusinessId(conversationId);
     let missionId = mappingStore.getMissionId(conversationId);
 
     // If workerBriefId provided in request, try to resolve by that
     if (workerBriefId && !businessId) {
+      // First try in-memory mapping
       const briefinessId = mappingStore.getBusinessIdByWorkerBriefId(workerBriefId);
       const briefMissionId = mappingStore.getConversationId(workerBriefId)
         ? mappingStore.getMissionId(mappingStore.getConversationId(workerBriefId) || "")
         : null;
 
-      if (briefinessId) {
+      // If not in memory, try persistent storage (for post-restart webhooks)
+      if (!briefinessId) {
+        console.log("[event-processor] 🔵 Mapping not in memory, checking persistent storage", {
+          workerBriefId,
+        });
+
+        const persistedMapping = await getMappingByWorkerBriefId(workerBriefId);
+
+        if (persistedMapping) {
+          resolvedWorkerBriefId = workerBriefId;
+          businessId = persistedMapping.business_id;
+          missionId = persistedMapping.mission_id;
+
+          // Update persistent mapping with real conversationId
+          await saveBriefConversationMapping(workerBriefId, missionId, businessId, conversationId);
+          console.log("[event-processor] 🟢 Updated persistent mapping with real conversationId", {
+            conversationId,
+            workerBriefId,
+            businessId,
+            missionId,
+          });
+        }
+      } else if (briefinessId) {
         resolvedWorkerBriefId = workerBriefId;
         businessId = briefinessId;
         missionId = briefMissionId;
 
-        // Register new mapping with real conversationId using data from provisional mapping
+        // Register new mapping with real conversationId using data from in-memory mapping
         if (briefMissionId) {
           mappingStore.createMapping(conversationId, workerBriefId, briefMissionId, briefinessId);
+
+          // Also update persistent storage
+          await saveBriefConversationMapping(workerBriefId, briefMissionId, briefinessId, conversationId);
           console.log("[event-processor] 🟢 Updated mapping with real conversationId", {
             conversationId,
             workerBriefId,
@@ -143,7 +173,18 @@ export async function processElevenLabsWebhook(
       missionId,
     });
 
-    await processAndStoreOutcome(conversation, resolvedWorkerBriefId, businessId);
+    // Task 4: Get target info from webhook if available
+    const targetName = (webhook_typed.data as any).target_name;
+    const targetPhone = (webhook_typed.data as any).target_phone;
+
+    await processAndStoreOutcome(
+      conversation,
+      resolvedWorkerBriefId,
+      businessId,
+      missionId,
+      targetName,
+      targetPhone
+    );
 
     console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
       conversationId,

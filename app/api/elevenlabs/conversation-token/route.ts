@@ -14,10 +14,25 @@ export async function GET(req: NextRequest) {
   // Extract optional workerBriefId for webhook context linking
   const workerBriefId = req.nextUrl.searchParams.get("workerBriefId");
 
+  // Task 2: Extract dynamic variables for context injection to Veya
+  // Format: ?dynamicVariable[key1]=value1&dynamicVariable[key2]=value2
+  const dynamicVariablesParams = req.nextUrl.searchParams.getAll("dynamicVariable");
+  const dynamicVariables: Record<string, string> = {};
+
+  // Parse dynamic variables from query params
+  // Each param should be key=value
+  for (const param of dynamicVariablesParams) {
+    const [key, value] = param.split("=", 2);
+    if (key && value) {
+      dynamicVariables[key] = decodeURIComponent(value);
+    }
+  }
+
   devLog("conversation token environment check", {
     hasPublicAgentId: Boolean(agentId),
     hasServerApiKey: Boolean(apiKey),
     hasWorkerBriefId: Boolean(workerBriefId),
+    dynamicVariableCount: Object.keys(dynamicVariables).length,
   });
 
   if (!agentId) {
@@ -29,26 +44,30 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Build request body with optional userId (workerBriefId for webhook linkage)
-    const requestBody: Record<string, unknown> = {
-      agent_id: agentId,
-    };
+    // Build URL query parameters for ElevenLabs API
+    const urlParams = new URLSearchParams();
+    urlParams.set("agent_id", agentId);
 
     if (workerBriefId) {
-      requestBody.user_id = workerBriefId;
+      urlParams.set("user_id", workerBriefId);
     }
 
-    const response = await fetch(
-      `${CONVERSATION_TOKEN_ENDPOINT}?agent_id=${encodeURIComponent(agentId)}${
-        workerBriefId ? `&user_id=${encodeURIComponent(workerBriefId)}` : ""
-      }`,
-      {
-        headers: {
-          "xi-api-key": apiKey,
-        },
-        cache: "no-store",
+    // Task 2: Pass dynamic variables to ElevenLabs
+    // ElevenLabs Conversations API supports dynamic_variables parameter
+    if (Object.keys(dynamicVariables).length > 0) {
+      // dynamic_variables is passed as JSON-encoded query parameter
+      urlParams.set("dynamic_variables", JSON.stringify(dynamicVariables));
+      devLog("dynamic variables included in request", {
+        variables: Object.keys(dynamicVariables),
+      });
+    }
+
+    const response = await fetch(`${CONVERSATION_TOKEN_ENDPOINT}?${urlParams.toString()}`, {
+      headers: {
+        "xi-api-key": apiKey,
       },
-    );
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       const body = await response.text();
@@ -75,11 +94,14 @@ export async function GET(req: NextRequest) {
 
     devLog("conversation token created", {
       hasWorkerBriefId: Boolean(workerBriefId),
+      hasDynamicVariables: Object.keys(dynamicVariables).length > 0,
     });
+
     return NextResponse.json({
       conversationToken: data.token,
       mode: "conversation-token",
       workerBriefId: workerBriefId || undefined,
+      dynamicVariablesPassedCount: Object.keys(dynamicVariables).length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

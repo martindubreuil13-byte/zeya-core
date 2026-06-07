@@ -80,6 +80,7 @@ export type VoiceServiceOptions = {
   provider?: VoiceProvider;
   userId?: string;
   workerBriefId?: string; // Linked to webhook context for memory_events
+  dynamicVariables?: Record<string, string | number | boolean | null>; // Context for Veya's prompt
   diagnosticFallbackToWebSocket?: boolean;
 };
 
