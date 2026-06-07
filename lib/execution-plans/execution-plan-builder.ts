@@ -75,6 +75,7 @@ export function buildExecutionPlan(input: ExecutionPlanInput): ExecutionPlan {
         workerType: "CALLER", // Default to CALLER for now
         objective: `${input.missionObjective} - ${target.name || target.id}`,
         target: target.name || target.id,
+        targetPhone: target.phone,
         leadContext: target.context || `Target: ${target.name || target.id}`,
         desiredOutcome: input.desiredOutcome,
         status: "READY",

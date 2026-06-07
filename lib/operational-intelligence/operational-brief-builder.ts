@@ -31,6 +31,7 @@ export function createWorkerBriefsFromOperationalAnalysis(
         stepId: step.id,
         stepNumber: step.stepNumber,
         target: step.target || "generic",
+        targetPhone: (step as any).targetPhone || null,
         mode: plan.mode,
         priority: plan.priority,
         // Add operational intelligence

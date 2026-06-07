@@ -41,9 +41,11 @@ async function getMissionBusinessId(missionId: string): Promise<string | null> {
 
 export async function dispatchWorkerBrief(
   brief: WorkerBrief,
-  providerType: ProviderType = "MOCK"
+  providerType?: ProviderType
 ): Promise<WorkerDispatchResult> {
-  const provider = getProvider(providerType);
+  // Route CALLER briefs to ElevenLabs for real outbound calls, others to MOCK
+  const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
+  const provider = getProvider(resolvedProviderType);
   const targetName = valueAsString(brief.dynamicVariables.target) ?? brief.leadContext ?? null;
   const targetPhone = valueAsString(brief.dynamicVariables.targetPhone ?? brief.dynamicVariables.phone) ?? null;
 

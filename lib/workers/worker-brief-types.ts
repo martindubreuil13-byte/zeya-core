@@ -52,7 +52,7 @@ export interface WorkerDispatchResult {
   workerType: WorkerType;
   status: "SIMULATED" | "DISPATCHED" | "COMPLETED" | "FAILED";
   message: string;
-  providerType?: "MOCK" | "TWILIO";
+  providerType?: "MOCK" | "TWILIO" | "ELEVENLABS";
   providerCallId?: string;
   createdAt: string;
 }

@@ -51,6 +51,7 @@ export interface ExecutionPlanStep {
   // Objective and outcome
   objective: string; // What to accomplish in this step
   target?: string; // Lead/prospect identifier (name, email, phone)
+  targetPhone?: string; // Phone number for outbound calls
   leadContext?: string; // Specific context about this target
   desiredOutcome: string; // What success looks like for this step
 

@@ -1,4 +1,4 @@
-export type ProviderType = "MOCK" | "TWILIO";
+export type ProviderType = "MOCK" | "TWILIO" | "ELEVENLABS";
 
 export type ProviderDispatchStatus = "SIMULATED" | "DISPATCHED" | "FAILED";
 
