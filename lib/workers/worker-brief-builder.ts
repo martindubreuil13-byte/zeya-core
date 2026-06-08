@@ -59,6 +59,11 @@ export function buildWorkerBrief(input: WorkerBriefInput): WorkerBrief {
     workerName,
     workerType: input.workerType,
     objective: input.objective,
+    missionObjective: input.objective, // Alias for ElevenLabs compatibility
+    missionId: input.missionId,
+    desiredOutcome: input.desiredOutcome || null,
+    companyContext: input.companyContext || null,
+    leadContext: input.leadContext || null,
     ...input.dynamicVariables,
   };
 
