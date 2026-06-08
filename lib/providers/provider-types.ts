@@ -17,6 +17,7 @@ export interface ProviderDispatchResult {
   status: ProviderDispatchStatus;
   message: string;
   createdAt: string;
+  conversationId?: string; // ElevenLabs conversation ID for webhook routing
 }
 
 export interface ProviderWebhookEvent {

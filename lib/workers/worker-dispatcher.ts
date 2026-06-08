@@ -4,51 +4,131 @@ import type { WorkerBrief, WorkerDispatchResult } from "./worker-brief-types";
 import { getProvider } from "@/lib/providers";
 import type { ProviderType } from "@/lib/providers";
 import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { saveWorkerBrief } from "./worker-brief-repository";
 import { saveBriefConversationMapping } from "@/lib/voice/persistence/brief-conversation-mapping-repository";
+
+// Service-role client for privileged operations (updates after dispatch)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = supabaseUrl && supabaseKey
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 function valueAsString(value: string | number | boolean | null | undefined): string | undefined {
   if (value === null || value === undefined) return undefined;
   return String(value);
 }
 
-async function getMissionBusinessId(missionId: string): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from("missions")
-      .select("business_id")
-      .eq("id", missionId)
-      .single();
-
-    if (error || !data) {
-      console.warn("[worker-dispatcher] Failed to fetch mission for mapping registration", {
-        missionId,
-        error: error?.message,
-      });
-      return null;
-    }
-
-    return (data as any).business_id ?? null;
-  } catch (err) {
-    console.warn("[worker-dispatcher] Exception fetching mission for mapping", {
-      missionId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
 export async function dispatchWorkerBrief(
   brief: WorkerBrief,
-  providerType?: ProviderType
+  providerType?: ProviderType,
+  businessId?: string | null
 ): Promise<WorkerDispatchResult> {
-  // Route CALLER briefs to ElevenLabs for real outbound calls, others to MOCK
-  const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
-  const provider = getProvider(resolvedProviderType);
+  // Extract target info for dispatch and persistence
   const targetName = valueAsString(brief.dynamicVariables.target) ?? brief.leadContext ?? null;
   const targetPhone = valueAsString(brief.dynamicVariables.targetPhone ?? brief.dynamicVariables.phone) ?? null;
 
+  // Validate businessId is provided (required for persistence)
+  if (!businessId) {
+    console.error("[worker-dispatcher] 🔴 Cannot dispatch: businessId is required", {
+      workerBriefId: brief.id,
+      missionId: brief.missionId,
+    });
+    return {
+      briefId: brief.id,
+      workerName: brief.workerName,
+      workerType: brief.workerType,
+      status: "FAILED",
+      message: "businessId is required for WorkerBrief persistence",
+      providerCallId: "failed_" + Date.now(),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  // Task 1: Persist WorkerBrief to database
+  console.log("[worker-dispatcher] 🔵 Persisting WorkerBrief to database", {
+    workerBriefId: brief.id,
+    missionId: brief.missionId,
+    businessId,
+  });
+
+  const saveResult = await saveWorkerBrief(brief, businessId, targetName, targetPhone);
+
+  if (!saveResult.success) {
+    console.error("[worker-dispatcher] 🔴 WorkerBrief persistence failed, blocking dispatch", {
+      workerBriefId: brief.id,
+      error: saveResult.error?.message,
+    });
+
+    return {
+      briefId: brief.id,
+      workerName: brief.workerName,
+      workerType: brief.workerType,
+      status: "FAILED",
+      message: `WorkerBrief persistence failed: ${saveResult.error?.message || "Unknown error"}`,
+      providerCallId: "failed_" + Date.now(),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  console.log("[worker-dispatcher] 🟢 WorkerBrief persisted successfully", {
+    workerBriefId: brief.id,
+  });
+
+  // Task 5: Register mapping persistently (survives server restart)
+  const provisionalConversationId = `dispatch_${brief.id}_${Date.now()}`;
+
+  // Save to database (persistent)
+  console.log("[worker-dispatcher] 🔵 Saving mapping to persistent storage", {
+    workerBriefId: brief.id,
+    missionId: brief.missionId,
+    businessId,
+  });
+
+  const mappingResult = await saveBriefConversationMapping(brief.id, brief.missionId, businessId);
+
+  if (!mappingResult.success) {
+    console.error("[worker-dispatcher] 🔴 Mapping persistence failed, blocking dispatch", {
+      workerBriefId: brief.id,
+      error: mappingResult.error?.message,
+    });
+
+    return {
+      briefId: brief.id,
+      workerName: brief.workerName,
+      workerType: brief.workerType,
+      status: "FAILED",
+      message: `Mapping persistence failed: ${mappingResult.error?.message || "Unknown error"}`,
+      providerCallId: "failed_" + Date.now(),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  console.log("[worker-dispatcher] 🟢 Mapping persisted successfully", {
+    workerBriefId: brief.id,
+  });
+
+  // Also maintain in-memory cache for fast access this session
+  mappingStore.createMapping(
+    provisionalConversationId,
+    brief.id,
+    brief.missionId,
+    businessId
+  );
+
+  console.log("[worker-dispatcher] 🔵 Registered in-memory mapping for dispatch", {
+    workerBriefId: brief.id,
+    missionId: brief.missionId,
+    businessId,
+    provisionalConversationId,
+  });
+
+  // Now that persistence is complete, route to provider
+  const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
+  const provider = getProvider(resolvedProviderType);
+
+  // Dispatch to provider
   const providerResult = await provider.dispatch({
     workerBriefId: brief.id,
     missionId: brief.missionId,
@@ -58,73 +138,66 @@ export async function dispatchWorkerBrief(
     dynamicVariables: brief.dynamicVariables,
   });
 
-  // Get businessId for persistent storage
-  const businessId = await getMissionBusinessId(brief.missionId);
-
-  if (businessId) {
-    // Task 1: Persist WorkerBrief to database
-    console.log("[worker-dispatcher] 🔵 Persisting WorkerBrief to database", {
+  // Save provider call ID and conversation ID immediately after successful dispatch
+  if (providerResult.status === "DISPATCHED" && providerResult.providerCallId) {
+    console.log("[worker-dispatcher] 🔵 Updating mapping", {
       workerBriefId: brief.id,
-      missionId: brief.missionId,
-      businessId,
+      providerCallId: providerResult.providerCallId,
+      conversationId: providerResult.conversationId,
+      supabaseClientInitialized: !!supabase,
     });
 
-    const saveResult = await saveWorkerBrief(brief, businessId, targetName, targetPhone);
+    try {
+      if (!supabase) {
+        console.error("[worker-dispatcher] 🔴 Supabase service-role client not initialized", {
+          workerBriefId: brief.id,
+        });
+      } else {
+        const { data, error } = await supabase
+          .from("brief_conversation_mappings")
+          .update({
+            provider_call_id: providerResult.providerCallId,
+            conversation_id: providerResult.conversationId || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("worker_brief_id", brief.id)
+          .select();
 
-    if (saveResult.success) {
-      console.log("[worker-dispatcher] 🟢 WorkerBrief persisted successfully", {
+        console.log("[worker-dispatcher] 📊 Update result", {
+          workerBriefId: brief.id,
+          success: !error,
+          rowsAffected: data?.length || 0,
+          updatedRow: data?.[0] || null,
+          error: error?.message,
+          code: error?.code,
+        });
+
+        if (error) {
+          console.error("[worker-dispatcher] 🔴 Failed to update mapping with provider call ID", {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        } else if (!data || data.length === 0) {
+          console.warn("[worker-dispatcher] ⚠️  Update succeeded but no rows matched WHERE clause", {
+            workerBriefId: brief.id,
+            whereCondition: `worker_brief_id = ${brief.id}`,
+          });
+        } else {
+          console.log("[worker-dispatcher] 🟢 Mapping updated with provider call ID", {
+            workerBriefId: brief.id,
+            providerCallId: providerResult.providerCallId,
+            conversationId: providerResult.conversationId,
+            updateRow: data[0],
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[worker-dispatcher] 🔴 Exception updating mapping with provider call ID", {
+        error: error instanceof Error ? error.message : String(error),
         workerBriefId: brief.id,
-      });
-    } else {
-      console.error("[worker-dispatcher] 🔴 WorkerBrief persistence failed", {
-        workerBriefId: brief.id,
-        error: saveResult.error?.message,
       });
     }
-
-    // Task 5: Register mapping persistently (survives server restart)
-    // Also maintain in-memory mapping for fast access during this session
-    const provisionalConversationId = `dispatch_${brief.id}_${Date.now()}`;
-
-    // Save to database (persistent)
-    console.log("[worker-dispatcher] 🔵 Saving mapping to persistent storage", {
-      workerBriefId: brief.id,
-      missionId: brief.missionId,
-      businessId,
-    });
-
-    const mappingResult = await saveBriefConversationMapping(brief.id, brief.missionId, businessId);
-
-    if (mappingResult.success) {
-      console.log("[worker-dispatcher] 🟢 Mapping persisted successfully", {
-        workerBriefId: brief.id,
-      });
-    } else {
-      console.error("[worker-dispatcher] 🔴 Mapping persistence failed", {
-        workerBriefId: brief.id,
-        error: mappingResult.error?.message,
-      });
-    }
-
-    // Also maintain in-memory cache for fast access this session
-    mappingStore.createMapping(
-      provisionalConversationId,
-      brief.id,
-      brief.missionId,
-      businessId
-    );
-
-    console.log("[worker-dispatcher] 🔵 Registered in-memory mapping for dispatch", {
-      workerBriefId: brief.id,
-      missionId: brief.missionId,
-      businessId,
-      provisionalConversationId,
-    });
-  } else {
-    console.warn("[worker-dispatcher] 🟡 Could not dispatch: business_id not found", {
-      missionId: brief.missionId,
-      workerBriefId: brief.id,
-    });
   }
 
   return {

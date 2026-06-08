@@ -4,44 +4,78 @@ import crypto from "crypto";
 
 export function verifyElevenLabsSignature(
   rawBody: string,
-  signature: string,
+  headerValue: string,
   secret: string
 ): boolean {
   try {
-    // Compute HMAC-SHA256 of raw body with secret key, return as hex
-    const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+    // Parse header format: t=timestamp,v0=signature
+    const parts = headerValue.split(',');
+    let timestamp = '';
+    let signature = '';
 
-    // Compare signatures as hex-encoded buffers
-    // ElevenLabs sends signature as hex string, computed is also hex string
-    // Must decode both as hex to compare the actual binary values
-    const signatureBuf = Buffer.from(signature, 'hex');
-    const computedBuf = Buffer.from(computed, 'hex');
-
-    // Use timing-safe comparison to prevent timing attacks
-    const isMatch = crypto.timingSafeEqual(signatureBuf, computedBuf);
-
-    if (!isMatch) {
-      console.log("[sig-verify] 🔴 Signature verification failed", {
-        signatureFromHeader: signature.substring(0, 32),
-        computedHMAC: computed.substring(0, 32),
-        signatureLength: signature.length,
-        computedLength: computed.length,
-      });
+    for (const part of parts) {
+      const [key, value] = part.split('=');
+      if (key === 't') {
+        timestamp = value;
+      } else if (key === 'v0') {
+        signature = value;
+      }
     }
 
-    return isMatch;
-  } catch (error) {
-    // If signature is not valid hex, try as UTF-8 string
+    if (!timestamp || !signature) {
+      console.error("[sig-verify] 🔴 Invalid signature header format", {
+        headerValue: headerValue.substring(0, 50),
+      });
+      return false;
+    }
+
+    // Validate timestamp is within 30 minutes
+    const timestampSeconds = parseInt(timestamp, 10);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const ageSeconds = nowSeconds - timestampSeconds;
+    const thirtyMinutesSeconds = 30 * 60;
+
+    if (ageSeconds > thirtyMinutesSeconds || ageSeconds < 0) {
+      console.error("[sig-verify] 🔴 Timestamp outside 30-minute window", {
+        timestamp,
+        ageSeconds,
+        maxAge: thirtyMinutesSeconds,
+      });
+      return false;
+    }
+
+    // Compute HMAC-SHA256 over "${timestamp}.${rawBody}"
+    const message = `${timestamp}.${rawBody}`;
+    const computed = crypto.createHmac("sha256", secret).update(message).digest("hex");
+
+    // Compare safely using timing-safe comparison
     try {
-      const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
       const isMatch = crypto.timingSafeEqual(
         Buffer.from(signature),
         Buffer.from(computed)
       );
+
+      if (!isMatch) {
+        console.warn("[sig-verify] 🔴 Signature verification failed", {
+          provided: signature.substring(0, 16),
+          computed: computed.substring(0, 16),
+        });
+      }
+
       return isMatch;
-    } catch {
+    } catch (comparisonError) {
+      // timingSafeEqual throws if buffers are different lengths
+      console.error("[sig-verify] 🔴 Signature length mismatch", {
+        providedLength: signature.length,
+        computedLength: computed.length,
+      });
       return false;
     }
+  } catch (error) {
+    console.error("[sig-verify] 🔴 Exception during signature verification", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
   }
 }
 

@@ -11,6 +11,7 @@ import { createWorkerBriefsFromOperationalAnalysis } from "./operational-brief-b
 export interface OperationalDispatchInput extends Omit<AnalyzerInput, "desiredOutcome"> {
   title: string; // ExecutionPlan title
   desiredOutcome: string;
+  businessId?: string; // Required for persistence
   targets?: Array<{
     id: string;
     name?: string;
@@ -89,7 +90,7 @@ export async function dispatchOperationalMission(input: OperationalDispatchInput
 
   // Step 5: Dispatch all briefs
   const dispatchResults = await Promise.all(
-    briefs.map((brief) => dispatchWorkerBrief(brief))
+    briefs.map((brief) => dispatchWorkerBrief(brief, undefined, input.businessId))
   );
 
   // Step 6: Aggregate results

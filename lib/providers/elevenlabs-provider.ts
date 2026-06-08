@@ -69,6 +69,8 @@ export class ElevenLabsProvider implements WorkerProvider {
       };
 
       // Build the ElevenLabs SIP trunk outbound call payload
+      const webhookUrl = process.env.ELEVENLABS_WEBHOOK_URL || "https://zeya.app/api/webhooks/elevenlabs";
+
       const payload = {
         agent_id: agentId,
         agent_phone_number_id: phoneNumberId,
@@ -77,6 +79,7 @@ export class ElevenLabsProvider implements WorkerProvider {
           user_id: request.workerBriefId,
           branch_id: agentBranchId,
           dynamic_variables: dynamicVariables,
+          webhook_url: webhookUrl,
         },
       };
 
@@ -129,6 +132,7 @@ export class ElevenLabsProvider implements WorkerProvider {
       return {
         providerType: "ELEVENLABS",
         providerCallId: data.sip_call_id || data.conversation_id,
+        conversationId: data.conversation_id,
         status: "DISPATCHED",
         message: `Outbound call initiated to ${request.targetPhone} (conversation: ${data.conversation_id})`,
         createdAt: new Date().toISOString(),

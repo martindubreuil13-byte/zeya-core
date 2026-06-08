@@ -28,11 +28,11 @@ export async function POST(req: NextRequest) {
     // Verify signature if secret is configured
     const secret = getWebhookSecret();
     if (shouldVerifySignature()) {
-      // ElevenLabs sends signature in x-elevenlabs-signature header
-      const signature = req.headers.get("x-elevenlabs-signature");
+      // ElevenLabs sends signature in elevenlabs-signature header (format: t=timestamp,v0=signature)
+      const signature = req.headers.get("elevenlabs-signature");
 
       if (!signature) {
-        console.log("[webhook] 🔴 Webhook route: Missing signature header (x-elevenlabs-signature)");
+        console.log("[webhook] 🔴 Webhook route: Missing signature header (elevenlabs-signature)");
         return NextResponse.json(
           { success: false, error: "Missing signature header" },
           { status: 401 }
