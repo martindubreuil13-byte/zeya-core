@@ -31,6 +31,7 @@ export interface CallOutcome {
 
   // Data
   summary: string;
+  transcript?: Array<{ role: "user" | "agent"; message: string }>;
   extractedData?: Record<string, unknown>;
   recommendedAction: RecommendedAction;
 

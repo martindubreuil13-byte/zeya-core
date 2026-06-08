@@ -6,6 +6,7 @@ import { outcomeStore } from "./call-outcome-store";
 import type { CallOutcome } from "./call-outcome-types";
 import { processCallOutcomeToMemoryEvent } from "../../memory/events/memory-event-processor";
 import { persistOutcome } from "../persistence/persistence-manager";
+import { generateSummaryFromTranscript } from "./generate-transcript-summary";
 
 /**
  * Generate a unique outcome ID
@@ -18,17 +19,40 @@ function generateOutcomeId(): string {
 
 /**
  * Build a CallOutcome from a completed conversation
+ * Generates summary from transcript if ElevenLabs didn't provide one
  */
-export function buildCallOutcomeFromConversation(
+export async function buildCallOutcomeFromConversation(
   conversation: CapturedElevenLabsConversation,
   workerBriefId: string | null = null,
   missionId?: string | null,
   businessId?: string | null,
   targetName?: string | null,
   targetPhone?: string | null
-): CallOutcome & { missionId?: string | null; businessId?: string | null; targetName?: string | null; targetPhone?: string | null } {
+): Promise<CallOutcome & { missionId?: string | null; businessId?: string | null; targetName?: string | null; targetPhone?: string | null }> {
   // Detect outcome using rules
   const detection = detectOutcome(conversation);
+
+  // Generate summary if webhook didn't provide one
+  let summaryText = conversation.summary;
+  if (!summaryText || summaryText.trim().length === 0) {
+    console.log("[outcome-processor] 🔵 Summary missing from webhook, generating from transcript", {
+      conversationId: conversation.conversationId,
+      transcriptSegments: conversation.transcript.length,
+    });
+    const generatedSummary = await generateSummaryFromTranscript(conversation.transcript);
+    if (generatedSummary) {
+      summaryText = generatedSummary;
+      console.log("[outcome-processor] 🟢 Generated summary from transcript", {
+        conversationId: conversation.conversationId,
+        summaryLength: summaryText.length,
+      });
+    } else {
+      summaryText = "No summary provided";
+      console.warn("[outcome-processor] 🟡 Summary generation failed, using fallback", {
+        conversationId: conversation.conversationId,
+      });
+    }
+  }
 
   // Build outcome object with extended traceability fields
   const outcome: any = {
@@ -38,7 +62,8 @@ export function buildCallOutcomeFromConversation(
     status: conversation.status,
     outcome: detection.outcome,
     confidence: detection.confidence,
-    summary: conversation.summary || "No summary provided",
+    summary: summaryText,
+    transcript: conversation.transcript,
     extractedData: conversation.extractedData,
     recommendedAction: detection.recommendedAction,
     callDuration: conversation.callDuration,
@@ -71,8 +96,8 @@ export async function processAndStoreOutcome(
     missionId,
   });
 
-  // Build outcome with traceability fields
-  const outcome = buildCallOutcomeFromConversation(
+  // Build outcome with traceability fields (awaits summary generation if needed)
+  const outcome = await buildCallOutcomeFromConversation(
     conversation,
     workerBriefId,
     missionId,

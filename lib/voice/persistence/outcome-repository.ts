@@ -72,7 +72,7 @@ export async function saveOutcome(outcome: CallOutcome): Promise<SaveOutcomeResu
       summary: outcome.summary,
       next_action: outcome.recommendedAction,
       call_duration_seconds: outcome.callDuration,
-      transcript: outcome.extractedData,
+      transcript: outcome.transcript,
       raw_provider_payload: outcome.extractedData,
       updated_at: new Date().toISOString(),
       // Task 4: Add traceability fields
