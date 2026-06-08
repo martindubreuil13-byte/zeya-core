@@ -1,7 +1,7 @@
 import type { WorkerProvider } from "./provider-interface";
 import type { ProviderDispatchRequest, ProviderDispatchResult } from "./provider-types";
 
-const ELEVENLABS_SESSIONS_ENDPOINT = "https://api.elevenlabs.io/v1/convai/agents";
+const ELEVENLABS_SIP_TRUNK_ENDPOINT = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call";
 
 export class ElevenLabsProvider implements WorkerProvider {
   async dispatch(request: ProviderDispatchRequest): Promise<ProviderDispatchResult> {
@@ -37,13 +37,24 @@ export class ElevenLabsProvider implements WorkerProvider {
       };
     }
 
-    const telnyxPhoneNumber = process.env.ELEVENLABS_OUTBOUND_PHONE_NUMBER;
-    if (!telnyxPhoneNumber) {
+    const phoneNumberId = process.env.ELEVENLABS_PHONE_NUMBER_ID;
+    if (!phoneNumberId) {
       return {
         providerType: "ELEVENLABS",
         providerCallId: "failed_" + Date.now(),
         status: "FAILED",
-        message: "ELEVENLABS_OUTBOUND_PHONE_NUMBER not configured",
+        message: "ELEVENLABS_PHONE_NUMBER_ID not configured",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    const agentBranchId = process.env.ELEVENLABS_AGENT_BRANCH_ID;
+    if (!agentBranchId) {
+      return {
+        providerType: "ELEVENLABS",
+        providerCallId: "failed_" + Date.now(),
+        status: "FAILED",
+        message: "ELEVENLABS_AGENT_BRANCH_ID not configured",
         createdAt: new Date().toISOString(),
       };
     }
@@ -57,18 +68,15 @@ export class ElevenLabsProvider implements WorkerProvider {
         objective: request.objective,
       };
 
-      // Build the official ElevenLabs payload per Phase 12A spec
+      // Build the ElevenLabs SIP trunk outbound call payload
       const payload = {
-        user_id: request.workerBriefId,
-        deployment_id: "phone_delivery",
-        conversation_config_override: {
-          dynamic_variable_placeholders: dynamicVariables,
-          phone: {
-            phone_number_to_dial: request.targetPhone,
-            from_number: telnyxPhoneNumber,
-            webhook_url: "https://zeya.app/api/webhooks/elevenlabs",
-            webhook_events: ["session_created", "session_started", "session_ended"],
-          },
+        agent_id: agentId,
+        agent_phone_number_id: phoneNumberId,
+        to_number: request.targetPhone,
+        conversation_initiation_client_data: {
+          user_id: request.workerBriefId,
+          branch_id: agentBranchId,
+          dynamic_variables: dynamicVariables,
         },
       };
 
@@ -79,17 +87,14 @@ export class ElevenLabsProvider implements WorkerProvider {
         workerBriefId: request.workerBriefId,
       });
 
-      const response = await fetch(
-        `${ELEVENLABS_SESSIONS_ENDPOINT}/${agentId}/sessions`,
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": apiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
+      const response = await fetch(ELEVENLABS_SIP_TRUNK_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -108,25 +113,25 @@ export class ElevenLabsProvider implements WorkerProvider {
       }
 
       const data = (await response.json()) as {
-        session_id: string;
-        status: string;
-        phone_number_called: string;
-        created_at: string;
+        success: boolean;
+        message: string;
+        conversation_id: string;
+        sip_call_id: string;
       };
 
       console.log("[elevenlabs-provider] 🟢 Outbound call initiated", {
-        sessionId: data.session_id,
-        status: data.status,
-        phoneNumberCalled: data.phone_number_called,
+        conversationId: data.conversation_id,
+        sipCallId: data.sip_call_id,
+        toNumber: request.targetPhone,
         workerBriefId: request.workerBriefId,
       });
 
       return {
         providerType: "ELEVENLABS",
-        providerCallId: data.session_id,
+        providerCallId: data.sip_call_id || data.conversation_id,
         status: "DISPATCHED",
-        message: `Outbound call initiated to ${request.targetPhone} (session: ${data.session_id})`,
-        createdAt: data.created_at || new Date().toISOString(),
+        message: `Outbound call initiated to ${request.targetPhone} (conversation: ${data.conversation_id})`,
+        createdAt: new Date().toISOString(),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
