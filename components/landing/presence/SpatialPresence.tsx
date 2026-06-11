@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 export function SpatialPresence() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number | null>(null);
   const stateRef = useRef({
     mouseX: 0,
     mouseY: 0,
@@ -80,7 +81,7 @@ export function SpatialPresence() {
         ctx.globalAlpha = 1;
       }
 
-      requestAnimationFrame(animate);
+      animationRef.current = requestAnimationFrame(animate);
     };
 
     animate();
@@ -88,6 +89,10 @@ export function SpatialPresence() {
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("resize", updateSize);
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
     };
   }, []);
 

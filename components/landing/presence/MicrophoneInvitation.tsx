@@ -1,22 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export function MicrophoneInvitation() {
   const router = useRouter();
-  const [isMounted, setIsMounted] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   const handleClick = () => {
     router.push("/app");
   };
-
-  if (!isMounted) return null;
 
   return (
     <div
@@ -37,7 +30,7 @@ export function MicrophoneInvitation() {
       <div
         className="text-center pointer-events-none transition-opacity duration-700"
         style={{
-          opacity: isMounted ? (isHovered ? 0.8 : 0.3) : 0,
+          opacity: isHovered ? 0.8 : 0.3,
         }}
       >
         <div

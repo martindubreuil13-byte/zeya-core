@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
 export function AbstractPresence() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const animationRef = useRef<number>();
+  const mousePosRef = useRef({ x: 0, y: 0 });
+  const animationRef = useRef<number | null>(null);
   const particlesRef = useRef<Particle[]>([]);
 
   interface Particle {
@@ -17,6 +17,9 @@ export function AbstractPresence() {
     life: number;
     maxLife: number;
     radius: number;
+    update: () => void;
+    draw: (ctx: CanvasRenderingContext2D) => void;
+    isAlive: () => boolean;
   }
 
   useEffect(() => {
@@ -36,7 +39,7 @@ export function AbstractPresence() {
 
     // Track mouse position
     const handleMouseMove = (e: MouseEvent) => {
-      setMousePos({ x: e.clientX, y: e.clientY });
+      mousePosRef.current = { x: e.clientX, y: e.clientY };
     };
     window.addEventListener("mousemove", handleMouseMove);
 
@@ -112,6 +115,7 @@ export function AbstractPresence() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Distance from mouse to center
+      const mousePos = mousePosRef.current;
       const distToMouse = Math.sqrt(
         Math.pow(mousePos.x - centerX, 2) + Math.pow(mousePos.y - centerY, 2)
       );
@@ -228,9 +232,12 @@ export function AbstractPresence() {
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("resize", updateSize);
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
     };
-  }, [mousePos]);
+  }, []);
 
   return (
     <motion.canvas
