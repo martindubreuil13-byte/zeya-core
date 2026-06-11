@@ -233,7 +233,7 @@ export default function ExperiencePage() {
       </div>
 
       {/* Input area - only show when in question/response stage */}
-      {step === "question" && step !== "cta" && (
+      {step === "question" && (
         <div className="border-t border-zeya-champagne/10 p-6 sm:p-8 bg-gradient-to-t from-zeya-void/50 to-transparent">
           <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
             <div className="flex gap-4">
