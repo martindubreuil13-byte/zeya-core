@@ -14,6 +14,8 @@ type RealtimeSessionResponse = {
   value?: string;
   model?: string;
   error?: string;
+  details?: Record<string, unknown>;
+  type?: string;
 };
 
 export type OpenAIRealtimeClientEvents = {
@@ -213,17 +215,43 @@ export class OpenAIRealtimeClient {
     const endpoint = this.events.sessionEndpoint ?? "/api/openai/realtime/session";
     const bodyPayload = this.events.sessionBody;
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: bodyPayload ? { "Content-Type": "application/json" } : {},
-      body: bodyPayload ? JSON.stringify(bodyPayload) : undefined,
-      cache: "no-store",
-    });
-    const data = (await response.json()) as RealtimeSessionResponse;
+    devLog("Creating session", { endpoint });
 
-    if (!response.ok) {
-      throw new Error(data.error ?? "Could not prepare a realtime session.");
+    let data: RealtimeSessionResponse;
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: bodyPayload ? { "Content-Type": "application/json" } : {},
+        body: bodyPayload ? JSON.stringify(bodyPayload) : undefined,
+        cache: "no-store",
+      });
+
+      devLog("Session response received", {
+        status: response.status,
+        statusText: response.statusText,
+      });
+
+      data = (await response.json()) as RealtimeSessionResponse;
+
+      if (!response.ok) {
+        const errorMsg = data.error ?? `HTTP ${response.status}: ${response.statusText}`;
+        devLog("Session creation failed", {
+          status: response.status,
+          error: errorMsg,
+          details: data.details,
+        });
+        throw new Error(errorMsg);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      devLog("Session fetch failed", { error: msg });
+      throw new Error(`Session creation failed: ${msg}`);
     }
+
+    devLog("Session created successfully", {
+      hasClientSecret: !!data.client_secret?.value,
+      model: data.model,
+    });
 
     return data;
   }

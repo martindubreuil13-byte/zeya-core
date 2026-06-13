@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
           transcription: { model: "gpt-4o-mini-transcribe" },
         },
         output: {
-          voice: process.env.OPENAI_REALTIME_VOICE ?? "marin",
+          voice: process.env.OPENAI_REALTIME_VOICE ?? "sage",
         },
       },
     },
