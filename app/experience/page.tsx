@@ -13,6 +13,8 @@ import {
   linkDispatchToWorkerBrief,
 } from "@/lib/dispatch/worker-brief-generator";
 import { buildExecutionPackage } from "@/lib/dispatch/execution-package";
+import { BeatController } from "@/lib/experience/beat-controller";
+import { initializeSession } from "@/lib/experience/experience-state";
 import type { VoiceState } from "@/types/voice";
 import type { DispatchRecord, AgentBrief } from "@/lib/dispatch/types";
 
@@ -27,6 +29,7 @@ export default function ExperiencePage() {
     transcript: voiceTranscript,
     isConfigured,
     stopConversation,
+    speakExact,
   } = voice;
 
   const [phase, setPhase] = useState<Phase>("initial");
@@ -37,6 +40,7 @@ export default function ExperiencePage() {
   const [targetBuyer, setTargetBuyer] = useState("");
   const [dispatchRecord, setDispatchRecord] = useState<DispatchRecord | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<BeatController | null>(null);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
 
@@ -45,10 +49,53 @@ export default function ExperiencePage() {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [voiceTranscript]);
 
+  // Detect final user transcript and advance beat
+  useEffect(() => {
+    if (phase !== "voice_active" || !controllerRef.current) return;
+
+    // Find the last final user message
+    const lastUserMessage = voiceTranscript
+      .filter((entry) => entry.role === "user" && entry.isFinal && entry.text?.trim())
+      .pop();
+
+    if (!lastUserMessage) return;
+
+    // Check if we've already processed this transcript
+    const lastProcessedId = sessionStorage.getItem("lastProcessedTranscriptId");
+    if (lastProcessedId === lastUserMessage.id) return;
+
+    // Mark this transcript as processed
+    sessionStorage.setItem("lastProcessedTranscriptId", lastUserMessage.id);
+
+    // Advance beat immediately (no extraction, no validation)
+    controllerRef.current.advanceBeat(null);
+  }, [voiceTranscript, phase]);
+
   const handleStartExperience = async () => {
     if (!isConfigured) return;
     setPhase("voice_active");
-    // Old conversational path disabled — awaiting BeatController integration
+
+    const session = initializeSession();
+    const controller = new BeatController(session, {
+      onBeatStart: async (beat, script) => {
+        await speakExact?.(script);
+      },
+      onBeatComplete: () => {
+        // Phase 1B: No action on beat completion
+      },
+      onSessionComplete: () => {
+        stopConversation();
+        setPhase("collecting_phone");
+      },
+      onSessionFail: (session, reason) => {
+        console.error("Session failed:", reason);
+        stopConversation();
+        setPhase("initial");
+      },
+    });
+
+    controllerRef.current = controller;
+    await controller.startBeat();
   };
 
   const handleEndConversation = () => {

@@ -198,12 +198,17 @@ export function useRealtimeOnboardingSession() {
     }));
   }, []);
 
+  const speakExact = useCallback((text: string) => {
+    clientRef.current?.speakExact(text);
+  }, []);
+
   return {
     ...snapshot,
     isConfigured: true,
     provider: "openai-realtime" as const,
     startConversation,
     stopConversation,
+    speakExact,
     connect: startConversation,
     disconnect: stopConversation,
     sendTextMessage: async (_message: string) => {

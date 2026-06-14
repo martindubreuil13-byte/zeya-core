@@ -211,6 +211,37 @@ export class OpenAIRealtimeClient {
     this.sendEvent(event);
   }
 
+  speakExact(text: string): void {
+    // Inject the exact text as an assistant message in the conversation
+    const itemEvent: RealtimeSessionEvent = {
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: text,
+          },
+        ],
+      },
+    };
+
+    devLog("conversation.item.create (speakExact)", { text: text.slice(0, 50) });
+    this.sendEvent(itemEvent);
+
+    // Request synthesis of the message (no model generation, only TTS)
+    const responseEvent: RealtimeSessionEvent = {
+      type: "response.create",
+      response: {
+        modalities: ["audio"],
+      },
+    };
+
+    devLog("response.create (synthesis only)", {});
+    this.sendEvent(responseEvent);
+  }
+
   private async createSession() {
     const endpoint = this.events.sessionEndpoint ?? "/api/openai/realtime/session";
     const bodyPayload = this.events.sessionBody;

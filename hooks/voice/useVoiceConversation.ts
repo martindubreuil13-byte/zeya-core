@@ -51,5 +51,8 @@ export function useVoiceConversation() {
     connect: useCallback(() => service?.connect(), [service]),
     disconnect: useCallback(() => service?.disconnect(), [service]),
     sendTextMessage: useCallback((message: string) => service?.sendTextMessage(message), [service]),
+    speakExact: useCallback(() => {
+      throw new Error("speakExact is not implemented for ElevenLabs provider.");
+    }, []),
   };
 }
