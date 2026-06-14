@@ -26,7 +26,6 @@ export default function ExperiencePage() {
     state: voiceState,
     transcript: voiceTranscript,
     isConfigured,
-    startConversation,
     stopConversation,
   } = voice;
 
@@ -46,41 +45,10 @@ export default function ExperiencePage() {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [voiceTranscript]);
 
-  // Listen for structured assistant actions
-  // Actions are machine-readable only: [ACTION]{...json...}[/ACTION]
-  // No transcript parsing for application flow
-  useEffect(() => {
-    if (phase === "voice_active" && voiceTranscript.length > 0) {
-      // Get the most recent assistant message
-      const lastAgentMsg = [...voiceTranscript]
-        .reverse()
-        .find((entry) => entry.role === "agent");
-
-      if (lastAgentMsg) {
-        // Extract structured actions from the message
-        const actions = extractAssistantActions(lastAgentMsg.text);
-
-        // Handle transition action
-        const transitionAction = actions.find((action) => action.type === "transition");
-        if (transitionAction && (transitionAction as any).next === "collect_phone") {
-          setTimeout(() => {
-            stopConversation();
-            setPhase("collecting_phone");
-          }, 800);
-        }
-      }
-    }
-  }, [voiceTranscript, phase, stopConversation]);
-
   const handleStartExperience = async () => {
     if (!isConfigured) return;
     setPhase("voice_active");
-
-    const initialInstructions = `Your first turn: Open the conversation immediately. Say: "Hi, I'm Zeya. I spend most of my time helping businesses find more customers. Before we get into that, what's your name?"
-
-Speak naturally and wait for their response.`;
-
-    await startConversation(initialInstructions);
+    // Old conversational path disabled — awaiting BeatController integration
   };
 
   const handleEndConversation = () => {
@@ -224,7 +192,7 @@ Speak naturally and wait for their response.`;
               className="text-sm text-zeya-taupe font-light max-w-md mx-auto"
               style={{ letterSpacing: "0.02em", lineHeight: "1.7" }}
             >
-              A conversation about your business.
+              A brief conversation to see what's possible.
             </p>
             <VoiceButton
               onStart={handleStartExperience}
@@ -302,13 +270,13 @@ Speak naturally and wait for their response.`;
                 className="font-serif text-lg text-zeya-ivory font-light"
                 style={{ letterSpacing: "0.08em" }}
               >
-                What's the best number to reach you on?
+                Where should my team reach you?
               </p>
               <p
                 className="text-sm text-zeya-taupe font-light"
                 style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
               >
-                Please include your country code.
+                Include your country code.
               </p>
             </div>
 
