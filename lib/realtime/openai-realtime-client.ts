@@ -120,7 +120,11 @@ export class OpenAIRealtimeClient {
         });
 
         if (pc.connectionState === "connected") {
-          console.log("[VOICE] Realtime connection established");
+          const connectedTimestamp = performance.now();
+          console.log("[VOICE] Realtime connection established", {
+            timestamp: connectedTimestamp,
+            millisecondsSincePageLoad: Math.round(connectedTimestamp),
+          });
           this.connected = true;
           this.events.onConnected?.();
           this.events.onStateChange?.("listening");
@@ -230,15 +234,30 @@ export class OpenAIRealtimeClient {
   }
 
   speakExact(text: string): void {
-    console.log("[VOICE] speakExact() called", { textLength: text.length, connected: this.connected, dataChannelReady: Boolean(this.dataChannel) });
+    const speakExactTimestamp = performance.now();
+    const dcState = this.dataChannel?.readyState ?? "undefined";
+    console.log("[VOICE] speakExact() called", {
+      timestamp: speakExactTimestamp,
+      millisecondsSincePageLoad: Math.round(speakExactTimestamp),
+      textLength: text.length,
+      connected: this.connected,
+      dataChannelReady: Boolean(this.dataChannel),
+      dataChannelState: dcState,
+    });
 
     if (!this.connected) {
-      console.error("[VOICE] ERROR: Not connected to Realtime!");
+      console.error("[VOICE] ERROR: Not connected to Realtime!", {
+        timestamp: performance.now(),
+        millisecondsSincePageLoad: Math.round(performance.now()),
+      });
       return;
     }
 
     if (!this.dataChannel) {
-      console.error("[VOICE] ERROR: Data channel not ready!");
+      console.error("[VOICE] ERROR: Data channel not ready!", {
+        timestamp: performance.now(),
+        millisecondsSincePageLoad: Math.round(performance.now()),
+      });
       return;
     }
 
@@ -323,6 +342,11 @@ export class OpenAIRealtimeClient {
 
   private attachDataChannel(dc: RTCDataChannel) {
     dc.onopen = () => {
+      const dataChannelOpenTimestamp = performance.now();
+      console.log("[VOICE] Data channel opened", {
+        timestamp: dataChannelOpenTimestamp,
+        millisecondsSincePageLoad: Math.round(dataChannelOpenTimestamp),
+      });
       devLog("data channel state: open");
       this.flushPendingEvents();
       this.events.onStateChange?.("listening");

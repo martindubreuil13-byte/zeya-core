@@ -73,13 +73,23 @@ export default function ExperiencePage() {
   }, [voiceTranscript, phase]);
 
   const handleStartExperience = async () => {
-    console.log("[EXPERIENCE] Start button clicked");
+    const startTimestamp = performance.now();
+    console.log("[EXPERIENCE] Start button clicked", {
+      timestamp: startTimestamp,
+      millisecondsSincePageLoad: Math.round(startTimestamp),
+    });
     if (!isConfigured) return;
     setPhase("voice_active");
 
     console.log("[EXPERIENCE] Establishing Realtime connection");
+    const connectStartTimestamp = performance.now();
     await startConversation();
-    console.log("[EXPERIENCE] Realtime connected");
+    const connectEndTimestamp = performance.now();
+    console.log("[EXPERIENCE] Realtime connected", {
+      connectStartTimestamp: Math.round(connectStartTimestamp),
+      connectEndTimestamp: Math.round(connectEndTimestamp),
+      connectionDuration: Math.round(connectEndTimestamp - connectStartTimestamp),
+    });
 
     console.log("[EXPERIENCE] Initializing session");
     const session = initializeSession();
@@ -111,7 +121,12 @@ export default function ExperiencePage() {
     console.log("[EXPERIENCE] BeatController created");
     controllerRef.current = controller;
 
-    console.log("[EXPERIENCE] Calling controller.startBeat()");
+    const beatStartTimestamp = performance.now();
+    console.log("[EXPERIENCE] Calling controller.startBeat()", {
+      timestamp: beatStartTimestamp,
+      millisecondsSincePageLoad: Math.round(beatStartTimestamp),
+      timeSinceConnectionReady: "see [VOICE] timestamp for comparison",
+    });
     await controller.startBeat();
     console.log("[EXPERIENCE] controller.startBeat() returned");
   };

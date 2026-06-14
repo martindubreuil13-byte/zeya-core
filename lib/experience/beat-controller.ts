@@ -42,7 +42,12 @@ export class BeatController {
    * Start the current beat: speak the script and prepare for extraction
    */
   async startBeat(): Promise<void> {
-    console.log("[BEAT] startBeat() called", { currentBeat: this.session.currentBeat });
+    const beatStartTimestamp = performance.now();
+    console.log("[BEAT] startBeat() called", {
+      currentBeat: this.session.currentBeat,
+      timestamp: beatStartTimestamp,
+      millisecondsSincePageLoad: Math.round(beatStartTimestamp),
+    });
 
     const beat = this.session.currentBeat;
     const beatConfig = BEAT_SCRIPTS[beat];
