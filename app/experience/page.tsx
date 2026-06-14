@@ -28,6 +28,7 @@ export default function ExperiencePage() {
     state: voiceState,
     transcript: voiceTranscript,
     isConfigured,
+    startConversation,
     stopConversation,
     speakExact,
   } = voice;
@@ -75,6 +76,10 @@ export default function ExperiencePage() {
     console.log("[EXPERIENCE] Start button clicked");
     if (!isConfigured) return;
     setPhase("voice_active");
+
+    console.log("[EXPERIENCE] Establishing Realtime connection");
+    await startConversation();
+    console.log("[EXPERIENCE] Realtime connected");
 
     console.log("[EXPERIENCE] Initializing session");
     const session = initializeSession();
