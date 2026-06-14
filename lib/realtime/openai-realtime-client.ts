@@ -85,10 +85,27 @@ export class OpenAIRealtimeClient {
       this.peerConnection = pc;
 
       pc.ontrack = (event) => {
+        console.log("[VOICE] Audio track received from Realtime");
         const audioElement = this.ensureAudioElement();
         devLog("first audio track received");
         audioElement.srcObject = event.streams[0];
+
+        // Add event listeners for playback
+        audioElement.addEventListener("play", () => {
+          console.log("[VOICE] Audio playback started");
+        });
+        audioElement.addEventListener("ended", () => {
+          console.log("[VOICE] Audio playback finished");
+        });
+        audioElement.addEventListener("error", (e) => {
+          console.error("[VOICE] Audio playback error", e);
+        });
+
+        console.log("[VOICE] Calling audioElement.play()");
         audioElement.play().catch((error) => {
+          console.error("[VOICE] Audio autoplay failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
           devLog("audio autoplay blocked", {
             message: error instanceof Error ? error.message : String(error),
           });
@@ -103,6 +120,7 @@ export class OpenAIRealtimeClient {
         });
 
         if (pc.connectionState === "connected") {
+          console.log("[VOICE] Realtime connection established");
           this.connected = true;
           this.events.onConnected?.();
           this.events.onStateChange?.("listening");
@@ -212,6 +230,18 @@ export class OpenAIRealtimeClient {
   }
 
   speakExact(text: string): void {
+    console.log("[VOICE] speakExact() called", { textLength: text.length, connected: this.connected, dataChannelReady: Boolean(this.dataChannel) });
+
+    if (!this.connected) {
+      console.error("[VOICE] ERROR: Not connected to Realtime!");
+      return;
+    }
+
+    if (!this.dataChannel) {
+      console.error("[VOICE] ERROR: Data channel not ready!");
+      return;
+    }
+
     // Inject the exact text as an assistant message in the conversation
     const itemEvent: RealtimeSessionEvent = {
       type: "conversation.item.create",
@@ -227,8 +257,10 @@ export class OpenAIRealtimeClient {
       },
     };
 
+    console.log("[VOICE] Sending conversation.item.create event");
     devLog("conversation.item.create (speakExact)", { text: text.slice(0, 50) });
     this.sendEvent(itemEvent);
+    console.log("[VOICE] conversation.item.create event sent");
 
     // Request synthesis of the message (no model generation, only TTS)
     const responseEvent: RealtimeSessionEvent = {
@@ -238,8 +270,10 @@ export class OpenAIRealtimeClient {
       },
     };
 
+    console.log("[VOICE] Sending response.create event (synthesis)");
     devLog("response.create (synthesis only)", {});
     this.sendEvent(responseEvent);
+    console.log("[VOICE] response.create event sent");
   }
 
   private async createSession() {
@@ -339,11 +373,15 @@ export class OpenAIRealtimeClient {
   }
 
   private sendEvent(event: RealtimeSessionEvent) {
+    console.log("[VOICE] sendEvent()", { type: event.type, dataChannelReady: this.dataChannel?.readyState === "open" });
+
     if (this.dataChannel?.readyState === "open") {
+      console.log("[VOICE] Sending event immediately via WebSocket", { type: event.type });
       this.dataChannel.send(JSON.stringify(event));
       return;
     }
 
+    console.log("[VOICE] Data channel not open, queuing event. Status:", this.dataChannel?.readyState);
     this.pendingEvents.push(event);
   }
 

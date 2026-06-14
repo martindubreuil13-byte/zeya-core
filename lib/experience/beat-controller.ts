@@ -42,12 +42,17 @@ export class BeatController {
    * Start the current beat: speak the script and prepare for extraction
    */
   async startBeat(): Promise<void> {
+    console.log("[BEAT] startBeat() called", { currentBeat: this.session.currentBeat });
+
     const beat = this.session.currentBeat;
     const beatConfig = BEAT_SCRIPTS[beat];
 
     if (!beatConfig) {
+      console.error("[BEAT] Unknown beat:", beat);
       throw new Error(`Unknown beat: ${beat}`);
     }
+
+    console.log("[BEAT] Beat config found", { beat });
 
     this.session.beatStartedAt = new Date();
     this.session.beatAttempts = 0;
@@ -57,9 +62,15 @@ export class BeatController {
       visitorName: this.session.visitor.name,
     });
 
+    console.log("[BEAT] Script generated", { beat, scriptLength: script.length, firstChars: script.slice(0, 50) });
+
     // Notify handler to speak the script
     if (this.config.onBeatStart) {
+      console.log("[BEAT] Calling onBeatStart callback");
       await this.config.onBeatStart(beat, script);
+      console.log("[BEAT] onBeatStart callback returned");
+    } else {
+      console.error("[BEAT] No onBeatStart callback configured!");
     }
   }
 

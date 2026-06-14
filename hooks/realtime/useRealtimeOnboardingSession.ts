@@ -179,6 +179,7 @@ export function useRealtimeOnboardingSession() {
   }, [snapshot.state, snapshot.connectionStatus]);
 
   const startConversation = useCallback(async (initialResponseInstructions?: string) => {
+    console.log("[HOOK] startConversation() called", { hasInstructions: Boolean(initialResponseInstructions) });
     setSnapshot((current) => ({
       ...current,
       state: "connecting",
@@ -186,7 +187,9 @@ export function useRealtimeOnboardingSession() {
       error: undefined,
     }));
 
+    console.log("[HOOK] Calling client.connect()");
     await clientRef.current?.connect(initialResponseInstructions);
+    console.log("[HOOK] client.connect() returned");
   }, []);
 
   const stopConversation = useCallback(async () => {
@@ -199,7 +202,14 @@ export function useRealtimeOnboardingSession() {
   }, []);
 
   const speakExact = useCallback((text: string) => {
-    clientRef.current?.speakExact(text);
+    console.log("[HOOK] speakExact() callback called", { textLength: text.length, clientExists: Boolean(clientRef.current) });
+    if (!clientRef.current) {
+      console.error("[HOOK] ERROR: No Realtime client available!");
+      return;
+    }
+    console.log("[HOOK] Calling client.speakExact()");
+    clientRef.current.speakExact(text);
+    console.log("[HOOK] client.speakExact() returned");
   }, []);
 
   return {

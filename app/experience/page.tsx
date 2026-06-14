@@ -72,30 +72,43 @@ export default function ExperiencePage() {
   }, [voiceTranscript, phase]);
 
   const handleStartExperience = async () => {
+    console.log("[EXPERIENCE] Start button clicked");
     if (!isConfigured) return;
     setPhase("voice_active");
 
+    console.log("[EXPERIENCE] Initializing session");
     const session = initializeSession();
+
+    console.log("[EXPERIENCE] Creating BeatController");
     const controller = new BeatController(session, {
       onBeatStart: async (beat, script) => {
+        console.log("[BEAT] onBeatStart() called", { beat, scriptLength: script.length });
+        console.log("[BEAT] onBeatStart() calling speakExact()");
         await speakExact?.(script);
+        console.log("[BEAT] onBeatStart() speakExact() returned");
       },
       onBeatComplete: () => {
+        console.log("[BEAT] onBeatComplete() called");
         // Phase 1B: No action on beat completion
       },
       onSessionComplete: () => {
+        console.log("[BEAT] onSessionComplete() called");
         stopConversation();
         setPhase("collecting_phone");
       },
       onSessionFail: (session, reason) => {
-        console.error("Session failed:", reason);
+        console.error("[BEAT] onSessionFail()", reason);
         stopConversation();
         setPhase("initial");
       },
     });
 
+    console.log("[EXPERIENCE] BeatController created");
     controllerRef.current = controller;
+
+    console.log("[EXPERIENCE] Calling controller.startBeat()");
     await controller.startBeat();
+    console.log("[EXPERIENCE] controller.startBeat() returned");
   };
 
   const handleEndConversation = () => {
