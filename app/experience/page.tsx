@@ -90,6 +90,9 @@ export default function ExperiencePage() {
       connectEndTimestamp: Math.round(connectEndTimestamp),
       connectionDuration: Math.round(connectEndTimestamp - connectStartTimestamp),
     });
+    console.log("[CONNECTION] Before BeatController, checking voice connection state", {
+      timestamp: Math.round(performance.now()),
+    });
 
     console.log("[EXPERIENCE] Initializing session");
     const session = initializeSession();

@@ -119,10 +119,15 @@ export class OpenAIRealtimeClient {
           signalingState: pc.signalingState,
         });
 
+        console.log("[CONNECTION] pc.onconnectionstatechange fired", {
+          connectionState: pc.connectionState,
+          timestamp: Math.round(performance.now()),
+        });
+
         if (pc.connectionState === "connected") {
           const connectedTimestamp = performance.now();
-          console.log("[VOICE] Realtime connection established", {
-            timestamp: connectedTimestamp,
+          console.log("[CONNECTION] connected=true", {
+            timestamp: Math.round(connectedTimestamp),
             millisecondsSincePageLoad: Math.round(connectedTimestamp),
           });
           this.connected = true;
@@ -135,6 +140,10 @@ export class OpenAIRealtimeClient {
           pc.connectionState === "closed" ||
           pc.connectionState === "disconnected"
         ) {
+          console.log("[CONNECTION] connected=false", {
+            reason: pc.connectionState,
+            timestamp: Math.round(performance.now()),
+          });
           this.connected = false;
           this.events.onDisconnected?.();
           if (pc.connectionState !== "closed") {
@@ -144,6 +153,10 @@ export class OpenAIRealtimeClient {
       };
 
       pc.oniceconnectionstatechange = () => {
+        console.log("[CONNECTION] ice state change", {
+          iceConnectionState: pc.iceConnectionState,
+          timestamp: Math.round(performance.now()),
+        });
         devLog("ice state:", { iceConnectionState: pc.iceConnectionState });
       };
 
@@ -190,6 +203,10 @@ export class OpenAIRealtimeClient {
   }
 
   close() {
+    console.log("[CONNECTION] close() called, setting connected=false", {
+      timestamp: Math.round(performance.now()),
+      wasConnected: this.connected,
+    });
     this.connected = false;
     this.dataChannel?.close();
     this.dataChannel = undefined;
@@ -343,9 +360,10 @@ export class OpenAIRealtimeClient {
   private attachDataChannel(dc: RTCDataChannel) {
     dc.onopen = () => {
       const dataChannelOpenTimestamp = performance.now();
-      console.log("[VOICE] Data channel opened", {
-        timestamp: dataChannelOpenTimestamp,
+      console.log("[CONNECTION] data channel opened", {
+        timestamp: Math.round(dataChannelOpenTimestamp),
         millisecondsSincePageLoad: Math.round(dataChannelOpenTimestamp),
+        connected: this.connected,
       });
       devLog("data channel state: open");
       this.flushPendingEvents();

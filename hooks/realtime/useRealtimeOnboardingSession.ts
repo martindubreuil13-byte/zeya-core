@@ -190,6 +190,10 @@ export function useRealtimeOnboardingSession() {
     console.log("[HOOK] Calling client.connect()");
     await clientRef.current?.connect(initialResponseInstructions);
     console.log("[HOOK] client.connect() returned");
+    console.log("[CONNECTION] After connect(), client state", {
+      timestamp: Math.round(performance.now()),
+      connected: clientRef.current?.isConnected,
+    });
   }, []);
 
   const stopConversation = useCallback(async () => {
