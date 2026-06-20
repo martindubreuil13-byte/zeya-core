@@ -54,6 +54,10 @@ export default function ExperiencePage() {
   useEffect(() => {
     if (phase !== "voice_active" || !controllerRef.current) return;
 
+    // Don't process transcripts until Beat 1 has been initiated
+    // (ambient noise during connection setup can hijack state machine before Beat 1 plays)
+    if (!controllerRef.current.beatStartedAt) return;
+
     // Find the last final user message
     const lastUserMessage = voiceTranscript
       .filter((entry) => entry.role === "user" && entry.isFinal && entry.text?.trim())

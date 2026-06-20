@@ -38,6 +38,10 @@ export class BeatController {
     this.config = config;
   }
 
+  get beatStartedAt(): Date | undefined {
+    return this.session.beatStartedAt;
+  }
+
   /**
    * Start the current beat: speak the script and prepare for extraction
    */
