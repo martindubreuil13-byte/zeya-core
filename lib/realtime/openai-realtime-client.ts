@@ -264,13 +264,9 @@ export class OpenAIRealtimeClient {
       }
 
       const answerSdp = await sdpResponse.text();
-      console.log("[CONNECTION] Setting remote SDP", {
-        instanceId: this.instanceId,
-        timestamp: Math.round(performance.now()),
-      });
-      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-      // Create deferred promise that resolves when BOTH transport conditions are met
+      // Create deferred promise BEFORE setRemoteDescription
+      // (callbacks fire immediately after, must exist when they check)
       let resolveReady!: () => void;
       let rejectReady!: (error?: any) => void;
 
@@ -285,10 +281,11 @@ export class OpenAIRealtimeClient {
         reject: rejectReady,
       };
 
-      console.log("[CONNECTION] Waiting for transport readiness", {
+      console.log("[CONNECTION] Setting remote SDP", {
         instanceId: this.instanceId,
         timestamp: Math.round(performance.now()),
       });
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
       // Wait for BOTH conditions: connected=true AND dataChannel.readyState="open"
       await this.connectionReadyPromise.promise;
