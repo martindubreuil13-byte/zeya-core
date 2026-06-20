@@ -178,8 +178,24 @@ export class OpenAIRealtimeClient {
         devLog("ice state:", { iceConnectionState: pc.iceConnectionState });
       };
 
+      console.log("[CONNECTION] Requesting microphone access", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.localStream.getAudioTracks().forEach((track) => pc.addTrack(track, this.localStream!));
+      console.log("[CONNECTION] Microphone access granted, adding audio tracks", {
+        instanceId: this.instanceId,
+        trackCount: this.localStream.getAudioTracks().length,
+        timestamp: Math.round(performance.now()),
+      });
+      this.localStream.getAudioTracks().forEach((track) => {
+        console.log("[CONNECTION] Adding audio track to peer connection", {
+          instanceId: this.instanceId,
+          trackEnabled: track.enabled,
+          trackReadyState: track.readyState,
+        });
+        pc.addTrack(track, this.localStream!);
+      });
 
       const dc = pc.createDataChannel("oai-events");
       console.log("[CONNECTION] Data channel created", {
