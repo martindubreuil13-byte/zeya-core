@@ -36,6 +36,9 @@ function devLog(message: string, details?: Record<string, unknown>) {
 }
 
 export class OpenAIRealtimeClient {
+  private static instanceCounter = 0;
+  private instanceId: string;
+
   private peerConnection?: RTCPeerConnection;
   private dataChannel?: RTCDataChannel;
   private localStream?: MediaStream;
@@ -51,13 +54,27 @@ export class OpenAIRealtimeClient {
   private firstAudioReceivedAt?: number;
   private firstAudioPlayedAt?: number;
 
-  constructor(private readonly events: OpenAIRealtimeClientEvents = {}) {}
+  constructor(private readonly events: OpenAIRealtimeClientEvents = {}) {
+    OpenAIRealtimeClient.instanceCounter++;
+    this.instanceId = `OpenAIRealtimeClient-${OpenAIRealtimeClient.instanceCounter}`;
+    console.log("[INSTANCE] Constructor called", {
+      instanceId: this.instanceId,
+      instanceCounter: OpenAIRealtimeClient.instanceCounter,
+      timestamp: Math.round(performance.now()),
+    });
+  }
 
   get isConnected() {
     return this.connected;
   }
 
   async connect(initialResponseInstructions?: string) {
+    console.log("[INSTANCE] connect() called", {
+      instanceId: this.instanceId,
+      hasInitialInstructions: Boolean(initialResponseInstructions),
+      timestamp: Math.round(performance.now()),
+    });
+
     if (this.peerConnection) {
       if (this.connected) {
         // Active session already exists — just send the response if requested
@@ -127,6 +144,7 @@ export class OpenAIRealtimeClient {
         if (pc.connectionState === "connected") {
           const connectedTimestamp = performance.now();
           console.log("[CONNECTION] connected=true", {
+            instanceId: this.instanceId,
             timestamp: Math.round(connectedTimestamp),
             millisecondsSincePageLoad: Math.round(connectedTimestamp),
           });
@@ -254,6 +272,7 @@ export class OpenAIRealtimeClient {
     const speakExactTimestamp = performance.now();
     const dcState = this.dataChannel?.readyState ?? "undefined";
     console.log("[VOICE] speakExact() called", {
+      instanceId: this.instanceId,
       timestamp: speakExactTimestamp,
       millisecondsSincePageLoad: Math.round(speakExactTimestamp),
       textLength: text.length,
@@ -415,22 +434,49 @@ export class OpenAIRealtimeClient {
   }
 
   private sendEvent(event: RealtimeSessionEvent) {
-    console.log("[VOICE] sendEvent()", { type: event.type, dataChannelReady: this.dataChannel?.readyState === "open" });
+    const dcState = this.dataChannel?.readyState ?? "undefined";
+    console.log("[VOICE] sendEvent()", {
+      instanceId: this.instanceId,
+      type: event.type,
+      dataChannelReady: dcState === "open",
+      dataChannelState: dcState,
+      timestamp: Math.round(performance.now()),
+    });
 
     if (this.dataChannel?.readyState === "open") {
-      console.log("[VOICE] Sending event immediately via WebSocket", { type: event.type });
+      console.log("[VOICE] Sending event immediately", {
+        instanceId: this.instanceId,
+        type: event.type,
+        timestamp: Math.round(performance.now()),
+      });
       this.dataChannel.send(JSON.stringify(event));
       return;
     }
 
-    console.log("[VOICE] Data channel not open, queuing event. Status:", this.dataChannel?.readyState);
+    console.log("[VOICE] Data channel not open, queuing event", {
+      instanceId: this.instanceId,
+      dataChannelState: dcState,
+      pendingEventCount: this.pendingEvents.length,
+      timestamp: Math.round(performance.now()),
+    });
     this.pendingEvents.push(event);
   }
 
   private flushPendingEvents() {
     if (this.dataChannel?.readyState !== "open") return;
     const events = this.pendingEvents.splice(0);
-    events.forEach((event) => this.dataChannel?.send(JSON.stringify(event)));
+    console.log("[VOICE] Flushing pending events", {
+      instanceId: this.instanceId,
+      count: events.length,
+      timestamp: Math.round(performance.now()),
+    });
+    events.forEach((event) => {
+      console.log("[VOICE] Sending flushed event", {
+        instanceId: this.instanceId,
+        type: event.type,
+      });
+      this.dataChannel?.send(JSON.stringify(event));
+    });
   }
 
   private handleRealtimeTiming(event: RealtimeSessionEvent) {

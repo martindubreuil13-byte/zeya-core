@@ -47,6 +47,7 @@ export class BeatController {
       currentBeat: this.session.currentBeat,
       timestamp: beatStartTimestamp,
       millisecondsSincePageLoad: Math.round(beatStartTimestamp),
+      hasOnBeatStartCallback: Boolean(this.config.onBeatStart),
     });
 
     const beat = this.session.currentBeat;
@@ -57,7 +58,7 @@ export class BeatController {
       throw new Error(`Unknown beat: ${beat}`);
     }
 
-    console.log("[BEAT] Beat config found", { beat });
+    console.log("[BEAT] Beat config found", { beat, beatId: beatConfig.id });
 
     this.session.beatStartedAt = new Date();
     this.session.beatAttempts = 0;
@@ -71,9 +72,14 @@ export class BeatController {
 
     // Notify handler to speak the script
     if (this.config.onBeatStart) {
-      console.log("[BEAT] Calling onBeatStart callback");
+      console.log("[BEAT] About to call onBeatStart callback", {
+        callbackExists: true,
+        timestamp: Math.round(performance.now()),
+      });
       await this.config.onBeatStart(beat, script);
-      console.log("[BEAT] onBeatStart callback returned");
+      console.log("[BEAT] onBeatStart callback returned successfully", {
+        timestamp: Math.round(performance.now()),
+      });
     } else {
       console.error("[BEAT] No onBeatStart callback configured!");
     }
@@ -199,6 +205,12 @@ export class BeatController {
     const currentBeat = this.session.currentBeat;
     const beatConfig = BEAT_SCRIPTS[currentBeat];
 
+    console.log("[BEAT] advanceBeat() called", {
+      currentBeat,
+      extractedValue: extractedValue?.slice(0, 30),
+      timestamp: Math.round(performance.now()),
+    });
+
     // Update visitor data with extraction
     if (beatConfig.extractField && extractedValue) {
       updateVisitorData(this.session, currentBeat, extractedValue);
@@ -206,6 +218,7 @@ export class BeatController {
 
     // Notify handler of beat completion
     if (this.config.onBeatComplete) {
+      console.log("[BEAT] Calling onBeatComplete callback", { currentBeat });
       this.config.onBeatComplete(currentBeat, extractedValue);
     }
 
@@ -220,10 +233,12 @@ export class BeatController {
       nextBeat = getNextBeat(currentBeat, extractedValue);
     }
 
+    console.log("[BEAT] Moving to next beat", { nextBeat });
     this.session.currentBeat = nextBeat;
 
     // Check if we're done
     if (nextBeat === ExperienceBeat.CLOSED) {
+      console.log("[BEAT] Session complete - reached CLOSED beat");
       completeSession(this.session, "Reached final beat");
       if (this.config.onSessionComplete) {
         this.config.onSessionComplete(this.session);
@@ -232,6 +247,7 @@ export class BeatController {
     }
 
     // Start next beat
+    console.log("[BEAT] Starting next beat", { nextBeat });
     await this.startBeat();
   }
 

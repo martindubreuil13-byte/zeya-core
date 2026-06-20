@@ -75,6 +75,9 @@ export function useRealtimeOnboardingSession() {
   }, []);
 
   useEffect(() => {
+    console.log("[HOOK] useRealtimeOnboardingSession: Creating OpenAIRealtimeClient", {
+      timestamp: Math.round(performance.now()),
+    });
     const client = new OpenAIRealtimeClient({
       onStateChange: (state) => {
         setSnapshot((current) => {
@@ -135,8 +138,14 @@ export function useRealtimeOnboardingSession() {
       },
     });
 
+    console.log("[HOOK] useRealtimeOnboardingSession: Client created and stored in clientRef", {
+      timestamp: Math.round(performance.now()),
+    });
     clientRef.current = client;
     return () => {
+      console.log("[HOOK] useRealtimeOnboardingSession: Cleanup - calling client.close()", {
+        timestamp: Math.round(performance.now()),
+      });
       client.close();
       clientRef.current = null;
     };
