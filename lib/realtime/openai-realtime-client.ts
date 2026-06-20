@@ -182,6 +182,10 @@ export class OpenAIRealtimeClient {
       this.localStream.getAudioTracks().forEach((track) => pc.addTrack(track, this.localStream!));
 
       const dc = pc.createDataChannel("oai-events");
+      console.log("[CONNECTION] Data channel created", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
       this.dataChannel = dc;
       this.attachDataChannel(dc);
       if (initialResponseInstructions) {
@@ -210,7 +214,17 @@ export class OpenAIRealtimeClient {
       }
 
       const answerSdp = await sdpResponse.text();
+      console.log("[CONNECTION] Setting remote SDP", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      console.log("[CONNECTION] connect() complete, returning", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+        connected: this.connected,
+        dataChannelState: this.dataChannel?.readyState,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.events.onError?.(message);
@@ -377,12 +391,19 @@ export class OpenAIRealtimeClient {
   }
 
   private attachDataChannel(dc: RTCDataChannel) {
+    console.log("[CONNECTION] attachDataChannel called", {
+      instanceId: this.instanceId,
+      timestamp: Math.round(performance.now()),
+    });
+
     dc.onopen = () => {
       const dataChannelOpenTimestamp = performance.now();
       console.log("[CONNECTION] data channel opened", {
+        instanceId: this.instanceId,
         timestamp: Math.round(dataChannelOpenTimestamp),
         millisecondsSincePageLoad: Math.round(dataChannelOpenTimestamp),
         connected: this.connected,
+        pendingEventCount: this.pendingEvents.length,
       });
       devLog("data channel state: open");
       this.flushPendingEvents();
@@ -390,10 +411,19 @@ export class OpenAIRealtimeClient {
     };
 
     dc.onclose = () => {
+      console.log("[CONNECTION] data channel closed", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
       devLog("data channel state: closed");
     };
 
     dc.onerror = (e) => {
+      console.log("[CONNECTION] data channel error", {
+        instanceId: this.instanceId,
+        error: String(e),
+        timestamp: Math.round(performance.now()),
+      });
       devLog("data channel state: error", { event: String(e) });
       this.events.onError?.("Realtime data channel interrupted.");
     };
