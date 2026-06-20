@@ -270,12 +270,19 @@ export class OpenAIRealtimeClient {
       });
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-      // Create promise that resolves when BOTH transport conditions are met
+      // Create deferred promise that resolves when BOTH transport conditions are met
+      let resolveReady!: () => void;
+      let rejectReady!: (error?: any) => void;
+
+      const promise = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+      });
+
       this.connectionReadyPromise = {
-        promise: new Promise<void>((resolve, reject) => {
-          this.connectionReadyPromise!.resolve = resolve;
-          this.connectionReadyPromise!.reject = reject;
-        }),
+        promise,
+        resolve: resolveReady,
+        reject: rejectReady,
       };
 
       console.log("[CONNECTION] Waiting for transport readiness", {
