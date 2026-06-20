@@ -54,6 +54,13 @@ export class OpenAIRealtimeClient {
   private firstAudioReceivedAt?: number;
   private firstAudioPlayedAt?: number;
 
+  // Transport readiness tracking
+  private connectionReadyPromise?: {
+    promise: Promise<void>;
+    resolve?: () => void;
+    reject?: (error: Error) => void;
+  };
+
   constructor(private readonly events: OpenAIRealtimeClientEvents = {}) {
     OpenAIRealtimeClient.instanceCounter++;
     this.instanceId = `OpenAIRealtimeClient-${OpenAIRealtimeClient.instanceCounter}`;
@@ -66,6 +73,32 @@ export class OpenAIRealtimeClient {
 
   get isConnected() {
     return this.connected;
+  }
+
+  private checkTransportReady(): void {
+    if (!this.connectionReadyPromise) return;
+    if (this.connectionReadyPromise.promise === null) return; // Already resolved
+
+    const isConnected = this.connected === true;
+    const isDataChannelOpen = this.dataChannel?.readyState === "open";
+
+    console.log("[CONNECTION] Transport readiness check", {
+      instanceId: this.instanceId,
+      isConnected,
+      isDataChannelOpen,
+      dataChannelState: this.dataChannel?.readyState,
+      timestamp: Math.round(performance.now()),
+    });
+
+    if (isConnected && isDataChannelOpen) {
+      console.log("[CONNECTION] ✅ Transport fully ready", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
+      this.connectionReadyPromise.resolve?.();
+      // Mark as resolved by nullifying
+      this.connectionReadyPromise.promise = null as any;
+    }
   }
 
   async connect(initialResponseInstructions?: string) {
@@ -151,6 +184,7 @@ export class OpenAIRealtimeClient {
           this.connected = true;
           this.events.onConnected?.();
           this.events.onStateChange?.("listening");
+          this.checkTransportReady();
         }
 
         if (
@@ -235,7 +269,24 @@ export class OpenAIRealtimeClient {
         timestamp: Math.round(performance.now()),
       });
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-      console.log("[CONNECTION] connect() complete, returning", {
+
+      // Create promise that resolves when BOTH transport conditions are met
+      this.connectionReadyPromise = {
+        promise: new Promise<void>((resolve, reject) => {
+          this.connectionReadyPromise!.resolve = resolve;
+          this.connectionReadyPromise!.reject = reject;
+        }),
+      };
+
+      console.log("[CONNECTION] Waiting for transport readiness", {
+        instanceId: this.instanceId,
+        timestamp: Math.round(performance.now()),
+      });
+
+      // Wait for BOTH conditions: connected=true AND dataChannel.readyState="open"
+      await this.connectionReadyPromise.promise;
+
+      console.log("[CONNECTION] Transport ready, connect() resolving", {
         instanceId: this.instanceId,
         timestamp: Math.round(performance.now()),
         connected: this.connected,
@@ -424,6 +475,7 @@ export class OpenAIRealtimeClient {
       devLog("data channel state: open");
       this.flushPendingEvents();
       this.events.onStateChange?.("listening");
+      this.checkTransportReady();
     };
 
     dc.onclose = () => {
