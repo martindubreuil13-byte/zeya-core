@@ -58,7 +58,7 @@ export class BeatController {
       throw new Error(`Unknown beat: ${beat}`);
     }
 
-    console.log("[BEAT] Beat config found", { beat, beatId: beatConfig.id });
+    console.log("[BEAT] Beat config found", { beat });
 
     this.session.beatStartedAt = new Date();
     this.session.beatAttempts = 0;
