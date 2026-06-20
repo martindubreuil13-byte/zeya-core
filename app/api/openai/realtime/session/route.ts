@@ -70,11 +70,31 @@ export async function POST() {
   // POST /v1/realtime/client_secrets accepts ClientSecretCreateParams
   // Structure: { session?: {...}, expires_after?: {...} }
   // session.type is REQUIRED and must be exactly 'realtime'
+  //
+  // CRITICAL: For Experience Engine (BeatController), we must:
+  // 1. Disable create_response to prevent autonomous model generation
+  // 2. Only allow transcript capture and TTS synthesis
+  // 3. BeatController makes all dialogue decisions via speakExact()
   const sessionConfig = {
     session: {
       type: "realtime",
       model,
       audio: {
+        input: {
+          turn_detection: {
+            type: "server_vad",
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500,
+            // CRITICAL: Disable autonomous response creation
+            // The application (BeatController) controls all dialogue
+            create_response: false,
+            interrupt_response: false,
+          },
+          transcription: {
+            model: "gpt-4o-mini-transcribe",
+          },
+        },
         output: {
           voice,
         },
@@ -84,12 +104,22 @@ export async function POST() {
 
   // Log full payload for debugging
   const payloadJson = JSON.stringify(sessionConfig);
+  const audioInput = (sessionConfig.session.audio as Record<string, unknown>).input as Record<string, unknown>;
+  const turnDetection = audioInput?.turn_detection as Record<string, unknown>;
+
   serverLog("Request payload BEFORE sending", {
-    payload: payloadJson,
     type: sessionConfig.session.type,
     model: sessionConfig.session.model,
     voice: sessionConfig.session.audio.output.voice,
+    "turn_detection.create_response": turnDetection?.create_response ?? "NOT SET",
+    "turn_detection.interrupt_response": turnDetection?.interrupt_response ?? "NOT SET",
     payloadSize: payloadJson.length,
+  });
+
+  serverLog("⚠️  CRITICAL: Autonomous response generation is DISABLED", {
+    "create_response": false,
+    "reason": "BeatController controls all dialogue via speakExact()",
+    "expected_events": "Only response.created when explicitly requested by application",
   });
 
   try {
