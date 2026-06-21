@@ -456,20 +456,49 @@ export default function ExperiencePage() {
       )}
 
       {phase === "waiting_for_call" && (
-        <div className="flex-1 flex flex-col items-center justify-center px-6">
-          <div className="max-w-md space-y-8">
-            <div className="text-center space-y-4">
+        <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
+          <div className="w-full max-w-md space-y-7">
+            <div className="flex flex-col items-center text-center">
+              <PresenceCore state="idle" />
+              <div className="mt-6 space-y-3">
+                <p
+                  className="font-serif text-lg text-zeya-ivory font-light"
+                  style={{ letterSpacing: "0.06em", lineHeight: "1.6" }}
+                >
+                  Perfect. I’ve prepared a short brief for my agent based on our conversation.
+                </p>
+                <p className="text-sm font-light text-zeya-taupe">Keep this page open.</p>
+                <p className="text-sm font-light text-zeya-taupe">
+                  I’ll stay here while the call is being connected.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded border border-zeya-taupe/20 px-4 py-4">
+              <div className="flex items-center gap-3 text-sm font-light">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
+                  ✓
+                </span>
+                <span className="text-zeya-ivory/75">Preparing brief</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm font-light">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
+                  ✓
+                </span>
+                <span className="text-zeya-ivory/75">Ready to call</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm font-light">
+                <span className="h-2 w-2 rounded-full bg-zeya-champagne/80" />
+                <span className="text-zeya-champagne">Waiting for connection</span>
+              </div>
+            </div>
+
+            <div className="text-center space-y-3">
               <p
                 className="font-serif text-lg text-zeya-ivory font-light"
                 style={{ letterSpacing: "0.08em" }}
               >
                 Waiting for your call…
-              </p>
-              <p
-                className="text-sm text-zeya-taupe font-light"
-                style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
-              >
-                Keep this page open.
               </p>
               <p
                 className="text-xs text-zeya-taupe/70 font-light"
