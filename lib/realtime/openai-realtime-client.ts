@@ -53,6 +53,8 @@ export class OpenAIRealtimeClient {
   private responseStartedAt?: number;
   private firstAudioReceivedAt?: number;
   private firstAudioPlayedAt?: number;
+  private responseCreatedTimeout?: ReturnType<typeof setTimeout>;
+  private remoteAudioTrackReceived = false;
 
   // Transport readiness tracking
   private connectionReadyPromise?: {
@@ -135,26 +137,47 @@ export class OpenAIRealtimeClient {
       this.peerConnection = pc;
 
       pc.ontrack = (event) => {
-        console.log("[VOICE] Audio track received from Realtime");
+        const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+        this.remoteAudioTrackReceived = true;
+        console.log("[VOICE][AUDIO] pc.ontrack", {
+          track: {
+            id: event.track.id,
+            kind: event.track.kind,
+            enabled: event.track.enabled,
+            muted: event.track.muted,
+            readyState: event.track.readyState,
+          },
+          streamCount: event.streams.length,
+          remoteTracks: remoteStream.getTracks().map((track) => ({
+            id: track.id,
+            kind: track.kind,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+          })),
+        });
         const audioElement = this.ensureAudioElement();
         devLog("first audio track received");
-        audioElement.srcObject = event.streams[0];
-
-        // Add event listeners for playback
-        audioElement.addEventListener("play", () => {
-          console.log("[VOICE] Audio playback started");
-        });
-        audioElement.addEventListener("ended", () => {
-          console.log("[VOICE] Audio playback finished");
-        });
-        audioElement.addEventListener("error", (e) => {
-          console.error("[VOICE] Audio playback error", e);
+        audioElement.srcObject = remoteStream;
+        console.log("[VOICE][AUDIO] audio element srcObject assigned", {
+          srcObjectIsRemoteStream: audioElement.srcObject === remoteStream,
+          paused: audioElement.paused,
+          readyState: audioElement.readyState,
+          muted: audioElement.muted,
         });
 
-        console.log("[VOICE] Calling audioElement.play()");
-        audioElement.play().catch((error) => {
-          console.error("[VOICE] Audio autoplay failed", {
+        console.log("[VOICE][AUDIO] calling audio.play()", this.audioElementState(audioElement));
+        audioElement.play().then(() => {
+          console.log("[VOICE][AUDIO] audio.play() succeeded", this.audioElementState(audioElement));
+        }).catch((error) => {
+          const errorName = error instanceof DOMException ? error.name : "PlaybackError";
+          const category = errorName === "NotAllowedError"
+            ? "c) audio track received but playback blocked"
+            : "d) browser playback error";
+          console.error(`[VOICE][AUDIO] ${category}`, {
+            name: errorName,
             message: error instanceof Error ? error.message : String(error),
+            ...this.audioElementState(audioElement),
           });
           devLog("audio autoplay blocked", {
             message: error instanceof Error ? error.message : String(error),
@@ -337,6 +360,9 @@ export class OpenAIRealtimeClient {
     this.responseStartedAt = undefined;
     this.firstAudioReceivedAt = undefined;
     this.firstAudioPlayedAt = undefined;
+    if (this.responseCreatedTimeout) clearTimeout(this.responseCreatedTimeout);
+    this.responseCreatedTimeout = undefined;
+    this.remoteAudioTrackReceived = false;
     this.events.onDisconnected?.();
   }
 
@@ -382,38 +408,42 @@ export class OpenAIRealtimeClient {
       return;
     }
 
-    // Inject the exact text as an assistant message in the conversation
-    const itemEvent: RealtimeSessionEvent = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "assistant",
-        content: [
+    // A client-created assistant item is conversation history; it is not a TTS
+    // request. Ask the model to speak via the supported response input contract.
+    const responseEvent: RealtimeSessionEvent = {
+      type: "response.create",
+      response: {
+        output_modalities: ["audio"],
+        instructions: `Speak exactly the supplied text. Do not add, remove, or paraphrase any words. Supplied text: ${JSON.stringify(text)}`,
+        input: [
           {
-            type: "text",
-            text: text,
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Speak this exact text aloud: ${text}`,
+              },
+            ],
           },
         ],
       },
     };
 
-    console.log("[VOICE] Sending conversation.item.create event");
-    devLog("conversation.item.create (speakExact)", { text: text.slice(0, 50) });
-    this.sendEvent(itemEvent);
-    console.log("[VOICE] conversation.item.create event sent");
-
-    // Request synthesis of the message (no model generation, only TTS)
-    const responseEvent: RealtimeSessionEvent = {
-      type: "response.create",
-      response: {
-        modalities: ["audio"],
-      },
-    };
-
-    console.log("[VOICE] Sending response.create event (synthesis)");
-    devLog("response.create (synthesis only)", {});
+    console.log("[VOICE] Sending response.create event (exact audio response)");
+    devLog("response.create (exact audio response)", { text: text.slice(0, 50) });
     this.sendEvent(responseEvent);
     console.log("[VOICE] response.create event sent");
+
+    if (this.responseCreatedTimeout) clearTimeout(this.responseCreatedTimeout);
+    this.responseCreatedTimeout = setTimeout(() => {
+      if (!this.responseActive) {
+        console.error("[VOICE][DIAGNOSTIC] a) no response generated", {
+          reason: "No response.created event received within 8 seconds of response.create",
+        });
+      }
+      this.responseCreatedTimeout = undefined;
+    }, 8_000);
   }
 
   private async createSession() {
@@ -504,10 +534,7 @@ export class OpenAIRealtimeClient {
       try {
         const event = JSON.parse(message.data as string) as RealtimeSessionEvent;
         this.events.onEvent?.(event);
-
-        if (REALTIME_DEBUG) {
-          console.info("[Zeya realtime event]", event.type, event);
-        }
+        console.info("[ZEYA REALTIME][SERVER EVENT]", event.type ?? "unknown", event);
 
         this.handleRealtimeTiming(event);
 
@@ -624,6 +651,8 @@ export class OpenAIRealtimeClient {
         break;
       }
       case "response.created":
+        if (this.responseCreatedTimeout) clearTimeout(this.responseCreatedTimeout);
+        this.responseCreatedTimeout = undefined;
         if (this.responseActive) {
           devLog("stuck guard fired: response.created while responseActive=true — possible missed response.done");
         }
@@ -633,6 +662,7 @@ export class OpenAIRealtimeClient {
         this.responseStartedAt = performance.now();
         devLog("response lifecycle: response.created", { t: Math.round(performance.now()) });
         break;
+      case "response.output_audio.delta":
       case "response.audio.delta":
       case "output_audio_buffer.started":
         this.audioOutputActive = true;
@@ -658,6 +688,12 @@ export class OpenAIRealtimeClient {
           t: Math.round(performance.now()),
           status: (event.response as Record<string, unknown> | undefined)?.status,
         });
+        if (!this.hasReceivedAudioForResponse) {
+          console.error("[VOICE][DIAGNOSTIC] b) response generated but no audio", {
+            remoteAudioTrackReceived: this.remoteAudioTrackReceived,
+            response: event.response,
+          });
+        }
         break;
       case "output_audio_buffer.stopped":
       case "output_audio_buffer.cleared":
@@ -678,16 +714,37 @@ export class OpenAIRealtimeClient {
     audioElement.setAttribute("playsinline", "true");
     audioElement.style.display = "none";
     audioElement.onplaying = () => {
+      console.log("[VOICE][AUDIO] playing", this.audioElementState(audioElement));
       devLog("audio playing");
       this.markFirstAudioPlayed();
     };
+    audioElement.onpause = () => {
+      console.log("[VOICE][AUDIO] paused", this.audioElementState(audioElement));
+    };
     audioElement.onended = () => {
+      console.log("[VOICE][AUDIO] ended", this.audioElementState(audioElement));
       devLog("audio ended");
+    };
+    audioElement.onerror = () => {
+      console.error("[VOICE][AUDIO] d) browser playback error", {
+        mediaErrorCode: audioElement.error?.code,
+        mediaErrorMessage: audioElement.error?.message,
+        ...this.audioElementState(audioElement),
+      });
     };
     document.body.appendChild(audioElement);
     this.audioElement = audioElement;
 
     return audioElement;
+  }
+
+  private audioElementState(audioElement = this.audioElement) {
+    return {
+      paused: audioElement?.paused,
+      readyState: audioElement?.readyState,
+      muted: audioElement?.muted,
+      hasSrcObject: Boolean(audioElement?.srcObject),
+    };
   }
 
   private resetTurnTiming() {

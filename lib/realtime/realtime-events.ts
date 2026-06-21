@@ -15,6 +15,7 @@ export function stateFromRealtimeEvent(event: RealtimeSessionEvent): VoiceState 
     case "response.created":
     case "response.output_item.added":
       return "thinking";
+    case "response.output_audio.delta":
     case "response.audio.delta":
     case "output_audio_buffer.started":
       return "speaking";
@@ -41,13 +42,13 @@ export function transcriptFromRealtimeEvent(
     role = "user";
   }
 
-  if (type === "response.audio_transcript.delta") {
+  if (type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta") {
     text = getString(event.delta);
     role = "agent";
     isFinal = false;
   }
 
-  if (type === "response.audio_transcript.done") {
+  if (type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done") {
     text = getString(event.transcript);
     role = "agent";
   }
