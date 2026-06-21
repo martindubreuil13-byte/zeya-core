@@ -18,7 +18,10 @@ import { initializeSession } from "@/lib/experience/experience-state";
 import type { VoiceState } from "@/types/voice";
 import type { DispatchRecord, AgentBrief } from "@/lib/dispatch/types";
 
-type Phase = "initial" | "voice_active" | "collecting_phone" | "confirming";
+type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "waiting_for_call";
+
+const PHONE_HANDOFF =
+  "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
 
 export default function ExperiencePage() {
   const router = useRouter();
@@ -42,6 +45,7 @@ export default function ExperiencePage() {
   const [dispatchRecord, setDispatchRecord] = useState<DispatchRecord | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
+  const handoffHasStartedSpeakingRef = useRef(false);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
 
@@ -49,6 +53,29 @@ export default function ExperiencePage() {
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [voiceTranscript]);
+
+  // Keep the voice session alive until the handoff has actually been spoken,
+  // then stop microphone capture before revealing phone collection.
+  useEffect(() => {
+    if (phase !== "handoff") return;
+
+    if (voiceState === "speaking") {
+      handoffHasStartedSpeakingRef.current = true;
+    }
+
+    if (handoffHasStartedSpeakingRef.current && voiceState === "listening") {
+      void stopConversation();
+      setPhase("collecting_phone");
+      return;
+    }
+
+    const fallback = window.setTimeout(() => {
+      void stopConversation();
+      setPhase("collecting_phone");
+    }, 20_000);
+
+    return () => window.clearTimeout(fallback);
+  }, [phase, stopConversation, voiceState]);
 
   // Detect final user transcript and advance beat
   useEffect(() => {
@@ -115,8 +142,9 @@ export default function ExperiencePage() {
       },
       onSessionComplete: () => {
         console.log("[BEAT] onSessionComplete() called");
-        stopConversation();
-        setPhase("collecting_phone");
+        handoffHasStartedSpeakingRef.current = false;
+        setPhase("handoff");
+        speakExact?.(PHONE_HANDOFF);
       },
       onSessionFail: (session, reason) => {
         console.error("[BEAT] onSessionFail()", reason);
@@ -257,10 +285,20 @@ export default function ExperiencePage() {
       }
     }
 
-    // Transition to confirmation
-    setTimeout(() => {
-      setPhase("confirming");
-    }, 1000);
+    // Keep the experience alive while the visitor waits for the call.
+    setPhase("waiting_for_call");
+  };
+
+  const handleCallRetry = () => {
+    setIsSubmittingPhone(false);
+    setPhase("collecting_phone");
+  };
+
+  const handleReconnect = () => {
+    controllerRef.current = null;
+    sessionStorage.removeItem("lastProcessedTranscriptId");
+    setIsSubmittingPhone(false);
+    setPhase("initial");
   };
 
   return (
@@ -279,7 +317,7 @@ export default function ExperiencePage() {
               className="text-sm text-zeya-taupe font-light max-w-md mx-auto"
               style={{ letterSpacing: "0.02em", lineHeight: "1.7" }}
             >
-              A brief conversation to see what's possible.
+              A brief conversation to see what&apos;s possible.
             </p>
             <VoiceButton
               onStart={handleStartExperience}
@@ -349,6 +387,26 @@ export default function ExperiencePage() {
         </div>
       )}
 
+      {phase === "handoff" && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <PresenceCore />
+          <div className="mt-12 space-y-4 text-center max-w-md">
+            <p
+              className="font-serif text-lg text-zeya-ivory font-light"
+              style={{ letterSpacing: "0.08em" }}
+            >
+              Preparing your handoff…
+            </p>
+            <p
+              className="text-sm text-zeya-taupe font-light"
+              style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
+            >
+              Zeya is preparing the next step.
+            </p>
+          </div>
+        </div>
+      )}
+
       {phase === "collecting_phone" && (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           <div className="max-w-md space-y-8 text-center">
@@ -394,7 +452,7 @@ export default function ExperiencePage() {
         </div>
       )}
 
-      {phase === "confirming" && (
+      {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           <div className="max-w-md space-y-8">
             <div className="text-center space-y-4">
@@ -402,14 +460,26 @@ export default function ExperiencePage() {
                 className="font-serif text-lg text-zeya-ivory font-light"
                 style={{ letterSpacing: "0.08em" }}
               >
-                Perfect.
+                Waiting for your call…
               </p>
               <p
                 className="text-sm text-zeya-taupe font-light"
                 style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
               >
-                Keep this page open. One of my agents will call you shortly.
+                Keep this page open.
               </p>
+              <p
+                className="text-xs text-zeya-taupe/70 font-light"
+                style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
+              >
+                If the call does not arrive, you can try again or reconnect with Zeya here.
+              </p>
+              <div className="inline-flex items-center gap-2 rounded-full border border-zeya-taupe/20 px-3 py-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-zeya-taupe/50" />
+                <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zeya-taupe/70">
+                  Microphone paused
+                </span>
+              </div>
             </div>
 
             {dispatchRecord && (
@@ -458,6 +528,23 @@ export default function ExperiencePage() {
                 </div>
               </div>
             )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={handleCallRetry}
+                className="w-full border border-zeya-taupe/40 px-4 py-3 text-sm font-light text-zeya-ivory transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
+              >
+                I did not get the call
+              </button>
+              <button
+                type="button"
+                onClick={handleReconnect}
+                className="w-full border border-zeya-taupe/20 px-4 py-3 text-sm font-light text-zeya-taupe transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
+              >
+                Reconnect with Zeya
+              </button>
+            </div>
           </div>
         </div>
       )}
