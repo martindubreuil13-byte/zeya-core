@@ -16,6 +16,35 @@ const initialSnapshot: RealtimeOnboardingSnapshot = {
   memory: {},
 };
 
+function upsertTranscriptEntry(
+  entries: VoiceTranscriptEntry[],
+  entry: VoiceTranscriptEntry,
+  limit: number,
+) {
+  const existingIndex = entries.findIndex((existing) => existing.id === entry.id);
+
+  if (existingIndex === -1) {
+    return [...entries, entry].slice(-limit);
+  }
+
+  const existing = entries[existingIndex];
+  const text = entry.isFinal
+    ? entry.text
+    : entry.text.startsWith(existing.text)
+      ? entry.text
+      : `${existing.text}${entry.text}`;
+  const updated = [...entries];
+
+  updated[existingIndex] = {
+    ...existing,
+    ...entry,
+    text,
+    createdAt: existing.createdAt,
+  };
+
+  return updated.slice(-limit);
+}
+
 export function useRealtimeOnboardingSession() {
   const clientRef = useRef<OpenAIRealtimeClient | null>(null);
   const memoryRef = useRef<OnboardingMemory>({});
@@ -24,10 +53,11 @@ export function useRealtimeOnboardingSession() {
   const [snapshot, setSnapshot] = useState<RealtimeOnboardingSnapshot>(initialSnapshot);
 
   const appendTranscript = useCallback((entry: VoiceTranscriptEntry) => {
-    if (entry.isFinal && transcriptLogRef.current.some((e) => e.isFinal && e.id === entry.id)) {
+    const existingEntry = transcriptLogRef.current.find((existing) => existing.id === entry.id);
+    if (entry.isFinal && existingEntry?.isFinal) {
       return;
     }
-    transcriptLogRef.current = [...transcriptLogRef.current, entry].slice(-80);
+    transcriptLogRef.current = upsertTranscriptEntry(transcriptLogRef.current, entry, 80);
 
     if (REALTIME_DEBUG || process.env.NODE_ENV === "development") {
       console.info("[Zeya realtime timing] transcript received", {
@@ -69,7 +99,7 @@ export function useRealtimeOnboardingSession() {
 
     setSnapshot((current) => ({
       ...current,
-      transcript: [...current.transcript, entry].slice(-24),
+      transcript: upsertTranscriptEntry(current.transcript, entry, 24),
       ...(REALTIME_DEBUG ? { memory: memoryRef.current } : {}),
     }));
   }, []);
