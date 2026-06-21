@@ -17,9 +17,29 @@ export default function TransportTestPage() {
       });
 
       // Create new client for this test
+      console.log("[TRANSPORT TEST] Creating OpenAIRealtimeClient instance", {
+        timestamp: Math.round(performance.now()),
+      });
+
       const client = new OpenAIRealtimeClient({
         onStateChange: (state) => {
-          console.log("[TRANSPORT TEST] State change", { state });
+          console.log("[TRANSPORT TEST] onStateChange fired", {
+            state,
+            timestamp: Math.round(performance.now()),
+          });
+          setStatus(`State: ${state}`);
+        },
+        onTranscript: (entry) => {
+          console.log("[TRANSPORT TEST] UNEXPECTED: onTranscript fired", {
+            entry,
+            timestamp: Math.round(performance.now()),
+          });
+        },
+        onEvent: (event) => {
+          console.log("[TRANSPORT TEST] UNEXPECTED: onEvent fired", {
+            eventType: event.type,
+            timestamp: Math.round(performance.now()),
+          });
         },
         onError: (error) => {
           console.error("[TRANSPORT TEST] Error", { error });
@@ -29,41 +49,62 @@ export default function TransportTestPage() {
 
       clientRef.current = client;
 
-      setStatus("Creating session...");
-      console.log("[TRANSPORT TEST] Creating session", {
+      console.log("[TRANSPORT TEST] Connecting to Realtime", {
         timestamp: Math.round(performance.now()),
       });
 
       // Connect to Realtime
       await client.connect();
 
-      setStatus("Verifying transport...");
-      console.log("[TRANSPORT TEST] Connection established", {
+      console.log("[TRANSPORT TEST] Connected", {
         isConnected: client.isConnected,
         timestamp: Math.round(performance.now()),
       });
 
-      // Wait a moment for all transport to be ready
+      setStatus("Connected, waiting for readiness...");
+
+      // Wait for transport to fully settle
+      console.log("[TRANSPORT TEST] Waiting 500ms for transport to settle", {
+        timestamp: Math.round(performance.now()),
+      });
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      setStatus("Speaking test sentence...");
-      console.log("[TRANSPORT TEST] About to speak", {
+      console.log("[TRANSPORT TEST] Ready for speech", {
+        isConnected: client.isConnected,
+        timestamp: Math.round(performance.now()),
+      });
+
+      setStatus("Ready. Speaking sentence...");
+      console.log("[TRANSPORT TEST] About to call speakExact()", {
         timestamp: Math.round(performance.now()),
       });
 
       // Speak the test sentence
-      client.speakExact("Hello Martin. If you can hear this, the transport layer is working.");
-
-      console.log("[TRANSPORT TEST] speakExact() called", {
+      console.log("[TRANSPORT TEST] Calling speakExact() with sentence", {
+        sentence: "Hello Martin. If you can hear this, the transport layer is working.",
         timestamp: Math.round(performance.now()),
       });
 
-      // Wait for audio to play (assume 3 seconds is enough)
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      client.speakExact("Hello Martin. If you can hear this, the transport layer is working.");
 
-      console.log("[TRANSPORT TEST] Test complete", {
+      console.log("[TRANSPORT TEST] speakExact returned", {
         timestamp: Math.round(performance.now()),
-        success: true,
+      });
+
+      setStatus("Sentence sent. Waiting for playback...");
+
+      // Wait for audio to play
+      console.log("[TRANSPORT TEST] Waiting 4 seconds for audio playback", {
+        timestamp: Math.round(performance.now()),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+
+      console.log("[TRANSPORT TEST] Audio playback completed", {
+        timestamp: Math.round(performance.now()),
+      });
+
+      console.log("[TRANSPORT TEST] Test complete - SUCCESS", {
+        timestamp: Math.round(performance.now()),
       });
 
       setSuccessCount((prev) => prev + 1);
@@ -71,11 +112,15 @@ export default function TransportTestPage() {
       setTestCount((prev) => prev + 1);
 
       // Clean up for next test
+      console.log("[TRANSPORT TEST] Closing connection", {
+        timestamp: Math.round(performance.now()),
+      });
       client.close();
       clientRef.current = null;
     } catch (error) {
-      console.error("[TRANSPORT TEST] Test failed", {
+      console.error("[TRANSPORT TEST] Test FAILED with error", {
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         timestamp: Math.round(performance.now()),
       });
       setStatus(`Failed: ${error instanceof Error ? error.message : String(error)}`);
