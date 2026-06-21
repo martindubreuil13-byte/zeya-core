@@ -20,7 +20,12 @@ export function stateFromRealtimeEvent(event: RealtimeSessionEvent): VoiceState 
     case "output_audio_buffer.started":
       return "speaking";
     case "response.done":
+      console.info(
+        "[ZEYA REALTIME] response.done received; waiting for output_audio_buffer.stopped",
+      );
+      return undefined;
     case "output_audio_buffer.stopped":
+      console.info("[ZEYA REALTIME] output_audio_buffer.stopped received; playback complete");
       return "listening";
     case "error":
       return "error";

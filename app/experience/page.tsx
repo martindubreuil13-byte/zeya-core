@@ -64,6 +64,9 @@ export default function ExperiencePage() {
     }
 
     if (handoffHasStartedSpeakingRef.current && voiceState === "listening") {
+      console.info(
+        "[EXPERIENCE] handoff playback complete; calling stopConversation before phone capture",
+      );
       void stopConversation();
       setPhase("collecting_phone");
       return;
