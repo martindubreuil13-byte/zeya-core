@@ -25,6 +25,13 @@ export async function dispatchWorkerBrief(
   providerType?: ProviderType,
   businessId?: string | null
 ): Promise<WorkerDispatchResult> {
+  console.log("[worker-dispatcher] dispatch invoked", {
+    workerBriefId: brief.id,
+    missionId: brief.missionId,
+    requestedProvider: providerType ?? null,
+    businessId: businessId ?? null,
+  });
+
   // Extract target info for dispatch and persistence
   const targetName = valueAsString(brief.dynamicVariables.target) ?? brief.leadContext ?? null;
   const targetPhone = valueAsString(brief.dynamicVariables.targetPhone ?? brief.dynamicVariables.phone) ?? null;
@@ -126,9 +133,17 @@ export async function dispatchWorkerBrief(
 
   // Now that persistence is complete, route to provider
   const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
+  console.log("[worker-dispatcher] provider selected", {
+    workerBriefId: brief.id,
+    provider: resolvedProviderType,
+  });
   const provider = getProvider(resolvedProviderType);
 
   // Dispatch to provider
+  console.log("[worker-dispatcher] provider request started", {
+    workerBriefId: brief.id,
+    provider: resolvedProviderType,
+  });
   const providerResult = await provider.dispatch({
     workerBriefId: brief.id,
     missionId: brief.missionId,
@@ -136,6 +151,14 @@ export async function dispatchWorkerBrief(
     targetPhone,
     objective: brief.objective,
     dynamicVariables: brief.dynamicVariables,
+  });
+
+  console.log("[worker-dispatcher] provider response", {
+    workerBriefId: brief.id,
+    provider: providerResult.providerType,
+    status: providerResult.status,
+    providerCallId: providerResult.providerCallId,
+    message: providerResult.message,
   });
 
   // Save provider call ID and conversation ID immediately after successful dispatch

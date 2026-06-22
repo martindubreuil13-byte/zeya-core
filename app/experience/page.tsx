@@ -1,22 +1,19 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useOnboardingVoiceConversation } from "@/hooks/voice/useOnboardingVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
-import { extractAssistantActions } from "@/lib/dispatch/actions";
 import { createDispatchInSupabase } from "@/lib/dispatch/supabase-persistence";
-import {
-  generateWorkerBrief,
-  linkDispatchToWorkerBrief,
-} from "@/lib/dispatch/worker-brief-generator";
-import { buildExecutionPackage } from "@/lib/dispatch/execution-package";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
-import type { VoiceState } from "@/types/voice";
-import type { DispatchRecord, AgentBrief } from "@/lib/dispatch/types";
+import type { DispatchRecord } from "@/lib/dispatch/types";
+import type {
+  VeyaBriefingPayload,
+  VeyaDelegationResponse,
+  VeyaDelegationStatus,
+} from "@/lib/dispatch/veya-delegation-types";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "waiting_for_call";
 
@@ -24,8 +21,7 @@ const PHONE_HANDOFF =
   "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
 
 export default function ExperiencePage() {
-  const router = useRouter();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const voice = useOnboardingVoiceConversation();
   const {
     state: voiceState,
@@ -39,10 +35,10 @@ export default function ExperiencePage() {
   const [phase, setPhase] = useState<Phase>("initial");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSubmittingPhone, setIsSubmittingPhone] = useState(false);
-  const [visitorName, setVisitorName] = useState("");
-  const [businessOffer, setBusinessOffer] = useState("");
-  const [targetBuyer, setTargetBuyer] = useState("");
   const [dispatchRecord, setDispatchRecord] = useState<DispatchRecord | null>(null);
+  const [delegationStatus, setDelegationStatus] =
+    useState<VeyaDelegationStatus>("preparing_brief");
+  const [delegationError, setDelegationError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -192,11 +188,11 @@ export default function ExperiencePage() {
     if (!phoneNumber.trim()) return;
     setIsSubmittingPhone(true);
 
-    // Extract visitor data from transcript
+    // Extract only reliable visitor data. Missing context stays null in the Veya brief.
     const userMessages = voiceTranscript.filter((entry) => entry.role === "user");
-    const name = userMessages[0]?.text || "Unknown";
-    const offer = userMessages[1]?.text || "Unknown";
-    const buyer = userMessages[2]?.text || "Unknown";
+    const name = userMessages[0]?.text?.trim() || null;
+    const offer = userMessages[1]?.text?.trim() || null;
+    const buyer = userMessages[2]?.text?.trim() || null;
 
     // Normalize and validate phone number
     const normalizedPhone = phoneNumber.trim();
@@ -206,90 +202,132 @@ export default function ExperiencePage() {
       return;
     }
 
+    setDelegationStatus("preparing_brief");
+    setDelegationError(null);
+    setPhase("waiting_for_call");
+
     // Build dispatch payload
     const dispatchPayload = {
       id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       source: "experience_conversation",
       timestamp: new Date().toISOString(),
       visitor: {
-        name: name,
+        name: name || "Unknown",
         phone: normalizedPhone,
       },
       business: {
-        offer: offer,
-        target_buyer: buyer,
+        offer: offer || "Unknown",
+        target_buyer: buyer || "Unknown",
       },
     };
 
     // Generate agent brief (outcome-focused, not internally focused)
     const agentBrief = {
-      visitor_name: name,
-      business_summary: `${name} sells ${offer} to ${buyer}.`,
+      visitor_name: name || "Unknown",
+      business_summary: `${name || "The visitor"} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
       outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
       call_context: {
-        offer: offer,
-        target_market: buyer,
+        offer: offer || "Unknown",
+        target_market: buyer || "Unknown",
       },
       instructions: "Be warm and natural. The visitor agreed to see a demo of how Zeya represents businesses to generate conversations. Show concretely how this helps them reach more of their ideal customers.",
     };
 
-    // Persist dispatch record to Supabase
-    if (user) {
-      // Create dispatch record
-      const record = await createDispatchInSupabase(
+    setDispatchRecord({
+      dispatch_id: dispatchPayload.id,
+      payload: dispatchPayload,
+      brief: agentBrief,
+      status: "draft",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const briefing: VeyaBriefingPayload = {
+      name,
+      business: offer,
+      customer: buyer,
+      phone: normalizedPhone,
+      source: "zeya_experience",
+      createdAt: new Date().toISOString(),
+    };
+
+    console.log("[Experience] Veya briefing created", briefing);
+
+    try {
+      if (!user || !session?.access_token) {
+        throw new Error("Please sign in before requesting the call.");
+      }
+
+      await createDispatchInSupabase(
         user.id,
         dispatchPayload.id,
-        name,
+        dispatchPayload.visitor.name,
         normalizedPhone,
-        offer,
-        buyer,
-        agentBrief
+        dispatchPayload.business.offer,
+        dispatchPayload.business.target_buyer,
+        agentBrief,
       );
 
-      if (record) {
-        // Generate worker brief
-        const briefResult = await generateWorkerBrief({
-          businessId: user.id,
-          visitorName: name,
-          businessOffer: offer,
-          targetBuyer: buyer,
-          agentBrief: agentBrief,
-          dispatchId: dispatchPayload.id,
-        });
+      setDelegationStatus("dispatching_call");
+      console.log("[Experience] Veya dispatch requested", { dispatchId: dispatchPayload.id });
 
-        // Link dispatch to worker brief
-        if (briefResult?.id) {
-          await linkDispatchToWorkerBrief(dispatchPayload.id, briefResult.id);
-        }
+      const response = await fetch("/api/experience/delegate-call", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ briefing, dispatchId: dispatchPayload.id }),
+      });
+      const responseBody = await response.text();
+      console.log("[Experience] Veya delegation response received", {
+        dispatchId: dispatchPayload.id,
+        status: response.status,
+        ok: response.ok,
+        body: responseBody,
+      });
 
-        // Build execution package (ready for Telnyx)
-        const executionPackage = buildExecutionPackage({
-          dispatch_id: dispatchPayload.id,
-          visitor_name: name,
-          phone_number: normalizedPhone,
-          business_offer: offer,
-          target_buyer: buyer,
-          worker_brief_id: briefResult?.id || "",
-          agent_brief: agentBrief,
-          created_at: new Date().toISOString(),
-        });
-
-        setDispatchRecord({
-          dispatch_id: dispatchPayload.id,
-          payload: dispatchPayload,
-          brief: agentBrief,
-          status: "draft",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-        // Log execution package for debugging
-        console.log("[Experience] Execution package ready", executionPackage);
+      let result: VeyaDelegationResponse;
+      try {
+        result = JSON.parse(responseBody) as VeyaDelegationResponse;
+      } catch (error) {
+        const parseMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Delegation API returned a non-JSON response (${response.status}): ${responseBody || "<empty body>"}. Parse failure: ${parseMessage}`,
+        );
       }
-    }
 
-    // Keep the experience alive while the visitor waits for the call.
-    setPhase("waiting_for_call");
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "The call request failed.");
+      }
+
+      setDelegationStatus("call_requested");
+      setDispatchRecord((current) =>
+        current
+          ? { ...current, status: "calling", updated_at: new Date().toISOString() }
+          : current,
+      );
+      console.log("[Experience] Veya call requested", {
+        provider: result.provider,
+        providerCallId: result.providerCallId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDelegationStatus("failed");
+      setDelegationError(message);
+      setDispatchRecord((current) =>
+        current
+          ? { ...current, status: "failed", updated_at: new Date().toISOString() }
+          : current,
+      );
+      console.error("[Experience] Veya delegation failed", {
+        message,
+        name: error instanceof Error ? error.name : typeof error,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+    } finally {
+      setIsSubmittingPhone(false);
+    }
   };
 
   const handleCallRetry = () => {
@@ -477,20 +515,43 @@ export default function ExperiencePage() {
             <div className="space-y-3 rounded border border-zeya-taupe/20 px-4 py-4">
               <div className="flex items-center gap-3 text-sm font-light">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
-                  ✓
+                  {delegationStatus === "preparing_brief" ? "•" : "✓"}
                 </span>
-                <span className="text-zeya-ivory/75">Preparing brief</span>
+                <span className={delegationStatus === "preparing_brief" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
+                  Preparing brief
+                </span>
               </div>
               <div className="flex items-center gap-3 text-sm font-light">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
-                  ✓
+                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-taupe/30 text-[0.65rem] text-zeya-champagne">
+                  {delegationStatus === "dispatching_call"
+                    ? "•"
+                    : delegationStatus === "call_requested" || delegationStatus === "failed"
+                      ? "✓"
+                      : ""}
                 </span>
-                <span className="text-zeya-ivory/75">Ready to call</span>
+                <span className={delegationStatus === "dispatching_call" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
+                  Ready to call
+                </span>
               </div>
               <div className="flex items-center gap-3 text-sm font-light">
-                <span className="h-2 w-2 rounded-full bg-zeya-champagne/80" />
-                <span className="text-zeya-champagne">Waiting for connection</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    delegationStatus === "failed"
+                      ? "bg-red-400/80"
+                      : delegationStatus === "call_requested"
+                        ? "bg-zeya-champagne/80"
+                        : "bg-zeya-taupe/25"
+                  }`}
+                />
+                <span className={delegationStatus === "failed" ? "text-red-300/80" : delegationStatus === "call_requested" ? "text-zeya-champagne" : "text-zeya-taupe/60"}>
+                  {delegationStatus === "failed" ? "Call request failed" : "Waiting for connection"}
+                </span>
               </div>
+              {delegationError && (
+                <p className="pl-8 text-xs font-light leading-relaxed text-red-300/70">
+                  {delegationError}
+                </p>
+              )}
             </div>
 
             <div className="text-center space-y-3">

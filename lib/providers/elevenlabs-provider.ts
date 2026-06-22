@@ -3,6 +3,29 @@ import type { ProviderDispatchRequest, ProviderDispatchResult } from "./provider
 
 const ELEVENLABS_SIP_TRUNK_ENDPOINT = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call";
 
+function responseFailureMessage(status: number, responseBody: string): string {
+  if (!responseBody) return `ElevenLabs API error: ${status} (empty response body)`;
+
+  try {
+    const parsed = JSON.parse(responseBody) as Record<string, unknown>;
+    const detail = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+    const reason = typeof parsed.message === "string" ? parsed.message : detail;
+    return `ElevenLabs API error: ${status}${reason ? ` - ${reason}` : ` - ${responseBody}`}`;
+  } catch {
+    return `ElevenLabs API error: ${status} - ${responseBody}`;
+  }
+}
+
+function exceptionMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    if (typeof value.message === "string") return value.message;
+    return JSON.stringify(error);
+  }
+  return String(error);
+}
+
 export class ElevenLabsProvider implements WorkerProvider {
   async dispatch(request: ProviderDispatchRequest): Promise<ProviderDispatchResult> {
     if (!request.targetPhone) {
@@ -185,23 +208,34 @@ export class ElevenLabsProvider implements WorkerProvider {
         body: payloadJson,
       });
 
+      const responseBody = await response.text();
+      console.log("[elevenlabs-provider] provider response received", {
+        workerBriefId: request.workerBriefId,
+        status: response.status,
+        ok: response.ok,
+      });
+      console.log("[elevenlabs-provider] provider response body", {
+        workerBriefId: request.workerBriefId,
+        body: responseBody,
+      });
+
       if (!response.ok) {
-        const errorText = await response.text();
+        const failureMessage = responseFailureMessage(response.status, responseBody);
         console.error("[elevenlabs-provider] 🔴 ElevenLabs API error", {
           status: response.status,
-          error: errorText.slice(0, 200),
+          error: failureMessage,
         });
 
         return {
           providerType: "ELEVENLABS",
           providerCallId: "failed_" + Date.now(),
           status: "FAILED",
-          message: `ElevenLabs API error: ${response.status}`,
+          message: failureMessage,
           createdAt: new Date().toISOString(),
         };
       }
 
-      const data = (await response.json()) as {
+      const data = JSON.parse(responseBody) as {
         success: boolean;
         message: string;
         conversation_id: string;
@@ -224,9 +258,9 @@ export class ElevenLabsProvider implements WorkerProvider {
         createdAt: new Date().toISOString(),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = exceptionMessage(error);
       console.error("[elevenlabs-provider] 🔴 Exception", {
-        error: message,
+        failureReason: message,
         targetPhone: request.targetPhone,
       });
 
