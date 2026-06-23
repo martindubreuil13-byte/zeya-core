@@ -44,6 +44,7 @@ export default function ExperiencePage() {
   const handoffHasStartedSpeakingRef = useRef(false);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
+  const showPostCallReveal = delegationStatus === "call_requested";
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
@@ -510,150 +511,261 @@ export default function ExperiencePage() {
 
       {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
-          <div className="w-full max-w-md space-y-7">
-            <div className="flex flex-col items-center text-center">
-              <PresenceCore state="idle" />
-              <div className="mt-6 space-y-3">
-                <p
-                  className="font-serif text-lg text-zeya-ivory font-light"
-                  style={{ letterSpacing: "0.06em", lineHeight: "1.6" }}
-                >
-                  Perfect. I’ve prepared a short brief for my agent based on our conversation.
-                </p>
-                <p className="text-sm font-light text-zeya-taupe">Keep this page open.</p>
-                <p className="text-sm font-light text-zeya-taupe">
-                  I’ll stay here while the call is being connected.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-3 rounded border border-zeya-taupe/20 px-4 py-4">
-              <div className="flex items-center gap-3 text-sm font-light">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
-                  {delegationStatus === "preparing_brief" ? "•" : "✓"}
-                </span>
-                <span className={delegationStatus === "preparing_brief" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
-                  Preparing brief
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm font-light">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-taupe/30 text-[0.65rem] text-zeya-champagne">
-                  {delegationStatus === "dispatching_call"
-                    ? "•"
-                    : delegationStatus === "call_requested" || delegationStatus === "failed"
-                      ? "✓"
-                      : ""}
-                </span>
-                <span className={delegationStatus === "dispatching_call" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
-                  Ready to call
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm font-light">
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    delegationStatus === "failed"
-                      ? "bg-red-400/80"
-                      : delegationStatus === "call_requested"
-                        ? "bg-zeya-champagne/80"
-                        : "bg-zeya-taupe/25"
-                  }`}
-                />
-                <span className={delegationStatus === "failed" ? "text-red-300/80" : delegationStatus === "call_requested" ? "text-zeya-champagne" : "text-zeya-taupe/60"}>
-                  {delegationStatus === "failed" ? "Call request failed" : "Waiting for connection"}
-                </span>
-              </div>
-              {delegationError && (
-                <p className="pl-8 text-xs font-light leading-relaxed text-red-300/70">
-                  {delegationError}
-                </p>
-              )}
-            </div>
-
-            <div className="text-center space-y-3">
-              <p
-                className="font-serif text-lg text-zeya-ivory font-light"
-                style={{ letterSpacing: "0.08em" }}
-              >
-                Waiting for your call…
-              </p>
-              <p
-                className="text-xs text-zeya-taupe/70 font-light"
-                style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
-              >
-                If the call does not arrive, you can try again or reconnect with Zeya here.
-              </p>
-              <div className="inline-flex items-center gap-2 rounded-full border border-zeya-taupe/20 px-3 py-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-zeya-taupe/50" />
-                <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zeya-taupe/70">
-                  Microphone paused
-                </span>
-              </div>
-            </div>
-
-            {dispatchRecord && (
-              <div className="space-y-4 p-4 border border-zeya-taupe/20 rounded">
-                <div className="space-y-2">
+          {showPostCallReveal ? (
+            <div className="w-full max-w-3xl space-y-8">
+              <div className="flex flex-col items-center text-center">
+                <PresenceCore state="idle" />
+                <div className="mt-6 max-w-2xl space-y-4">
                   <p
-                    className="text-xs text-zeya-taupe opacity-60"
-                    style={{ letterSpacing: "0.1em" }}
+                    className="font-serif text-2xl text-zeya-ivory font-light sm:text-3xl"
+                    style={{ letterSpacing: "0.06em", lineHeight: "1.35" }}
                   >
-                    DISPATCH MONITOR
+                    What just happened?
+                  </p>
+                  <p
+                    className="text-sm font-light text-zeya-taupe sm:text-base"
+                    style={{ letterSpacing: "0.02em", lineHeight: "1.8" }}
+                  >
+                    Your call has been requested. Here&apos;s what just happened behind the scenes.
+                  </p>
+                  <p
+                    className="text-sm font-light text-zeya-ivory/75 sm:text-base"
+                    style={{ letterSpacing: "0.01em", lineHeight: "1.8" }}
+                  >
+                    A few moments ago, you told Zeya about your business. She prepared a brief,
+                    selected an agent, and triggered a live call.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
+                  <p
+                    className="text-xs font-light uppercase text-zeya-taupe"
+                    style={{ letterSpacing: "0.12em" }}
+                  >
+                    What Zeya learned
                   </p>
                   <div className="space-y-3 text-sm font-light">
-                    <div className="flex justify-between">
-                      <span className="text-zeya-taupe">ID</span>
-                      <span className="text-zeya-ivory opacity-70 font-mono text-xs">
-                        {dispatchRecord.dispatch_id.slice(0, 12)}...
-                      </span>
+                    <div>
+                      <p className="text-xs text-zeya-taupe/60">Name</p>
+                      <p className="mt-1 text-zeya-ivory/80">
+                        {dispatchRecord?.payload.visitor.name || "Unknown"}
+                      </p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-zeya-taupe">Visitor</span>
-                      <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.name}</span>
+                    <div>
+                      <p className="text-xs text-zeya-taupe/60">Business</p>
+                      <p className="mt-1 text-zeya-ivory/80">
+                        {dispatchRecord?.payload.business.offer || "Unknown"}
+                      </p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-zeya-taupe">Phone</span>
-                      <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.phone}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zeya-taupe">Status</span>
-                      <span
-                        className="font-light"
-                        style={{
-                          color:
-                            dispatchRecord.status === "queued"
-                              ? "rgb(215, 193, 155)"
-                              : "rgb(204, 182, 142)",
-                        }}
-                      >
-                        {dispatchRecord.status.toUpperCase()}
-                      </span>
+                    <div>
+                      <p className="text-xs text-zeya-taupe/60">Customer</p>
+                      <p className="mt-1 text-zeya-ivory/80">
+                        {dispatchRecord?.payload.business.target_buyer || "Unknown"}
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-zeya-taupe/10 text-xs text-zeya-taupe opacity-40">
-                  <p>Ready for outbound execution</p>
+                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
+                  <p
+                    className="text-xs font-light uppercase text-zeya-taupe"
+                    style={{ letterSpacing: "0.12em" }}
+                  >
+                    What Zeya did
+                  </p>
+                  <div className="space-y-3 text-sm font-light text-zeya-ivory/80">
+                    <p>Created a briefing</p>
+                    <p>Prepared Veya</p>
+                    <p>Requested the call</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
+                  <p
+                    className="text-xs font-light uppercase text-zeya-taupe"
+                    style={{ letterSpacing: "0.12em" }}
+                  >
+                    What this means
+                  </p>
+                  <p
+                    className="text-sm font-light text-zeya-ivory/80"
+                    style={{ lineHeight: "1.7" }}
+                  >
+                    This was one small example of Zeya representing a business in real time.
+                  </p>
                 </div>
               </div>
-            )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={handleCallRetry}
-                className="w-full border border-zeya-taupe/40 px-4 py-3 text-sm font-light text-zeya-ivory transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
-              >
-                I did not get the call
-              </button>
-              <button
-                type="button"
-                onClick={handleReconnect}
-                className="w-full border border-zeya-taupe/20 px-4 py-3 text-sm font-light text-zeya-taupe transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
-              >
-                Reconnect with Zeya
-              </button>
+              <div className="space-y-5 text-center">
+                <p
+                  className="mx-auto max-w-2xl font-serif text-lg font-light text-zeya-ivory"
+                  style={{ letterSpacing: "0.04em", lineHeight: "1.7" }}
+                >
+                  Imagine this running every day — creating conversations, following up,
+                  qualifying prospects, and reporting back.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm font-light text-zeya-champagne transition-colors hover:bg-zeya-champagne/5"
+                  >
+                    Show me how Zeya works
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full border border-zeya-taupe/30 px-4 py-3 text-sm font-light text-zeya-ivory transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
+                  >
+                    Book a setup session
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="w-full max-w-md space-y-7">
+              <div className="flex flex-col items-center text-center">
+                <PresenceCore state="idle" />
+                <div className="mt-6 space-y-3">
+                  <p
+                    className="font-serif text-lg text-zeya-ivory font-light"
+                    style={{ letterSpacing: "0.06em", lineHeight: "1.6" }}
+                  >
+                    Perfect. I’ve prepared a short brief for my agent based on our conversation.
+                  </p>
+                  <p className="text-sm font-light text-zeya-taupe">Keep this page open.</p>
+                  <p className="text-sm font-light text-zeya-taupe">
+                    I’ll stay here while the call is being connected.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded border border-zeya-taupe/20 px-4 py-4">
+                <div className="flex items-center gap-3 text-sm font-light">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-champagne/50 text-[0.65rem] text-zeya-champagne">
+                    {delegationStatus === "preparing_brief" ? "•" : "✓"}
+                  </span>
+                  <span className={delegationStatus === "preparing_brief" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
+                    Preparing brief
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-sm font-light">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-zeya-taupe/30 text-[0.65rem] text-zeya-champagne">
+                    {delegationStatus === "dispatching_call"
+                      ? "•"
+                      : delegationStatus === "failed"
+                        ? "✓"
+                        : ""}
+                  </span>
+                  <span className={delegationStatus === "dispatching_call" ? "text-zeya-champagne" : "text-zeya-ivory/75"}>
+                    Ready to call
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-sm font-light">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      delegationStatus === "failed"
+                        ? "bg-red-400/80"
+                        : "bg-zeya-taupe/25"
+                    }`}
+                  />
+                  <span className={delegationStatus === "failed" ? "text-red-300/80" : "text-zeya-taupe/60"}>
+                    {delegationStatus === "failed" ? "Call request failed" : "Waiting for connection"}
+                  </span>
+                </div>
+                {delegationError && (
+                  <p className="pl-8 text-xs font-light leading-relaxed text-red-300/70">
+                    {delegationError}
+                  </p>
+                )}
+              </div>
+
+              <div className="text-center space-y-3">
+                <p
+                  className="font-serif text-lg text-zeya-ivory font-light"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  Waiting for your call…
+                </p>
+                <p
+                  className="text-xs text-zeya-taupe/70 font-light"
+                  style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
+                >
+                  If the call does not arrive, you can try again or reconnect with Zeya here.
+                </p>
+                <div className="inline-flex items-center gap-2 rounded-full border border-zeya-taupe/20 px-3 py-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zeya-taupe/50" />
+                  <span className="text-[0.65rem] uppercase tracking-[0.12em] text-zeya-taupe/70">
+                    Microphone paused
+                  </span>
+                </div>
+              </div>
+
+              {dispatchRecord && (
+                <div className="space-y-4 p-4 border border-zeya-taupe/20 rounded">
+                  <div className="space-y-2">
+                    <p
+                      className="text-xs text-zeya-taupe opacity-60"
+                      style={{ letterSpacing: "0.1em" }}
+                    >
+                      DISPATCH MONITOR
+                    </p>
+                    <div className="space-y-3 text-sm font-light">
+                      <div className="flex justify-between">
+                        <span className="text-zeya-taupe">ID</span>
+                        <span className="text-zeya-ivory opacity-70 font-mono text-xs">
+                          {dispatchRecord.dispatch_id.slice(0, 12)}...
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zeya-taupe">Visitor</span>
+                        <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zeya-taupe">Phone</span>
+                        <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.phone}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zeya-taupe">Status</span>
+                        <span
+                          className="font-light"
+                          style={{
+                            color:
+                              dispatchRecord.status === "queued"
+                                ? "rgb(215, 193, 155)"
+                                : "rgb(204, 182, 142)",
+                          }}
+                        >
+                          {dispatchRecord.status.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-zeya-taupe/10 text-xs text-zeya-taupe opacity-40">
+                    <p>Ready for outbound execution</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleCallRetry}
+                  className="w-full border border-zeya-taupe/40 px-4 py-3 text-sm font-light text-zeya-ivory transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
+                >
+                  I did not get the call
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReconnect}
+                  className="w-full border border-zeya-taupe/20 px-4 py-3 text-sm font-light text-zeya-taupe transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
+                >
+                  Reconnect with Zeya
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>
