@@ -17,6 +17,7 @@ export interface VeyaDelegationResponse {
   success: boolean;
   status: "call_requested" | "failed";
   briefing: VeyaBriefingPayload;
+  dispatchId?: string;
   workerBriefId?: string;
   provider?: string;
   providerCallId?: string;

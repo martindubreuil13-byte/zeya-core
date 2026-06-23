@@ -251,40 +251,50 @@ export default function ExperiencePage() {
       createdAt: new Date().toISOString(),
     };
 
-    console.log("[Experience] Veya briefing created", briefing);
+    console.log("[Experience] Veya briefing created", {
+      hasName: Boolean(briefing.name),
+      hasBusiness: Boolean(briefing.business),
+      hasCustomer: Boolean(briefing.customer),
+    });
 
     try {
-      if (!user || !session?.access_token) {
-        throw new Error("Please sign in before requesting the call.");
+      const isAuthenticated = Boolean(user && session?.access_token);
+      if (user && session?.access_token) {
+        await createDispatchInSupabase(
+          user.id,
+          dispatchPayload.id,
+          dispatchPayload.visitor.name,
+          normalizedPhone,
+          dispatchPayload.business.offer,
+          dispatchPayload.business.target_buyer,
+          agentBrief,
+        );
       }
 
-      await createDispatchInSupabase(
-        user.id,
-        dispatchPayload.id,
-        dispatchPayload.visitor.name,
-        normalizedPhone,
-        dispatchPayload.business.offer,
-        dispatchPayload.business.target_buyer,
-        agentBrief,
-      );
-
       setDelegationStatus("dispatching_call");
-      console.log("[Experience] Veya dispatch requested", { dispatchId: dispatchPayload.id });
+      console.log("[Experience] Veya dispatch requested", {
+        dispatchId: isAuthenticated ? dispatchPayload.id : "server-generated",
+        authenticationMode: isAuthenticated ? "authenticated" : "anonymous",
+      });
 
       const response = await fetch("/api/experience/delegate-call", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ briefing, dispatchId: dispatchPayload.id }),
+        body: JSON.stringify({
+          briefing,
+          ...(isAuthenticated ? { dispatchId: dispatchPayload.id } : {}),
+        }),
       });
       const responseBody = await response.text();
       console.log("[Experience] Veya delegation response received", {
-        dispatchId: dispatchPayload.id,
+        dispatchId: isAuthenticated ? dispatchPayload.id : "server-generated",
         status: response.status,
         ok: response.ok,
-        body: responseBody,
       });
 
       let result: VeyaDelegationResponse;
@@ -304,7 +314,12 @@ export default function ExperiencePage() {
       setDelegationStatus("call_requested");
       setDispatchRecord((current) =>
         current
-          ? { ...current, status: "calling", updated_at: new Date().toISOString() }
+          ? {
+              ...current,
+              dispatch_id: result.dispatchId || current.dispatch_id,
+              status: "calling",
+              updated_at: new Date().toISOString(),
+            }
           : current,
       );
       console.log("[Experience] Veya call requested", {

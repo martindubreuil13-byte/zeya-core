@@ -26,6 +26,32 @@ function exceptionMessage(error: unknown): string {
   return String(error);
 }
 
+function redactPhone(value: string | null): string | null {
+  if (!value) return null;
+  return value.length > 4 ? `${value.slice(0, 2)}…${value.slice(-2)}` : "[redacted]";
+}
+
+function redactSensitiveText(value: string, phone: string): string {
+  return value.replaceAll(phone, "[redacted phone]");
+}
+
+function redactProviderPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const clientData = payload.conversation_initiation_client_data as Record<string, unknown> | undefined;
+  const dynamicVariables = clientData?.dynamic_variables as Record<string, unknown> | undefined;
+  return {
+    ...payload,
+    to_number: redactPhone(typeof payload.to_number === "string" ? payload.to_number : null),
+    conversation_initiation_client_data: clientData
+      ? {
+          ...clientData,
+          dynamic_variables: dynamicVariables
+            ? { ...dynamicVariables, targetPhone: "[redacted]", phone: "[redacted]" }
+            : dynamicVariables,
+        }
+      : clientData,
+  };
+}
+
 export class ElevenLabsProvider implements WorkerProvider {
   async dispatch(request: ProviderDispatchRequest): Promise<ProviderDispatchResult> {
     if (!request.targetPhone) {
@@ -109,95 +135,43 @@ export class ElevenLabsProvider implements WorkerProvider {
         },
       };
 
-      // Log the exact configuration being used
-      console.log("[elevenlabs-provider] 🔵 DISPATCH CONFIGURATION AUDIT", {
-        agentId: agentId,
-        agentBranchId: agentBranchId,
-        phoneNumberId: phoneNumberId,
-        webhookUrl: webhookUrl,
-        source: "environment variables (NEXT_PUBLIC_ELEVENLABS_AGENT_ID, ELEVENLABS_AGENT_BRANCH_ID, ELEVENLABS_PHONE_NUMBER_ID)",
-      });
-
-      console.log("[elevenlabs-provider] 🔵 REQUEST DETAILS", {
-        workerBriefId: request.workerBriefId,
-        missionId: request.missionId,
-        targetName: request.targetName,
-        targetPhone: request.targetPhone,
-        objective: request.objective,
-      });
-
-      console.log("[elevenlabs-provider] 🔵 Dynamic variables being sent", {
-        variableCount: Object.keys(dynamicVariables).length,
-        variables: dynamicVariables,
-      });
-
-      console.log("[elevenlabs-provider] 🔵 Full ElevenLabs API payload", {
-        agent_id: agentId,
-        agent_phone_number_id: phoneNumberId,
-        to_number: request.targetPhone,
-        conversation_initiation_client_data: {
-          user_id: request.workerBriefId,
-          branch_id: agentBranchId,
-          dynamic_variables: dynamicVariables,
-          webhook_url: webhookUrl,
-        },
-      });
+      const redactedDynamicVariables: Record<string, unknown> = {
+        ...dynamicVariables,
+        targetPhone: "[redacted]",
+        phone: "[redacted]",
+      };
+      const redactedPayload = redactProviderPayload(payload);
+      const isProduction = process.env.NODE_ENV === "production";
 
       console.log("[elevenlabs-provider] 🔵 Initiating outbound call to ElevenLabs", {
-        agentId,
-        branchId: agentBranchId,
-        phoneNumberId,
-        targetPhone: request.targetPhone,
-        targetName: request.targetName,
+        targetPhone: redactPhone(request.targetPhone),
         workerBriefId: request.workerBriefId,
         endpoint: ELEVENLABS_SIP_TRUNK_ENDPOINT,
         dynamicVariableCount: Object.keys(dynamicVariables).length,
       });
 
-      // CRITICAL: Log the EXACT dynamic_variables object that will be sent
-      console.log("[elevenlabs-provider] 🔴 EXACT DYNAMIC_VARIABLES BEING SENT TO ELEVENLABS", {
-        dynamicVariablesCount: Object.keys(dynamicVariables).length,
-        dynamicVariablesKeys: Object.keys(dynamicVariables).sort(),
-        dynamicVariablesObject: dynamicVariables,
-        hasMissionObjective: "missionObjective" in dynamicVariables,
-        hasObjective: "objective" in dynamicVariables,
-        missionObjectiveValue: dynamicVariables.missionObjective,
-        objectiveValue: dynamicVariables.objective,
-      });
-
-      // CRITICAL: Log the EXACT JSON payload being sent before fetch
       const payloadJson = JSON.stringify(payload);
-      console.log("[elevenlabs-provider] 🔴 CRITICAL AUDIT: EXACT PAYLOAD TO BE SENT", {
-        endpoint: ELEVENLABS_SIP_TRUNK_ENDPOINT,
-        method: "POST",
-        headers: {
-          "xi-api-key": apiKey ? "SET" : "NOT_SET",
-          "Content-Type": "application/json",
-        },
-        payload: payload,
-        payloadJson: payloadJson,
-      });
-
-      console.log("[elevenlabs-provider] 🔴 CRITICAL CONVERSATION_INITIATION_CLIENT_DATA", {
-        user_id: payload.conversation_initiation_client_data.user_id,
-        branch_id: payload.conversation_initiation_client_data.branch_id,
-        webhook_url: payload.conversation_initiation_client_data.webhook_url,
-        dynamic_variables: payload.conversation_initiation_client_data.dynamic_variables,
-        dynamic_variables_count: Object.keys(payload.conversation_initiation_client_data.dynamic_variables).length,
-        dynamic_variables_keys: Object.keys(payload.conversation_initiation_client_data.dynamic_variables).sort(),
-      });
-
-      console.log("[elevenlabs-provider] 🔴 CRITICAL AGENT & BRANCH VERIFICATION", {
-        agentIdBeingSent: agentId,
-        branchIdBeingSent: agentBranchId,
-        phoneNumberIdBeingSent: phoneNumberId,
-        dynamicVariablesBeingSent: {
-          count: Object.keys(dynamicVariables).length,
-          keys: Object.keys(dynamicVariables),
-          sample: JSON.stringify(dynamicVariables).substring(0, 500),
-        },
-        conversationInitiationClientData: payload.conversation_initiation_client_data,
-      });
+      if (!isProduction) {
+        console.log("[elevenlabs-provider] 🔵 DISPATCH CONFIGURATION AUDIT", {
+          agentId,
+          agentBranchId,
+          phoneNumberId,
+          webhookUrl,
+        });
+        console.log("[elevenlabs-provider] 🔵 REQUEST DETAILS", {
+          workerBriefId: request.workerBriefId,
+          missionId: request.missionId,
+          targetName: request.targetName,
+          targetPhone: redactPhone(request.targetPhone),
+          objective: request.objective,
+        });
+        console.log("[elevenlabs-provider] 🔵 Provider payload", redactedPayload);
+        console.log("[elevenlabs-provider] 🔵 Dynamic variable audit", {
+          count: Object.keys(redactedDynamicVariables).length,
+          keys: Object.keys(redactedDynamicVariables).sort(),
+          values: redactedDynamicVariables,
+        });
+      }
 
       const response = await fetch(ELEVENLABS_SIP_TRUNK_ENDPOINT, {
         method: "POST",
@@ -214,13 +188,18 @@ export class ElevenLabsProvider implements WorkerProvider {
         status: response.status,
         ok: response.ok,
       });
-      console.log("[elevenlabs-provider] provider response body", {
-        workerBriefId: request.workerBriefId,
-        body: responseBody,
-      });
+      if (!response.ok || !isProduction) {
+        console.log("[elevenlabs-provider] provider response body", {
+          workerBriefId: request.workerBriefId,
+          body: redactSensitiveText(responseBody, request.targetPhone).slice(0, 1_000),
+        });
+      }
 
       if (!response.ok) {
-        const failureMessage = responseFailureMessage(response.status, responseBody);
+        const failureMessage = redactSensitiveText(
+          responseFailureMessage(response.status, responseBody),
+          request.targetPhone,
+        );
         console.error("[elevenlabs-provider] 🔴 ElevenLabs API error", {
           status: response.status,
           error: failureMessage,
@@ -245,7 +224,7 @@ export class ElevenLabsProvider implements WorkerProvider {
       console.log("[elevenlabs-provider] 🟢 Outbound call initiated", {
         conversationId: data.conversation_id,
         sipCallId: data.sip_call_id,
-        toNumber: request.targetPhone,
+        toNumber: redactPhone(request.targetPhone),
         workerBriefId: request.workerBriefId,
       });
 
@@ -254,14 +233,14 @@ export class ElevenLabsProvider implements WorkerProvider {
         providerCallId: data.sip_call_id || data.conversation_id,
         conversationId: data.conversation_id,
         status: "DISPATCHED",
-        message: `Outbound call initiated to ${request.targetPhone} (conversation: ${data.conversation_id})`,
+        message: `Outbound call initiated (conversation: ${data.conversation_id})`,
         createdAt: new Date().toISOString(),
       };
     } catch (error) {
       const message = exceptionMessage(error);
       console.error("[elevenlabs-provider] 🔴 Exception", {
         failureReason: message,
-        targetPhone: request.targetPhone,
+        targetPhone: redactPhone(request.targetPhone),
       });
 
       return {
