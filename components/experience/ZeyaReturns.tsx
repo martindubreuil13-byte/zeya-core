@@ -30,8 +30,8 @@ export function ZeyaReturns() {
           className="text-sm sm:text-base font-light text-zeya-taupe"
           style={{ letterSpacing: "0.02em", lineHeight: "1.8" }}
         >
-          A few minutes ago, you told me about your business. I learned. I deployed my agent. She
-          represented you on the call. Now I'm back with what I discovered.
+          A few minutes ago, you told me about your business. I understood. I sent someone to
+          represent you on the call. Now I'm back with what I learned.
         </p>
       </motion.div>
     </motion.div>

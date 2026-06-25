@@ -22,16 +22,17 @@ export function VisionSection() {
           className="text-base sm:text-lg font-light text-zeya-ivory/85 leading-relaxed"
           style={{ letterSpacing: "0.01em", lineHeight: "1.8" }}
         >
-          Imagine I was doing this every single day. Researching prospects. Contacting them. Having
-          real conversations. Qualifying leads. Following up intelligently. Learning what works.
+          Imagine every inquiry received a response. Every conversation happened with your voice.
+          Every opportunity was followed up on. Your business was represented consistently, even
+          when you were unavailable.
         </p>
 
         <p
           className="text-base sm:text-lg font-light text-zeya-ivory/75 leading-relaxed"
           style={{ letterSpacing: "0.01em", lineHeight: "1.8" }}
         >
-          All while you focus on closing deals and running your business. That's what this becomes
-          when it's not a demo. That's the actual work.
+          That's what continuous representation looks like. While you focus on closing deals and
+          running the business, I handle the conversations. That's the actual work.
         </p>
       </div>
     </motion.div>

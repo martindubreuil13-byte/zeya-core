@@ -11,22 +11,22 @@ export function PlansDisplay({ onBack }: PlansDisplayProps) {
     {
       id: "starter",
       name: "Starter",
-      description: "For testing representation",
-      features: ["One business", "Up to 20 conversations/month", "Basic reporting"],
+      description: "Start representing your business",
+      capabilities: ["Consistent representation", "Real conversations", "Learn what works"],
       recommended: false,
     },
     {
       id: "growth",
       name: "Growth",
-      description: "For scaling outreach",
-      features: ["One business", "Unlimited conversations", "Daily summaries", "Trend analysis"],
+      description: "Representation at scale",
+      capabilities: ["Continuous conversations", "Deeper insights", "Smarter follow-up"],
       recommended: true,
     },
     {
       id: "business",
       name: "Business",
-      description: "For serious volume",
-      features: ["Multiple businesses", "Unlimited conversations", "Team features", "Custom agents"],
+      description: "Representation across teams",
+      capabilities: ["Multiple businesses", "Team collaboration", "Advanced strategy"],
       recommended: false,
     },
   ];
@@ -48,10 +48,10 @@ export function PlansDisplay({ onBack }: PlansDisplayProps) {
           className="font-serif text-2xl sm:text-3xl text-zeya-ivory font-light"
           style={{ letterSpacing: "0.06em" }}
         >
-          How Zeya Works
+          Choose Your Start
         </p>
         <p className="text-sm text-zeya-taupe font-light max-w-2xl mx-auto">
-          Choose the plan that fits where you are today. You can upgrade anytime as you grow.
+          All plans include consistent representation of your business. Start where you are.
         </p>
       </motion.div>
 
@@ -78,7 +78,7 @@ export function PlansDisplay({ onBack }: PlansDisplayProps) {
                 className="text-xs font-light text-zeya-champagne uppercase"
                 style={{ letterSpacing: "0.12em" }}
               >
-                Most Popular
+                Most Start Here
               </p>
             )}
 
@@ -93,10 +93,10 @@ export function PlansDisplay({ onBack }: PlansDisplayProps) {
             </div>
 
             <div className="space-y-2">
-              {plan.features.map((feature) => (
-                <div key={feature} className="flex gap-2 text-sm">
-                  <span className="text-zeya-champagne/70 text-xs">✓</span>
-                  <span className="text-zeya-ivory/75 font-light">{feature}</span>
+              {plan.capabilities.map((capability) => (
+                <div key={capability} className="flex gap-2 text-sm">
+                  <span className="text-zeya-champagne/70 text-xs">•</span>
+                  <span className="text-zeya-ivory/75 font-light">{capability}</span>
                 </div>
               ))}
             </div>

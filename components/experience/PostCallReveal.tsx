@@ -4,13 +4,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ZeyaReturns } from "./ZeyaReturns";
 import { BusinessInsightsSection } from "./BusinessInsights";
+import { OperationalPlan } from "./OperationalPlan";
 import { VisionSection } from "./VisionSection";
 import { ConversionPrompt } from "./ConversionPrompt";
 import { PlansDisplay } from "./PlansDisplay";
 import { FollowUpCapture } from "./FollowUpCapture";
 import type { BusinessInsights, PostCallState } from "@/types/experience";
 
-type PostCallPhase = "returns" | "insights" | "vision" | "conversion" | "plans" | "follow_up";
+type PostCallPhase = "returns" | "insights" | "plan" | "vision" | "conversion" | "plans" | "follow_up";
 
 interface PostCallRevealProps {
   insights: BusinessInsights;
@@ -71,8 +72,22 @@ export function PostCallReveal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6 }}
+            onAnimationComplete={() => setTimeout(() => setPhase("plan"), 4000)}
           >
             <BusinessInsightsSection insights={insights} />
+          </motion.div>
+        )}
+
+        {phase === "plan" && (
+          <motion.div
+            key="plan"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            onAnimationComplete={() => setTimeout(() => setPhase("vision"), 4000)}
+          >
+            <OperationalPlan />
           </motion.div>
         )}
 
@@ -126,19 +141,33 @@ export function PostCallReveal({
         )}
       </AnimatePresence>
 
-      {/* Manual navigation between insights and vision */}
-      {(phase === "insights" || phase === "vision") && (
+      {/* Manual navigation between sections */}
+      {(phase === "insights" || phase === "plan" || phase === "vision") && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1 }}
-          className="flex justify-center"
+          className="flex justify-center gap-4"
         >
           <button
-            onClick={() => setPhase(phase === "insights" ? "vision" : "insights")}
+            onClick={() => {
+              const order = ["insights", "plan", "vision"];
+              const currentIndex = order.indexOf(phase);
+              if (currentIndex > 0) setPhase(order[currentIndex - 1] as PostCallPhase);
+            }}
             className="text-xs text-zeya-taupe/60 hover:text-zeya-taupe transition-colors font-light"
           >
-            {phase === "insights" ? "Continue →" : "← Back"}
+            ← Back
+          </button>
+          <button
+            onClick={() => {
+              const order = ["insights", "plan", "vision"];
+              const currentIndex = order.indexOf(phase);
+              if (currentIndex < order.length - 1) setPhase(order[currentIndex + 1] as PostCallPhase);
+            }}
+            className="text-xs text-zeya-taupe/60 hover:text-zeya-taupe transition-colors font-light"
+          >
+            Continue →
           </button>
         </motion.div>
       )}
