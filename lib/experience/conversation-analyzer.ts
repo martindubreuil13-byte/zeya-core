@@ -28,12 +28,91 @@ export function analyzeConversationInsights(
   };
 
   const confidence = calculateConfidence(userMessages, insights);
+  const nameAnalysis = analyzeNameExtraction(userMessages);
 
   return {
     insights,
     confidence,
     extractedFrom: userMessages.length,
+    nameConfidence: nameAnalysis.confidence,
+    extractedName: nameAnalysis.name,
   };
+}
+
+function analyzeNameExtraction(messages: string[]): {
+  name?: string;
+  confidence: "high" | "medium" | "low";
+} {
+  if (messages.length === 0) {
+    return { confidence: "low" };
+  }
+
+  const firstMessage = messages[0];
+
+  // Check for clear name indicators
+  const namePatterns = [
+    /^(?:hi|hello|hey)?\s*(?:my name is|i'm|i am|it's|this is)\s+([a-z]+(?:\s+[a-z]+)?)/i,
+    /^([a-z]+(?:\s+[a-z]+)?)\s+(?:here|speaking|calling)/i,
+    /^([a-z]+(?:\s+[a-z]+)?)$/i, // Just a name by itself
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = firstMessage.match(pattern);
+    if (match && match[1]) {
+      const extractedName = match[1]
+        .split(/\s+/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+
+      // Validate: name should be 1-3 words, each word 2-20 chars
+      const words = extractedName.split(/\s+/);
+      if (words.length <= 3 && words.every((w) => w.length >= 2 && w.length <= 20)) {
+        return {
+          name: extractedName,
+          confidence: "high",
+        };
+      }
+    }
+  }
+
+  // Medium confidence: try to extract first 1-2 words if they look like a name
+  const firstWords = firstMessage.split(/\s+/);
+  if (firstWords.length > 0) {
+    const candidate = firstWords
+      .slice(0, 2)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+
+    // Check if it looks like a name (not a common word, reasonable length)
+    const commonWords = [
+      "the",
+      "hi",
+      "hello",
+      "hey",
+      "you",
+      "i",
+      "me",
+      "my",
+      "yes",
+      "no",
+      "ok",
+      "okay",
+      "sure",
+    ];
+    const words = candidate.toLowerCase().split(/\s+/);
+
+    if (
+      words.every((w) => !commonWords.includes(w) && w.length >= 2 && w.length <= 20) &&
+      !candidate.includes(".")
+    ) {
+      return {
+        name: candidate,
+        confidence: "medium",
+      };
+    }
+  }
+
+  return { confidence: "low" };
 }
 
 function inferBusinessType(messages: string[]): string | undefined {

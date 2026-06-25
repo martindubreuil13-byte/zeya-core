@@ -21,6 +21,8 @@ export interface ConversationAnalysis {
   insights: BusinessInsights;
   confidence: "high" | "medium" | "low";
   extractedFrom: number; // number of transcript entries analyzed
+  nameConfidence?: "high" | "medium" | "low";
+  extractedName?: string;
 }
 
 export interface PostCallState {

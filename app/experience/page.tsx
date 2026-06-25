@@ -46,6 +46,10 @@ export default function ExperiencePage() {
   const [businessInsights, setBusinessInsights] = useState<BusinessInsights | null>(null);
   const [callCompleted, setCallCompleted] = useState(false);
   const [isShowingReveal, setIsShowingReveal] = useState(false);
+  const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
+    asking: false,
+  });
+  const [extractedName, setExtractedName] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -211,13 +215,29 @@ export default function ExperiencePage() {
       return;
     }
 
+    // Analyze conversation for insights (including name extraction)
+    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
+    setBusinessInsights(analysis.insights);
+
+    // Check name confidence
+    if (analysis.nameConfidence === "low" && analysis.extractedName) {
+      // Ask for confirmation if name extraction confidence is low
+      console.log("[Experience] Low confidence name extraction, asking for confirmation", {
+        extractedName: analysis.extractedName,
+        confidence: analysis.nameConfidence,
+      });
+      setExtractedName(analysis.extractedName);
+      setNameConfirmation({ asking: true, name: analysis.extractedName });
+      setIsSubmittingPhone(false);
+      return;
+    }
+
+    // If we have an extracted name from low-confidence, use that confirmed name
+    const finalName = extractedName || name;
+
     setDelegationStatus("preparing_brief");
     setDelegationError(null);
     setPhase("waiting_for_call");
-
-    // Analyze conversation for insights
-    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
-    setBusinessInsights(analysis.insights);
 
     // Build dispatch payload
     const dispatchPayload = {
@@ -225,7 +245,7 @@ export default function ExperiencePage() {
       source: "experience_conversation",
       timestamp: new Date().toISOString(),
       visitor: {
-        name: name || "Unknown",
+        name: finalName || "Unknown",
         phone: normalizedPhone,
       },
       business: {
@@ -236,8 +256,8 @@ export default function ExperiencePage() {
 
     // Generate agent brief (outcome-focused, not internally focused)
     const agentBrief = {
-      visitor_name: name || "Unknown",
-      business_summary: `${name || "The visitor"} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
+      visitor_name: finalName || "Unknown",
+      business_summary: `${finalName || "The visitor"} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
       outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
       call_context: {
         offer: offer || "Unknown",
@@ -368,6 +388,134 @@ export default function ExperiencePage() {
     sessionStorage.removeItem("lastProcessedTranscriptId");
     setIsSubmittingPhone(false);
     setPhase("initial");
+  };
+
+  const handleNameConfirm = (confirmed: boolean) => {
+    console.log("[Experience] Name confirmation", { confirmed, name: extractedName });
+
+    if (confirmed && extractedName) {
+      // Name was confirmed, continue with phone submission
+      setNameConfirmation({ asking: false });
+      // Re-trigger the submission with confirmed name
+      // We'll need to call handlePhoneSubmit logic here
+      void handlePhoneSubmitContinued();
+    } else {
+      // Name was not confirmed, ask user to spell it out
+      setNameConfirmation({ asking: false });
+      setExtractedName(null);
+      // Go back to phone collection
+      setPhase("collecting_phone");
+    }
+  };
+
+  const handlePhoneSubmitContinued = async () => {
+    // This is a continuation of handlePhoneSubmit after name confirmation
+    if (!extractedName) return;
+
+    setDelegationStatus("preparing_brief");
+    setDelegationError(null);
+    setPhase("waiting_for_call");
+    setIsSubmittingPhone(true);
+
+    const userMessages = voiceTranscript.filter((entry) => entry.role === "user" && entry.isFinal && entry.text?.trim());
+    const offer = userMessages[1]?.text?.trim() || null;
+    const buyer = userMessages[2]?.text?.trim() || null;
+    const normalizedPhone = phoneNumber.trim();
+
+    // Build dispatch payload
+    const dispatchPayload = {
+      id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      source: "experience_conversation",
+      timestamp: new Date().toISOString(),
+      visitor: {
+        name: extractedName,
+        phone: normalizedPhone,
+      },
+      business: {
+        offer: offer || "Unknown",
+        target_buyer: buyer || "Unknown",
+      },
+    };
+
+    const agentBrief = {
+      visitor_name: extractedName,
+      business_summary: `${extractedName} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
+      outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
+      call_context: {
+        offer: offer || "Unknown",
+        target_market: buyer || "Unknown",
+      },
+      instructions: "Be warm and natural. The visitor agreed to see a demo of how Zeya represents businesses to generate conversations. Show concretely how this helps them reach more of their ideal customers.",
+    };
+
+    setDispatchRecord({
+      dispatch_id: dispatchPayload.id,
+      payload: dispatchPayload,
+      brief: agentBrief,
+      status: "draft",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const briefing: VeyaBriefingPayload = {
+      name: extractedName,
+      business: offer,
+      customer: buyer,
+      phone: normalizedPhone,
+      source: "zeya_experience",
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const isAuthenticated = Boolean(user && session?.access_token);
+      if (user && session?.access_token) {
+        await createDispatchInSupabase(
+          user.id,
+          dispatchPayload.id,
+          extractedName,
+          normalizedPhone,
+          dispatchPayload.business.offer,
+          dispatchPayload.business.target_buyer,
+          agentBrief,
+        );
+      }
+
+      setDelegationStatus("dispatching_call");
+
+      const response = await fetch("/api/experience/delegate-call", {
+        method: "POST",
+        headers: {
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          briefing,
+          ...(isAuthenticated ? { dispatchId: dispatchPayload.id } : {}),
+        }),
+      });
+
+      const responseBody = await response.text();
+      let result: VeyaDelegationResponse;
+      try {
+        result = JSON.parse(responseBody) as VeyaDelegationResponse;
+      } catch (error) {
+        throw new Error(`Failed to parse delegation response: ${responseBody}`);
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "The call request failed.");
+      }
+
+      setDelegationStatus("call_requested");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDelegationStatus("failed");
+      setDelegationError(message);
+    } finally {
+      setIsSubmittingPhone(false);
+    }
   };
 
   const handleCallComplete = () => {
@@ -517,14 +665,55 @@ export default function ExperiencePage() {
 
       {phase === "collecting_phone" && (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
-          <div className="max-w-md space-y-8 text-center">
-            <div className="space-y-4">
-              <p
-                className="font-serif text-lg text-zeya-ivory font-light"
-                style={{ letterSpacing: "0.08em" }}
-              >
-                Where should my team reach you?
-              </p>
+          {nameConfirmation.asking ? (
+            <div className="max-w-md space-y-6 text-center">
+              <div className="space-y-4">
+                <p
+                  className="font-serif text-lg text-zeya-ivory font-light"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  I want to make sure I have your name right.
+                </p>
+                <p
+                  className="text-sm text-zeya-taupe font-light"
+                  style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
+                >
+                  I heard your name as:
+                </p>
+                <p
+                  className="font-serif text-2xl text-zeya-champagne font-light"
+                  style={{ letterSpacing: "0.06em" }}
+                >
+                  {nameConfirmation.name}
+                </p>
+              </div>
+
+              <div className="flex gap-3 flex-col sm:flex-row">
+                <button
+                  onClick={() => handleNameConfirm(true)}
+                  className="flex-1 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 px-4 py-3 text-sm font-light transition-colors rounded"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  That's Correct
+                </button>
+                <button
+                  onClick={() => handleNameConfirm(false)}
+                  className="flex-1 border border-zeya-taupe/30 text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne px-4 py-3 text-sm font-light transition-colors rounded"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  Spell It Out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-md space-y-8 text-center">
+              <div className="space-y-4">
+                <p
+                  className="font-serif text-lg text-zeya-ivory font-light"
+                  style={{ letterSpacing: "0.08em" }}
+                >
+                  Where should my team reach you?
+                </p>
               <p
                 className="text-sm text-zeya-taupe font-light"
                 style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
@@ -556,7 +745,8 @@ export default function ExperiencePage() {
                 {isSubmittingPhone ? "Confirming…" : "Confirm"}
               </button>
             </form>
-          </div>
+            </div>
+          )}
         </div>
       )}
 
