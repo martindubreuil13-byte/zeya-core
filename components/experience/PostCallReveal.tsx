@@ -49,8 +49,24 @@ export function PostCallReveal({
     }
   };
 
+  const handleContinue = (current: PostCallPhase) => {
+    const order: PostCallPhase[] = ["returns", "insights", "plan", "vision", "conversion"];
+    const currentIndex = order.indexOf(current);
+    if (currentIndex < order.length - 1) {
+      setPhase(order[currentIndex + 1]);
+    }
+  };
+
+  const handleBack = (current: PostCallPhase) => {
+    const order: PostCallPhase[] = ["returns", "insights", "plan", "vision", "conversion"];
+    const currentIndex = order.indexOf(current);
+    if (currentIndex > 0) {
+      setPhase(order[currentIndex - 1]);
+    }
+  };
+
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-16 overflow-y-auto">
+    <div className="w-full max-w-4xl mx-auto space-y-12 overflow-y-auto">
       <AnimatePresence mode="wait">
         {phase === "returns" && (
           <motion.div
@@ -59,9 +75,23 @@ export function PostCallReveal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
-            onAnimationComplete={() => setTimeout(() => setPhase("insights"), 3500)}
+            className="space-y-8"
           >
             <ZeyaReturns />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 2 }}
+              className="flex justify-center"
+            >
+              <button
+                onClick={() => handleContinue("returns")}
+                className="px-6 py-3 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Continue
+              </button>
+            </motion.div>
           </motion.div>
         )}
 
@@ -72,9 +102,30 @@ export function PostCallReveal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6 }}
-            onAnimationComplete={() => setTimeout(() => setPhase("plan"), 4000)}
+            className="space-y-8"
           >
             <BusinessInsightsSection insights={insights} />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.5 }}
+              className="flex justify-center gap-3"
+            >
+              <button
+                onClick={() => handleBack("insights")}
+                className="px-6 py-3 border border-zeya-taupe/30 text-zeya-taupe hover:border-zeya-champagne hover:text-zeya-champagne transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Back
+              </button>
+              <button
+                onClick={() => handleContinue("insights")}
+                className="px-6 py-3 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Continue
+              </button>
+            </motion.div>
           </motion.div>
         )}
 
@@ -85,9 +136,30 @@ export function PostCallReveal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6 }}
-            onAnimationComplete={() => setTimeout(() => setPhase("vision"), 4000)}
+            className="space-y-8"
           >
             <OperationalPlan />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.5 }}
+              className="flex justify-center gap-3"
+            >
+              <button
+                onClick={() => handleBack("plan")}
+                className="px-6 py-3 border border-zeya-taupe/30 text-zeya-taupe hover:border-zeya-champagne hover:text-zeya-champagne transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Back
+              </button>
+              <button
+                onClick={() => handleContinue("plan")}
+                className="px-6 py-3 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Continue
+              </button>
+            </motion.div>
           </motion.div>
         )}
 
@@ -98,9 +170,30 @@ export function PostCallReveal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6 }}
-            onAnimationComplete={() => setTimeout(() => setPhase("conversion"), 3000)}
+            className="space-y-8"
           >
             <VisionSection />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.5 }}
+              className="flex justify-center gap-3"
+            >
+              <button
+                onClick={() => handleBack("vision")}
+                className="px-6 py-3 border border-zeya-taupe/30 text-zeya-taupe hover:border-zeya-champagne hover:text-zeya-champagne transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Back
+              </button>
+              <button
+                onClick={() => handleContinue("vision")}
+                className="px-6 py-3 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Continue
+              </button>
+            </motion.div>
           </motion.div>
         )}
 
@@ -140,37 +233,6 @@ export function PostCallReveal({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Manual navigation between sections */}
-      {(phase === "insights" || phase === "plan" || phase === "vision") && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="flex justify-center gap-4"
-        >
-          <button
-            onClick={() => {
-              const order = ["insights", "plan", "vision"];
-              const currentIndex = order.indexOf(phase);
-              if (currentIndex > 0) setPhase(order[currentIndex - 1] as PostCallPhase);
-            }}
-            className="text-xs text-zeya-taupe/60 hover:text-zeya-taupe transition-colors font-light"
-          >
-            ← Back
-          </button>
-          <button
-            onClick={() => {
-              const order = ["insights", "plan", "vision"];
-              const currentIndex = order.indexOf(phase);
-              if (currentIndex < order.length - 1) setPhase(order[currentIndex + 1] as PostCallPhase);
-            }}
-            className="text-xs text-zeya-taupe/60 hover:text-zeya-taupe transition-colors font-light"
-          >
-            Continue →
-          </button>
-        </motion.div>
-      )}
     </div>
   );
 }
