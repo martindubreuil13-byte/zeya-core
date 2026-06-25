@@ -6,9 +6,13 @@ import { useOnboardingVoiceConversation } from "@/hooks/voice/useOnboardingVoice
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
 import { createDispatchInSupabase } from "@/lib/dispatch/supabase-persistence";
+import { persistFollowUpLead } from "@/lib/leads/follow-up-lead-persistence";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
+import { analyzeConversationInsights } from "@/lib/experience/conversation-analyzer";
+import { PostCallReveal } from "@/components/experience/PostCallReveal";
 import type { DispatchRecord } from "@/lib/dispatch/types";
+import type { BusinessInsights } from "@/types/experience";
 import type {
   VeyaBriefingPayload,
   VeyaDelegationResponse,
@@ -39,6 +43,7 @@ export default function ExperiencePage() {
   const [delegationStatus, setDelegationStatus] =
     useState<VeyaDelegationStatus>("preparing_brief");
   const [delegationError, setDelegationError] = useState<string | null>(null);
+  const [businessInsights, setBusinessInsights] = useState<BusinessInsights | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -207,6 +212,10 @@ export default function ExperiencePage() {
     setDelegationError(null);
     setPhase("waiting_for_call");
 
+    // Analyze conversation for insights
+    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
+    setBusinessInsights(analysis.insights);
+
     // Build dispatch payload
     const dispatchPayload = {
       id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
@@ -356,6 +365,34 @@ export default function ExperiencePage() {
     sessionStorage.removeItem("lastProcessedTranscriptId");
     setIsSubmittingPhone(false);
     setPhase("initial");
+  };
+
+  const handleFollowUpCapture = async (data: { name: string; email: string }) => {
+    try {
+      console.log("[Experience] Capturing follow-up lead", {
+        name: data.name,
+        email: data.email,
+      });
+
+      await persistFollowUpLead(user?.id, {
+        name: data.name,
+        email: data.email,
+        phone: phoneNumber || undefined,
+        businessSummary: businessInsights
+          ? `${businessInsights.businessType || "Unknown"}: ${businessInsights.offer || "Unknown"}`
+          : undefined,
+        goal: businessInsights?.goal,
+        representationFit: businessInsights?.representationFit || "low",
+      });
+
+      console.log("[Experience] Follow-up lead captured successfully", {
+        name: data.name,
+        email: data.email,
+      });
+    } catch (error) {
+      console.error("[Experience] Failed to capture follow-up lead", error);
+      throw error;
+    }
   };
 
   return (
@@ -511,117 +548,11 @@ export default function ExperiencePage() {
 
       {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
-          {showPostCallReveal ? (
-            <div className="w-full max-w-3xl space-y-8">
-              <div className="flex flex-col items-center text-center">
-                <PresenceCore state="idle" />
-                <div className="mt-6 max-w-2xl space-y-4">
-                  <p
-                    className="font-serif text-2xl text-zeya-ivory font-light sm:text-3xl"
-                    style={{ letterSpacing: "0.06em", lineHeight: "1.35" }}
-                  >
-                    What just happened?
-                  </p>
-                  <p
-                    className="text-sm font-light text-zeya-taupe sm:text-base"
-                    style={{ letterSpacing: "0.02em", lineHeight: "1.8" }}
-                  >
-                    Your call has been requested. Here&apos;s what just happened behind the scenes.
-                  </p>
-                  <p
-                    className="text-sm font-light text-zeya-ivory/75 sm:text-base"
-                    style={{ letterSpacing: "0.01em", lineHeight: "1.8" }}
-                  >
-                    A few moments ago, you told Zeya about your business. She prepared a brief,
-                    selected an agent, and triggered a live call.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
-                  <p
-                    className="text-xs font-light uppercase text-zeya-taupe"
-                    style={{ letterSpacing: "0.12em" }}
-                  >
-                    What Zeya learned
-                  </p>
-                  <div className="space-y-3 text-sm font-light">
-                    <div>
-                      <p className="text-xs text-zeya-taupe/60">Name</p>
-                      <p className="mt-1 text-zeya-ivory/80">
-                        {dispatchRecord?.payload.visitor.name || "Unknown"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-zeya-taupe/60">Business</p>
-                      <p className="mt-1 text-zeya-ivory/80">
-                        {dispatchRecord?.payload.business.offer || "Unknown"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-zeya-taupe/60">Customer</p>
-                      <p className="mt-1 text-zeya-ivory/80">
-                        {dispatchRecord?.payload.business.target_buyer || "Unknown"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
-                  <p
-                    className="text-xs font-light uppercase text-zeya-taupe"
-                    style={{ letterSpacing: "0.12em" }}
-                  >
-                    What Zeya did
-                  </p>
-                  <div className="space-y-3 text-sm font-light text-zeya-ivory/80">
-                    <p>Created a briefing</p>
-                    <p>Prepared Veya</p>
-                    <p>Requested the call</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4 rounded border border-zeya-taupe/20 px-4 py-4">
-                  <p
-                    className="text-xs font-light uppercase text-zeya-taupe"
-                    style={{ letterSpacing: "0.12em" }}
-                  >
-                    What this means
-                  </p>
-                  <p
-                    className="text-sm font-light text-zeya-ivory/80"
-                    style={{ lineHeight: "1.7" }}
-                  >
-                    This was one small example of Zeya representing a business in real time.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-5 text-center">
-                <p
-                  className="mx-auto max-w-2xl font-serif text-lg font-light text-zeya-ivory"
-                  style={{ letterSpacing: "0.04em", lineHeight: "1.7" }}
-                >
-                  Imagine this running every day — creating conversations, following up,
-                  qualifying prospects, and reporting back.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm font-light text-zeya-champagne transition-colors hover:bg-zeya-champagne/5"
-                  >
-                    Show me how Zeya works
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full border border-zeya-taupe/30 px-4 py-3 text-sm font-light text-zeya-ivory transition-colors hover:border-zeya-champagne hover:text-zeya-champagne"
-                  >
-                    Book a setup session
-                  </button>
-                </div>
-              </div>
-            </div>
+          {showPostCallReveal && businessInsights ? (
+            <PostCallReveal
+              insights={businessInsights}
+              onFollowUpCapture={handleFollowUpCapture}
+            />
           ) : (
             <div className="w-full max-w-md space-y-7">
               <div className="flex flex-col items-center text-center">
