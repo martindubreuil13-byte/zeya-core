@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { speakText, stopSpeaking } from "@/lib/voice/text-to-speech";
 import { ZeyaReturns } from "./ZeyaReturns";
 import { BusinessInsightsSection } from "./BusinessInsights";
 import { OperationalPlan } from "./OperationalPlan";
@@ -26,6 +27,36 @@ export function PostCallReveal({
 }: PostCallRevealProps) {
   const [phase, setPhase] = useState<PostCallPhase>("returns");
   const [state, setState] = useState<PostCallState>({ conversionAction: null });
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Narrate each phase when it appears
+  useEffect(() => {
+    const narrationMap: Record<PostCallPhase, string> = {
+      returns:
+        "I've returned. A few minutes ago, you told me about your business. I understood. I sent someone to represent you on the call. Now I'm back with what I learned.",
+      insights:
+        "Here's what I understood about your business based on our conversation.",
+      plan: "If we worked together, here's how I would begin.",
+      vision:
+        "Imagine every inquiry receiving a response. Every opportunity followed up on. Your business represented consistently, even when you're unavailable.",
+      conversion:
+        "Would you like to explore what it would look like if I represented your business every day?",
+      plans: "", // No narration for plans (user exploring options)
+      follow_up: "", // No narration for follow-up form
+    };
+
+    const narration = narrationMap[phase];
+    if (narration) {
+      setIsSpeaking(true);
+      speakText(narration).finally(() => {
+        setIsSpeaking(false);
+      });
+    }
+
+    return () => {
+      stopSpeaking();
+    };
+  }, [phase]);
 
   const handleShowPlans = () => {
     setState((prev) => ({ ...prev, conversionAction: "show_plans" }));
