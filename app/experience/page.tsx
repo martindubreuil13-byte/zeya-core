@@ -44,12 +44,15 @@ export default function ExperiencePage() {
     useState<VeyaDelegationStatus>("preparing_brief");
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [businessInsights, setBusinessInsights] = useState<BusinessInsights | null>(null);
+  const [callCompleted, setCallCompleted] = useState(false);
+  const [isShowingReveal, setIsShowingReveal] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
-  const showPostCallReveal = delegationStatus === "call_requested";
+  const callRequested = delegationStatus === "call_requested";
+  const showPostCallReveal = callRequested && isShowingReveal;
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
@@ -367,6 +370,17 @@ export default function ExperiencePage() {
     setPhase("initial");
   };
 
+  const handleCallComplete = () => {
+    console.log("[Experience] User confirmed call is complete, preparing reveal...");
+    setCallCompleted(true);
+
+    // Wait 2 seconds before showing reveal (pause for breath)
+    setTimeout(() => {
+      console.log("[Experience] Showing reveal experience");
+      setIsShowingReveal(true);
+    }, 2000);
+  };
+
   const handleFollowUpCapture = async (data: { name: string; email: string }) => {
     try {
       console.log("[Experience] Capturing follow-up lead", {
@@ -553,6 +567,34 @@ export default function ExperiencePage() {
               insights={businessInsights}
               onFollowUpCapture={handleFollowUpCapture}
             />
+          ) : callRequested && !callCompleted ? (
+            <div className="w-full max-w-md space-y-8">
+              <div className="flex flex-col items-center text-center">
+                <PresenceCore state="idle" />
+                <div className="mt-6 space-y-4">
+                  <p
+                    className="font-serif text-lg text-zeya-ivory font-light"
+                    style={{ letterSpacing: "0.06em" }}
+                  >
+                    You're on the call with my agent.
+                  </p>
+                  <p
+                    className="text-sm font-light text-zeya-taupe"
+                    style={{ letterSpacing: "0.02em", lineHeight: "1.8" }}
+                  >
+                    Take your time. When you're finished talking, click below to continue.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleCallComplete}
+                className="w-full border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 px-6 py-4 text-sm font-light transition-colors rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                My Call Is Complete
+              </button>
+            </div>
           ) : (
             <div className="w-full max-w-md space-y-7">
               <div className="flex flex-col items-center text-center">
