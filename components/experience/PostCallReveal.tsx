@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { speakText, stopSpeaking } from "@/lib/voice/text-to-speech";
 import { ZeyaReturns } from "./ZeyaReturns";
@@ -12,7 +12,7 @@ import { PlansDisplay } from "./PlansDisplay";
 import { FollowUpCapture } from "./FollowUpCapture";
 import type { BusinessInsights, PostCallState } from "@/types/experience";
 
-type PostCallPhase = "returns" | "insights" | "plan" | "vision" | "conversion" | "plans" | "follow_up";
+type PostCallPhase = "returns" | "insights" | "plan" | "vision" | "conversion" | "plans_intro" | "plans" | "follow_up";
 
 interface PostCallRevealProps {
   insights: BusinessInsights;
@@ -41,9 +41,14 @@ export function PostCallReveal({
         "Imagine every inquiry receiving a response. Every opportunity followed up on. Your business represented consistently, even when you're unavailable.",
       conversion:
         "Would you like to explore what it would look like if I represented your business every day?",
+      plans_intro:
+        "Before I show you options, here's how I would think about this. You don't need to start with everything. The first step is usually to let me represent one clear business offer, learn from real conversations, and prove whether I can create value. Would you like to see what that starting point could look like?",
       plans: "", // No narration for plans (user exploring options)
       follow_up: "", // No narration for follow-up form
     };
+
+    // Always stop any previous audio before starting new audio
+    stopSpeaking();
 
     const narration = narrationMap[phase];
     if (narration) {
@@ -60,7 +65,7 @@ export function PostCallReveal({
 
   const handleShowPlans = () => {
     setState((prev) => ({ ...prev, conversionAction: "show_plans" }));
-    setPhase("plans");
+    setPhase("plans_intro");
   };
 
   const handleFollowUp = () => {
@@ -70,7 +75,13 @@ export function PostCallReveal({
 
   const handleBackToConversion = () => {
     setState((prev) => ({ ...prev, conversionAction: null }));
-    setPhase("conversion");
+    if (phase === "plans_intro") {
+      setPhase("conversion");
+    } else if (phase === "plans") {
+      setPhase("plans_intro");
+    } else {
+      setPhase("conversion");
+    }
   };
 
   const handleFollowUpSubmit = async (data: { name: string; email: string }) => {
@@ -240,6 +251,47 @@ export function PostCallReveal({
           </motion.div>
         )}
 
+        {phase === "plans_intro" && (
+          <motion.div
+            key="plans_intro"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            className="space-y-8 text-center"
+          >
+            <div className="space-y-4 max-w-2xl mx-auto">
+              <p
+                className="font-serif text-2xl sm:text-3xl text-zeya-ivory font-light"
+                style={{ letterSpacing: "0.06em", lineHeight: "1.35" }}
+              >
+                Start small. Scale what works.
+              </p>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="flex flex-col sm:flex-row gap-3 justify-center"
+            >
+              <button
+                onClick={() => setPhase("plans")}
+                className="px-6 py-3 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                See Plans
+              </button>
+              <button
+                onClick={handleBackToConversion}
+                className="px-6 py-3 border border-zeya-taupe/30 text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors text-sm font-light rounded"
+                style={{ letterSpacing: "0.08em" }}
+              >
+                Back
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+
         {phase === "plans" && (
           <motion.div
             key="plans"
@@ -248,7 +300,7 @@ export function PostCallReveal({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <PlansDisplay onBack={handleBackToConversion} />
+            <PlansDisplay onBack={() => setPhase("plans_intro")} />
           </motion.div>
         )}
 

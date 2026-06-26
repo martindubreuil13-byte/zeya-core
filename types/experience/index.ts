@@ -15,6 +15,7 @@ export interface BusinessInsights {
   representationFit: RepresentationFit;
   representationReasoning: string;
   recommendedNextStep: string;
+  confidence?: "high" | "medium" | "low";
 }
 
 export interface ConversationAnalysis {

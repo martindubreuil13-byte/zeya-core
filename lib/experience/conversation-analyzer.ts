@@ -299,37 +299,40 @@ function generateRepresentationReasoning(messages: string[]): string {
   const offer = inferOffer(messages);
   const goal = inferGoal(messages);
   const challenge = inferChallenge(messages);
+  const fit = assessRepresentationFit(messages);
 
-  const parts: string[] = [];
-
-  if (businessType) {
-    parts.push(`You're building a ${businessType.toLowerCase()}`);
+  // High confidence case - make specific statements
+  if (fit === "high" && businessType && offer) {
+    return `You seem to work with ${businessType.toLowerCase()} and help them with ${offer.toLowerCase()}. Your focus on ${goal ? `${goal === "leads" ? "generating more conversations" : goal === "revenue" ? "growing revenue" : "growing your business"}` : "growth"} is a natural fit for representation.`;
   }
 
-  if (offer) {
-    parts.push(`with a focus on ${offer.toLowerCase()}`);
+  // Medium confidence case - hedge with interpretive language
+  if (fit === "medium") {
+    const parts: string[] = [];
+    if (businessType) {
+      parts.push(`I see you're in ${businessType.toLowerCase()}`);
+    }
+    if (offer) {
+      parts.push(`focused on ${offer.toLowerCase()}`);
+    }
+    if (goal) {
+      const goalMap: Record<string, string> = {
+        leads: "generating conversations",
+        revenue: "growing revenue",
+        operations: "improving operations",
+        retention: "retaining customers",
+        other: "growing your business",
+      };
+      parts.push(`with a goal around ${goalMap[goal]}`);
+    }
+    if (parts.length > 0) {
+      return parts.join(", ") + ". I'd want to understand more about the specifics before committing to full representation.";
+    }
+    return "There's potential here, but I'd benefit from more context about your specific goals.";
   }
 
-  if (goal) {
-    const goalMap: Record<string, string> = {
-      leads: "generating customer conversations",
-      revenue: "growing revenue",
-      operations: "improving operations",
-      retention: "retaining customers",
-      other: "growing your business",
-    };
-    parts.push(`targeting ${goalMap[goal]}`);
-  }
-
-  if (challenge) {
-    parts.push(`while facing the challenge of ${challenge.toLowerCase()}`);
-  }
-
-  if (parts.length > 0) {
-    return parts.join(" ");
-  }
-
-  return "Your business has clear potential for delegation and growth.";
+  // Low confidence case - be honest about lack of context
+  return "I don't have enough detail yet to assess representation fit. Let's have a deeper conversation about your business and goals.";
 }
 
 function generateRecommendedNextStep(messages: string[]): string {

@@ -128,19 +128,25 @@ export function BusinessInsightsSection({ insights }: BusinessInsightsProps) {
             <div className="mt-4 pt-4 border-t border-zeya-taupe/10 flex items-start justify-between">
               <div>
                 <p className="text-xs text-zeya-taupe/60 font-light">Representation Fit</p>
-                <p
-                  className="mt-2 text-sm font-light capitalize"
-                  style={{
-                    color:
-                      insights.representationFit === "high"
-                        ? "rgb(215, 193, 155)"
-                        : insights.representationFit === "medium"
-                          ? "rgb(184, 173, 160)"
-                          : "rgb(156, 148, 142)",
-                  }}
-                >
-                  {insights.representationFit}
-                </p>
+                {insights.confidence === "low" ? (
+                  <p className="mt-2 text-sm text-zeya-taupe/70 font-light leading-relaxed">
+                    I don't have enough context yet to judge fit properly.
+                  </p>
+                ) : (
+                  <p
+                    className="mt-2 text-sm font-light capitalize"
+                    style={{
+                      color:
+                        insights.representationFit === "high"
+                          ? "rgb(215, 193, 155)"
+                          : insights.representationFit === "medium"
+                            ? "rgb(184, 173, 160)"
+                            : "rgb(156, 148, 142)",
+                    }}
+                  >
+                    {insights.representationFit}
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-xs text-zeya-taupe/60 font-light">Next Step</p>

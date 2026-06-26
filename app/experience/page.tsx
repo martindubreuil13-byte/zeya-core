@@ -217,7 +217,10 @@ export default function ExperiencePage() {
 
     // Analyze conversation for insights (including name extraction)
     const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
-    setBusinessInsights(analysis.insights);
+    setBusinessInsights({
+      ...analysis.insights,
+      confidence: analysis.confidence,
+    });
 
     // Check name confidence
     if (analysis.nameConfidence === "low" && analysis.extractedName) {

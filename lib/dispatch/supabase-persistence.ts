@@ -36,7 +36,21 @@ export async function createDispatchInSupabase(
     });
 
     if (error) {
-      console.error("[Dispatch Supabase Error]", error);
+      console.error("[Dispatch Supabase Error]", {
+        table: "dispatches",
+        payload: {
+          dispatch_id: dispatchId,
+          user_id: userId,
+          visitor_name: visitorName,
+          phone_number: phoneNumber,
+        },
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        },
+      });
       return null;
     }
 
@@ -60,7 +74,16 @@ export async function getDispatchFromSupabase(dispatchId: string) {
       .single();
 
     if (error) {
-      console.error("[Dispatch Fetch Error]", error);
+      console.error("[Dispatch Fetch Error]", {
+        table: "dispatches",
+        query: { dispatch_id: dispatchId },
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        },
+      });
       return null;
     }
 

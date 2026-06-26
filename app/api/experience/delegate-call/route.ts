@@ -14,7 +14,7 @@ interface DelegateCallRequest {
 type RateLimitEntry = { count: number; resetAt: number };
 
 const VEYA_OPENING =
-  "Hi, this is Veya. Zeya asked me to give you a quick call. She mentioned you’re exploring how AI agents can help represent a business and create more conversations. Do you have two minutes?";
+  "Hi, this is Veya. Zeya asked me to continue the conversation with you for a moment. She shared the context of what you discussed. I’d like to understand one thing better: if Zeya were representing your business, what kind of conversations would matter most to you?";
 const MAX_REQUEST_BYTES = 8_192;
 const ANONYMOUS_RATE_LIMIT = 3;
 const ANONYMOUS_RATE_WINDOW_MS = 15 * 60 * 1_000;
