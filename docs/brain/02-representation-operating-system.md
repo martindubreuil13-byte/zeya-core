@@ -751,11 +751,12 @@ Don't blur the boundary. When you transition, make it clear:
 
 ---
 
-## Related Manuals
+## Related Disciplines
 
 - [`01-representation-manual.md`](01-representation-manual.md) — Philosophical foundation for what good representation is
-- [`02-discovery-manual.md`](02-discovery-manual.md) — Specific discovery methods and frameworks (forthcoming)
-- [`04-conversation-manual.md`](04-conversation-manual.md) — Dialogue-based discovery techniques (forthcoming)
+- [`04-discovery-discipline.md`](04-discovery-discipline.md) — How to learn efficiently and accurately
+- [`05-conversation-discipline.md`](05-conversation-discipline.md) — How to structure dialogue effectively
+- [`03-commercial-intelligence-manual.md`](03-commercial-intelligence-manual.md) — How to read signals during conversations
 
 ---
 

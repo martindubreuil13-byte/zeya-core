@@ -3,8 +3,10 @@
 How people actually make decisions. Understanding the psychology behind business choices to guide representation strategy.
 
 **Version:** 0.1.0  
-**Status:** Placeholder Architecture  
-**Cross-Reference:** [`00-constitution.md`](00-constitution.md) — Core Value: Outcome Over Effort
+**Status:** ARCHIVED FOR FUTURE DEVELOPMENT  
+**Note:** Commercial Intelligence (03-commercial-intelligence-manual.md) currently covers immediate decision psychology needs. This manual is reserved for deep expansion into behavioral economics, cognitive bias, identity, trust formation, executive decision-making, prospect theory, commitment and consistency, loss aversion, and emotional decision-making patterns. Future versions will become its own knowledge domain.  
+**Cross-Reference:** [`00-constitution.md`](00-constitution.md) — Core Value: Outcome Over Effort  
+**Related:** [`03-commercial-intelligence-manual.md`](03-commercial-intelligence-manual.md) (VI. Emotional Intelligence)
 
 ---
 

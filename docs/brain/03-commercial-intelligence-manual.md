@@ -1481,11 +1481,12 @@ That's the moment you move from participating in conversations to understanding 
 
 ---
 
-## Related Manuals
+## Related Disciplines & Manuals
 
 - [`02-representation-operating-system.md`](02-representation-operating-system.md) — How to execute conversations efficiently
-- [`04-conversation-manual.md`](04-conversation-manual.md) — Dialogue techniques and frameworks (forthcoming)
-- [`05-decision-psychology.md`](05-decision-psychology.md) — Decision-making patterns and psychology (forthcoming)
+- [`05-conversation-discipline.md`](05-conversation-discipline.md) — How to structure dialogue effectively
+- [`07-objection-discipline.md`](07-objection-discipline.md) — How to handle and learn from objections
+- [`05-decision-psychology.md`](05-decision-psychology.md) — Decision psychology (archived for future expansion)
 
 ---
 

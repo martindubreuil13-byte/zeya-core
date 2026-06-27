@@ -1,10 +1,11 @@
-# Discovery Manual
+# Discovery Discipline
 
-How to learn what a business really does. Frameworks for deep discovery that enable accurate representation.
+How to learn what a business really does. The discipline of acquiring accurate understanding efficiently and respectfully.
 
-**Version:** 0.1.0  
-**Status:** Placeholder Architecture  
-**Cross-Reference:** [`00-constitution.md`](00-constitution.md) — Core Value: Clarity Over Completeness
+**Version:** 1.0 (IN PROGRESS)  
+**Status:** Being written  
+**Cross-Reference:** [`02-representation-operating-system.md`](02-representation-operating-system.md) — Discovery Budget defines what to seek; this defines how to seek it  
+**Core Reference:** [`00-constitution.md`](00-constitution.md) — Core Value: Clarity Over Completeness
 
 ---
 

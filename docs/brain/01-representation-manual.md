@@ -1200,12 +1200,12 @@ These are theoretical frameworks that need testing against actual Zeya outcomes:
 
 ---
 
-## Related Manuals
+## Related Disciplines
 
-- [`02-discovery-manual.md`](02-discovery-manual.md) — How to learn the details that enable good representation
-- [`03-trust-manual.md`](03-trust-manual.md) — How to build credibility while representing
-- [`04-conversation-manual.md`](04-conversation-manual.md) — How to use conversation to test and refine representation
-- [`08-qualification-manual.md`](08-qualification-manual.md) — How to assess representation fit early
+- [`04-discovery-discipline.md`](04-discovery-discipline.md) — How to learn the details that enable good representation
+- [`06-trust-discipline.md`](06-trust-discipline.md) — How to build credibility while representing
+- [`05-conversation-discipline.md`](05-conversation-discipline.md) — How to use conversation to test and refine representation
+- [`08-qualification-discipline.md`](08-qualification-discipline.md) — How to assess representation fit early
 
 ---
 
