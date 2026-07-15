@@ -9,6 +9,14 @@ import {
   getMappingByWorkerBriefId,
   saveBriefConversationMapping,
 } from "../persistence/brief-conversation-mapping-repository";
+import { createClient } from "@supabase/supabase-js";
+import { captureAndExtractConversationOutput } from "../conversation-output/service";
+
+function createTrustedDb() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
+}
 
 export interface ProcessedWebhookResult {
   success: boolean;
@@ -185,6 +193,47 @@ export async function processElevenLabsWebhook(
       targetName,
       targetPhone
     );
+
+    const trustedDb = createTrustedDb();
+    if (!trustedDb) throw new Error("Conversation capture is unavailable");
+    const lineage = await trustedDb.from("voice_representation_lineage")
+      .select("voice_context_id,provider_call_id")
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+    if (lineage.error || !lineage.data) throw new Error("Conversation lineage is unavailable");
+    const completedAt = new Date(eventTimestamp * 1000);
+    const durationMs = typeof webhook_typed.data.call_duration === "number"
+      ? webhook_typed.data.call_duration * 1000
+      : 0;
+    await captureAndExtractConversationOutput({
+      db: trustedDb,
+      capture: {
+        voiceContextId: lineage.data.voice_context_id,
+        conversationId,
+        providerCallId: lineage.data.provider_call_id,
+        provider: "elevenlabs",
+        channel: "veya_outbound",
+        captureSource: webhook_typed.data.transcript.length > 0 ? "provider_callback" : "status_only",
+        transcriptTrustLevel: webhook_typed.data.transcript.length > 0 ? "provider_attested" : "status_only",
+        providerAttested: webhook_typed.data.transcript.length > 0,
+        startedAt: durationMs > 0 ? new Date(completedAt.getTime() - durationMs).toISOString() : null,
+        completedAt: completedAt.toISOString(),
+        transcript: webhook_typed.data.transcript.map((turn) => ({
+          role: turn.role === "user" ? "customer" : "agent",
+          text: turn.message,
+          startedAtMs: turn.timestamp,
+        })),
+        transcriptStatus: webhook_typed.data.transcript.length > 0
+          ? "finalized"
+          : webhook_typed.data.status === "failed" ? "unavailable" : "pending",
+        conversationStatus: webhook_typed.data.status,
+        completionReason: webhook_typed.data.status === "done" ? "provider_completed" : "provider_failed",
+        safeMetadata: {
+          turnCount: webhook_typed.data.transcript.length,
+          hasAudio: webhook_typed.data.has_audio === true,
+        },
+      },
+    });
 
     console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
       conversationId,

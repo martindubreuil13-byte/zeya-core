@@ -13,6 +13,7 @@ import {
   type VoiceReadyContext,
 } from "@/lib/voice/representation-context";
 import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "@/lib/voice/persistence/representation-lineage-repository";
+import { captureConversationOutput } from "@/lib/voice/conversation-output/repository";
 
 // Resolve the service client at dispatch time so test/runtime environment loading
 // cannot permanently cache an unavailable client during module initialization.
@@ -230,6 +231,7 @@ export async function dispatchWorkerBrief(
     }
   }
 
+  const providerStartedAt = new Date().toISOString();
   const providerResult = await provider.dispatch({
     workerBriefId: brief.id,
     missionId: brief.missionId,
@@ -245,6 +247,32 @@ export async function dispatchWorkerBrief(
     status: providerResult.status,
     providerCallId: providerResult.providerCallId,
   });
+
+  if (providerResult.status !== "DISPATCHED" && voiceContextId && supabase) {
+    try {
+      await captureConversationOutput(supabase, {
+        voiceContextId,
+        conversationId: provisionalConversationId,
+        provider: resolvedProviderType === "ELEVENLABS" ? "elevenlabs" : "openai_realtime",
+        channel: "veya_outbound",
+        captureSource: "status_only",
+        transcriptTrustLevel: "status_only",
+        providerAttested: false,
+        startedAt: providerStartedAt,
+        completedAt: providerResult.createdAt,
+        transcript: [],
+        transcriptStatus: "unavailable",
+        conversationStatus: "failed",
+        completionReason: "provider_dispatch_failed",
+        safeMetadata: { errorCategory: "provider_dispatch_failed" },
+      });
+    } catch {
+      console.error("[worker-dispatcher] provider failure capture failed", {
+        workerBriefId: brief.id,
+        category: "status_capture_failed",
+      });
+    }
+  }
 
   // Save provider call ID and conversation ID immediately after successful dispatch
   if (providerResult.status === "DISPATCHED" && providerResult.providerCallId) {

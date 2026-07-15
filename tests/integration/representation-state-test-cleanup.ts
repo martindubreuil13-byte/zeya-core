@@ -8,6 +8,11 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
     if (purge.error) failures.push(`representation ${item.id}: ${purge.error.code}`);
     else {
       const expectedLineageCount = registry.voiceLineages.filter(lineage => lineage.businessRepresentationId === item.id).length;
+      const expectedOutputCount = registry.voiceOutputs.filter(output => output.businessRepresentationId === item.id).length;
+      const expectedCandidateCount = registry.voiceCandidates.filter(candidate => candidate.businessRepresentationId === item.id).length;
+      const deletedRows = (purge.data as { deleted?: Record<string, number> } | null)?.deleted;
+      if (deletedRows?.voice_conversation_outputs !== expectedOutputCount) failures.push(`representation ${item.id}: output deletion count mismatch`);
+      if (deletedRows?.voice_conversation_candidates !== expectedCandidateCount) failures.push(`representation ${item.id}: candidate deletion count mismatch`);
       if (expectedLineageCount > 0) {
         const deleted = (purge.data as { deleted?: { voice_representation_lineage?: number } } | null)?.deleted?.voice_representation_lineage;
         if (deleted !== expectedLineageCount) failures.push(`representation ${item.id}: lineage deletion count mismatch`);
@@ -17,6 +22,18 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
         const remainingLineage = await db.from('voice_representation_lineage').select('voice_context_id').in('voice_context_id', lineageIds);
         if (remainingLineage.error) failures.push(`representation ${item.id}: lineage verification ${remainingLineage.error.code}`);
         else if ((remainingLineage.data?.length ?? 0) > 0) failures.push(`representation ${item.id}: lineage still exists`);
+      }
+      const outputIds = registry.voiceOutputs.filter(output => output.businessRepresentationId === item.id).map(output => output.id);
+      if (outputIds.length > 0) {
+        const remainingOutputs = await db.from('voice_conversation_outputs').select('id').in('id', outputIds);
+        if (remainingOutputs.error) failures.push(`representation ${item.id}: output verification ${remainingOutputs.error.code}`);
+        else if ((remainingOutputs.data?.length ?? 0) > 0) failures.push(`representation ${item.id}: output still exists`);
+      }
+      const candidateIds = registry.voiceCandidates.filter(candidate => candidate.businessRepresentationId === item.id).map(candidate => candidate.id);
+      if (candidateIds.length > 0) {
+        const remainingCandidates = await db.from('voice_conversation_candidates').select('id').in('id', candidateIds);
+        if (remainingCandidates.error) failures.push(`representation ${item.id}: candidate verification ${remainingCandidates.error.code}`);
+        else if ((remainingCandidates.data?.length ?? 0) > 0) failures.push(`representation ${item.id}: candidate still exists`);
       }
       if ((await db.from('business_representations').select('id').eq('id', item.id).maybeSingle()).data) failures.push(`representation ${item.id}: still exists`);
     }

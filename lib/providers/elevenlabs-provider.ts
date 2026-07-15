@@ -185,13 +185,6 @@ export class ElevenLabsProvider implements WorkerProvider {
         status: response.status,
         ok: response.ok,
       });
-      if (!response.ok || !isProduction) {
-        console.log("[elevenlabs-provider] provider response body", {
-          workerBriefId: request.workerBriefId,
-          body: redactSensitiveText(responseBody, request.targetPhone).slice(0, 1_000),
-        });
-      }
-
       if (!response.ok) {
         const failureMessage = redactSensitiveText(
           responseFailureMessage(response.status, responseBody),
@@ -199,7 +192,7 @@ export class ElevenLabsProvider implements WorkerProvider {
         );
         console.error("[elevenlabs-provider] 🔴 ElevenLabs API error", {
           status: response.status,
-          error: failureMessage,
+          errorCategory: "provider_http_error",
         });
 
         return {

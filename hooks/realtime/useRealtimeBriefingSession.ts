@@ -51,6 +51,9 @@ export function useRealtimeBriefingSession({
 }: BriefingSessionOptions) {
   const clientRef    = useRef<OpenAIRealtimeClient | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const voiceContextIdRef = useRef<string | null>(null);
+  const transcriptRef = useRef<VoiceTranscriptEntry[]>([]);
+  const startedAtRef = useRef<string | null>(null);
 
   const [snapshot, setSnapshot] = useState<BriefingSessionSnapshot>(INITIAL);
 
@@ -69,6 +72,9 @@ export function useRealtimeBriefingSession({
     clientRef.current?.close();
     clientRef.current = null;
     sessionIdRef.current = null;
+    voiceContextIdRef.current = null;
+    transcriptRef.current = [];
+    startedAtRef.current = new Date().toISOString();
 
     setSnapshot({ voiceState: "connecting", connectionStatus: "connecting", transcript: [] });
 
@@ -105,6 +111,7 @@ export function useRealtimeBriefingSession({
         // Only process final turns to avoid noisy partial renders
         if (!entry.isFinal) return;
 
+        transcriptRef.current = [...transcriptRef.current, entry].slice(-500);
         setSnapshot((prev) => ({
           ...prev,
           transcript: [...prev.transcript, entry].slice(-24),
@@ -138,6 +145,10 @@ export function useRealtimeBriefingSession({
         }));
       },
 
+      onSessionCreated: ({ voiceContextId }) => {
+        voiceContextIdRef.current = voiceContextId ?? null;
+      },
+
       onDisconnected: () => {
         setSnapshot((prev) => ({
           ...prev,
@@ -163,10 +174,16 @@ export function useRealtimeBriefingSession({
     clientRef.current = null;
 
     const sessionId     = sessionIdRef.current;
+    const voiceContextId = voiceContextIdRef.current;
+    const finalTranscript = transcriptRef.current;
+    const startedAt = startedAtRef.current;
     const currentBizId  = businessId;
     const currentToken  = accessToken;
 
     sessionIdRef.current = null;
+    voiceContextIdRef.current = null;
+    transcriptRef.current = [];
+    startedAtRef.current = null;
 
     setSnapshot((prev) => ({
       ...prev,
@@ -185,6 +202,24 @@ export function useRealtimeBriefingSession({
         headers,
         body: JSON.stringify({ sessionId, businessId: currentBizId }),
       }).catch(console.error);
+
+      if (voiceContextId && finalTranscript.length > 0) {
+        void fetch("/api/voice/conversation-output/zeya", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            voiceContextId,
+            conversationId: sessionId,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            completionReason: "user_disconnect",
+            transcript: finalTranscript.map((entry) => ({
+              role: entry.role === "user" ? "customer" : "agent",
+              text: entry.text,
+            })),
+          }),
+        }).catch(() => undefined);
+      }
     }
   }, [businessId, accessToken]);
 

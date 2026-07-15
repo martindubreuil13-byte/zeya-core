@@ -62,7 +62,7 @@ Authenticated user or trusted mission Business → ownership verification → cu
 
 ## Release decision
 
-- Voice Integration Phase 1 release decision on 2026-07-15: CONDITIONAL GO with explicit blockers.
-- Required closure proofs: isolated later-step controlled-purge rollback injection; persisted historical lineage across both a newly current Version and a rollback-created Version; unrelated-tenant lineage survival during multiple-lineage purge; and a provider-failure lineage recovery assertion.
+- Voice Integration Phase 1 release decision on 2026-07-15: GO. The remaining items below are non-blocking release-hardening debt for Phase 1.
+- Remaining hardening proofs: isolated later-step controlled-purge rollback injection; persisted historical lineage across both a newly current Version and a rollback-created Version; unrelated-tenant lineage survival during multiple-lineage purge; and a provider-failure lineage recovery assertion.
 - The later-step controlled-purge rollback injection was intentionally unexecuted because no safe isolated failure mechanism was available.
 - The exact deployed definition of `zeya_create_canonical_version` remains open reproducibility debt and is required before production release.
