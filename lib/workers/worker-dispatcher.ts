@@ -7,6 +7,12 @@ import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
 import { createClient } from "@supabase/supabase-js";
 import { saveWorkerBrief } from "./worker-brief-repository";
 import { saveBriefConversationMapping } from "@/lib/voice/persistence/brief-conversation-mapping-repository";
+import {
+  assembleVoiceRepresentationContext,
+  buildVoiceProviderVariables,
+  type VoiceReadyContext,
+} from "@/lib/voice/representation-context";
+import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "@/lib/voice/persistence/representation-lineage-repository";
 
 // Service-role client for privileged operations (updates after dispatch)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,7 +29,8 @@ function valueAsString(value: string | number | boolean | null | undefined): str
 export async function dispatchWorkerBrief(
   brief: WorkerBrief,
   providerType?: ProviderType,
-  businessId?: string | null
+  businessId?: string | null,
+  options: { provisionalMode?: boolean } = {},
 ): Promise<WorkerDispatchResult> {
   console.log("[worker-dispatcher] dispatch invoked", {
     workerBriefId: brief.id,
@@ -51,6 +58,55 @@ export async function dispatchWorkerBrief(
       providerCallId: "failed_" + Date.now(),
       createdAt: new Date().toISOString(),
     };
+  }
+
+  const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
+  let voiceContext: VoiceReadyContext | null = null;
+  let voiceContextId: string | null = null;
+  if (brief.workerType === "CALLER" || resolvedProviderType === "ELEVENLABS") {
+    if (!supabase) {
+      return {
+        briefId: brief.id,
+        workerName: brief.workerName,
+        workerType: brief.workerType,
+        status: "FAILED",
+        message: "Authorized voice context is unavailable",
+        providerCallId: "failed_" + Date.now(),
+        createdAt: new Date().toISOString(),
+      };
+    }
+    const owner = await supabase.from("businesses").select("user_id").eq("id", businessId).maybeSingle();
+    if (owner.error || !owner.data?.user_id) {
+      return {
+        briefId: brief.id,
+        workerName: brief.workerName,
+        workerType: brief.workerType,
+        status: "FAILED",
+        message: "Authorized voice context is unavailable",
+        providerCallId: "failed_" + Date.now(),
+        createdAt: new Date().toISOString(),
+      };
+    }
+    try {
+      voiceContext = await assembleVoiceRepresentationContext({
+        db: supabase,
+        tenantUserId: owner.data.user_id,
+        businessId,
+        agent: { id: brief.workerName, type: brief.workerType, role: "outbound_representative" },
+        provisionalMode: options.provisionalMode === true,
+      });
+      voiceContextId = crypto.randomUUID();
+    } catch {
+      return {
+        briefId: brief.id,
+        workerName: brief.workerName,
+        workerType: brief.workerType,
+        status: "FAILED",
+        message: "Authorized voice context is unavailable",
+        providerCallId: "failed_" + Date.now(),
+        createdAt: new Date().toISOString(),
+      };
+    }
   }
 
   // Task 1: Persist WorkerBrief to database
@@ -132,7 +188,6 @@ export async function dispatchWorkerBrief(
   });
 
   // Now that persistence is complete, route to provider
-  const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
   console.log("[worker-dispatcher] provider selected", {
     workerBriefId: brief.id,
     provider: resolvedProviderType,
@@ -144,13 +199,40 @@ export async function dispatchWorkerBrief(
     workerBriefId: brief.id,
     provider: resolvedProviderType,
   });
+  const providerVariables = voiceContext
+    ? buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext })
+    : brief.dynamicVariables;
+
+  if (voiceContext && voiceContextId && supabase) {
+    try {
+      await saveVoiceRepresentationLineage({
+        db: supabase,
+        voiceContextId,
+        workerBriefId: brief.id,
+        missionId: brief.missionId,
+        conversationId: provisionalConversationId,
+        lineage: voiceContext.lineage,
+      });
+    } catch {
+      return {
+        briefId: brief.id,
+        workerName: brief.workerName,
+        workerType: brief.workerType,
+        status: "FAILED",
+        message: "Voice lineage could not be recorded",
+        providerCallId: "failed_" + Date.now(),
+        createdAt: new Date().toISOString(),
+      };
+    }
+  }
+
   const providerResult = await provider.dispatch({
     workerBriefId: brief.id,
     missionId: brief.missionId,
     targetName,
     targetPhone,
     objective: brief.objective,
-    dynamicVariables: brief.dynamicVariables,
+    dynamicVariables: providerVariables,
   });
 
   console.log("[worker-dispatcher] provider response", {
@@ -176,6 +258,14 @@ export async function dispatchWorkerBrief(
           workerBriefId: brief.id,
         });
       } else {
+        if (voiceContext && voiceContextId) {
+          await attachVoiceProviderIdentifiers({
+            db: supabase,
+            voiceContextId,
+            conversationId: providerResult.conversationId || provisionalConversationId,
+            providerCallId: providerResult.providerCallId,
+          });
+        }
         const { data, error } = await supabase
           .from("brief_conversation_mappings")
           .update({

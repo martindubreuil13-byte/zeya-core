@@ -368,7 +368,6 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
     : serializeContext(pills, businessName, progressPercent, lastSessionSynthesis, strategicFocus, missionDetail, leadSummary, missionReady, assignedAgent);
 
   const briefingSession = useRealtimeBriefingSession({
-    businessContext,
     businessId:   businessId ?? undefined,
     accessToken:  session?.access_token ?? undefined,
   });

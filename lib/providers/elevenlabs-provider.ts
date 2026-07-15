@@ -135,11 +135,6 @@ export class ElevenLabsProvider implements WorkerProvider {
         },
       };
 
-      const redactedDynamicVariables: Record<string, unknown> = {
-        ...dynamicVariables,
-        targetPhone: "[redacted]",
-        phone: "[redacted]",
-      };
       const redactedPayload = redactProviderPayload(payload);
       const isProduction = process.env.NODE_ENV === "production";
 
@@ -165,11 +160,13 @@ export class ElevenLabsProvider implements WorkerProvider {
           targetPhone: redactPhone(request.targetPhone),
           objective: request.objective,
         });
-        console.log("[elevenlabs-provider] 🔵 Provider payload", redactedPayload);
+        console.log("[elevenlabs-provider] 🔵 Provider payload shape", {
+          keys: Object.keys(redactedPayload).sort(),
+          dynamicVariableKeys: Object.keys(dynamicVariables).sort(),
+        });
         console.log("[elevenlabs-provider] 🔵 Dynamic variable audit", {
-          count: Object.keys(redactedDynamicVariables).length,
-          keys: Object.keys(redactedDynamicVariables).sort(),
-          values: redactedDynamicVariables,
+          count: Object.keys(dynamicVariables).length,
+          keys: Object.keys(dynamicVariables).sort(),
         });
       }
 

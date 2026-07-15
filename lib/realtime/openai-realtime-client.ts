@@ -28,6 +28,7 @@ export type OpenAIRealtimeClientEvents = {
   // Optional overrides — if omitted, defaults to the onboarding session endpoint
   sessionEndpoint?: string;
   sessionBody?: Record<string, unknown>;
+  sessionHeaders?: Record<string, string>;
 };
 
 function devLog(message: string, details?: Record<string, unknown>) {
@@ -456,7 +457,10 @@ export class OpenAIRealtimeClient {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: bodyPayload ? { "Content-Type": "application/json" } : {},
+        headers: {
+          ...(bodyPayload ? { "Content-Type": "application/json" } : {}),
+          ...(this.events.sessionHeaders ?? {}),
+        },
         body: bodyPayload ? JSON.stringify(bodyPayload) : undefined,
         cache: "no-store",
       });

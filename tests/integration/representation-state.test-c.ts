@@ -1,0 +1,48 @@
+import { createClient } from '@supabase/supabase-js';
+import { loadEnvConfig } from '@next/env';
+import { startTestServer } from './representation-state-test-server';
+import { FixtureRegistry } from './representation-state-test-fixtures';
+import { cleanupFixtures } from './representation-state-test-cleanup';
+import { jsonRequest } from './representation-state-test-client';
+import { createRepresentationStateService } from '../../lib/representation/representation-service';
+
+type VersionRow={id:string;business_representation_id:string;previous_version_id:string|null;source_proposal_id:string;source_approval_id:string|null;element_values:Record<string,{value:string}>;version_number:number;content_hash:string;created_at:string};
+type VersionResponse={data:{versionId:string;versionNumber:number;approvalId:string|null;confidenceAssessmentId:string}};
+const assert=(value:unknown,message:string):void=>{if(!value)throw new Error(`Test C: ${message}`)};
+
+async function main():Promise<void>{
+  loadEnvConfig(process.cwd());
+  const server=await startTestServer(),registry=new FixtureRegistry(),env=process.env;
+  const admin=createClient(env.NEXT_PUBLIC_SUPABASE_URL!,env.SUPABASE_SERVICE_ROLE_KEY!);let cleanup;
+  try{
+    const email=`representation-c-${registry.runId}@zeya.test`,password=`T-${crypto.randomUUID()}!`;
+    const created=await admin.auth.admin.createUser({email,password,email_confirm:true});if(created.error)throw created.error;
+    const userId=created.data.user.id;registry.registerAuthUser(userId,email);
+    const auth=createClient(env.NEXT_PUBLIC_SUPABASE_URL!,env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);const signed=await auth.auth.signInWithPassword({email,password});if(signed.error||!signed.data.session)throw signed.error??new Error('Authentication failed');
+    const token=signed.data.session.access_token,client=createClient(env.NEXT_PUBLIC_SUPABASE_URL!,env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,{global:{headers:{Authorization:`Bearer ${token}`}}});
+    const business=await client.from('businesses').insert({business_name:`Test C ${registry.runId}`,user_id:userId}).select().single();if(business.error)throw business.error;registry.registerBusiness(business.data.id,userId);
+    const initial=await jsonRequest<{data:{businessRepresentationId:string;evidenceId:string;observationId:string;proposalId:string}}>(server.baseUrl,'/api/representation/evidence',{method:'POST',headers:{'content-type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({businessId:business.data.id,statement:'Initial pricing evidence'})});assert(initial.status===201,'initial lineage');
+    const rep=initial.body.data.businessRepresentationId;registry.registerBusinessRepresentation(rep,business.data.id);registry.registerEvidence(initial.body.data.evidenceId);registry.registerObservation(initial.body.data.observationId);registry.registerProposal(initial.body.data.proposalId);
+    const domain=await client.from('representation_domains').select('id').eq('business_representation_id',rep).eq('domain_name','offer').single();if(domain.error)throw domain.error;registry.registerDomain(domain.data.id);
+    async function proposal(value:string){const p=await client.from('representation_proposals').insert({business_representation_id:rep,proposed_changes:{pricing:{after:value}},risk_tier:'low',highest_sensitivity_class:'operational',requires_approval:false,status:'draft',proposed_by_actor:userId,rationale:`pricing ${value}`}).select().single();if(p.error)throw p.error;registry.registerProposal(p.data.id);return p.data.id}
+    async function version(proposalId:string,value:string){const response=await jsonRequest<VersionResponse>(server.baseUrl,'/api/representation/versions',{method:'POST',headers:{'content-type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({businessRepresentationId:rep,proposalId,elementValues:{pricing:{value}},confidenceScore:80})});assert(response.status===201,`create ${value}`);registry.registerVersion(response.body.data.versionId);registry.registerConfidenceAssessment(response.body.data.confidenceAssessmentId);const row=await client.from('representation_versions').select().eq('id',response.body.data.versionId).single();if(row.error)throw row.error;return row.data as VersionRow}
+    const v1=await version(initial.body.data.proposalId,'$100');assert(v1.version_number===1&&v1.previous_version_id===null&&v1.source_approval_id===null&&v1.element_values.pricing.value==='$100'&&v1.content_hash,'Version 1');
+    const element=await client.from('representation_elements').insert({business_representation_id:rep,representation_domain_id:domain.data.id,element_key:'pricing',element_type:'fact',current_value_version_id:v1.id,is_disputed:false,claim_eligibility:'approved_for_external_use',field_sensitivity:'operational'}).select().single();if(element.error)throw element.error;registry.registerElement(element.data.id);
+    const v2=await version(await proposal('$200'),'$200');assert(v2.version_number===2&&v2.previous_version_id===v1.id&&v2.content_hash!==v1.content_hash,'Version 2');
+    const v3=await version(await proposal('$300'),'$300');assert(v3.version_number===3&&v3.previous_version_id===v2.id,'Version 3');
+    const snapshots=JSON.stringify([v1,v2,v3]),current=await client.from('business_representations').select('current_version_id').eq('id',rep).single();assert(current.data?.current_version_id===v3.id,'current pointer V3');
+    const direct=await client.from('representation_versions').insert({business_representation_id:rep,source_proposal_id:v3.source_proposal_id,element_values:{pricing:{value:'invalid'}},version_number:4,overall_confidence_score:1,created_by_actor:userId,content_hash:'invalid'});assert(direct.error,'direct insert blocked');
+    assert((await client.from('representation_versions').update({element_values:{pricing:{value:'mutated'}}}).eq('id',v1.id)).error,'update blocked');
+    assert((await client.from('representation_versions').delete().eq('id',v1.id)).error,'delete blocked');
+    const rollback=await createRepresentationStateService(client).rollbackToVersion(rep,v1.id);const v4={id:rollback.id,business_representation_id:rollback.businessRepresentationId,previous_version_id:rollback.previousVersionId,source_proposal_id:rollback.sourceProposalId,source_approval_id:rollback.sourceApprovalId,element_values:rollback.elementValues,version_number:rollback.versionNumber,content_hash:rollback.contentHash,created_at:rollback.createdAt.toISOString()} as VersionRow;registry.registerVersion(v4.id);assert(v4.version_number===4&&v4.previous_version_id===v3.id&&v4.element_values.pricing.value==='$100'&&v4.id!==v1.id,'rollback Version 4');
+    const after=await client.from('representation_versions').select().in('id',[v1.id,v2.id,v3.id]).order('version_number');assert(JSON.stringify(after.data)===snapshots,'Versions 1-3 unchanged');
+    const audit=await client.from('audit_events').select().eq('version_id',v4.id).eq('event_type','version_rolled_back').single();if(audit.error)throw audit.error;registry.registerAuditEvent(audit.data.id);assert(audit.data.details.rollback_of_version_id===v1.id,'rollback audit target');
+    const pointer=await client.from('representation_elements').select('current_value_version_id').eq('id',element.data.id).single();assert(pointer.data?.current_value_version_id===v4.id,'Element pointer advanced to V4');
+    const context=await jsonRequest<{data:{elements:Array<{elementKey:string;currentValue:{value:string}}>} }>(server.baseUrl,`/api/representation/agent-context?businessRepresentationId=${rep}`,{headers:{Authorization:`Bearer ${token}`}});assert(context.status===200&&context.body.data.elements.find(x=>x.elementKey==='pricing')?.currentValue.value==='$100','agent context rollback');
+    const invalid=await client.rpc('zeya_create_canonical_version',{p_business_representation_id:rep,p_source_proposal_id:v3.source_proposal_id,p_element_values:v1.element_values,p_overall_confidence_score:80,p_actor_user_id:userId,p_rollback_of_version_id:crypto.randomUUID()});assert(invalid.error,'invalid rollback');
+    const finalCurrent=await client.from('business_representations').select('current_version_id').eq('id',rep).single();assert(finalCurrent.data?.current_version_id===v4.id,'invalid rollback did not advance');
+    console.log('Representation State Integration\n\nInfrastructure — PASS\nTest C — PASS\nVersion 1 — PASS\nVersion 2 — PASS\nVersion 3 — PASS\nSequential lineage — PASS\nDirect insert protection — PASS\nUpdate protection — PASS\nDelete protection — PASS\nRollback Version 4 — PASS\nRollback audit — PASS\nPrevious-version immutability — PASS\nAgent-context rollback — PASS');
+  }finally{cleanup=await cleanupFixtures(admin,registry);console.log(`Representation cleanup — ${cleanup.success?'PASS':'FAIL'}\nBusiness cleanup — ${cleanup.success?'PASS':'FAIL'}\nAuth cleanup — ${cleanup.success?'PASS':'FAIL'}`);await server.stop();console.log('Server cleanup — PASS')}
+  if(!cleanup?.success)throw new Error(cleanup.failures.join(', '));
+}
+const keepAlive=setInterval(()=>{},1000);main().catch(error=>{console.error(error instanceof Error?error.message:'Test C failed');process.exitCode=1}).finally(()=>clearInterval(keepAlive));

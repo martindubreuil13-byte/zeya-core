@@ -19,7 +19,6 @@ import type { VoiceState, VoiceTranscriptEntry } from "@/types/voice";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BriefingSessionOptions {
-  businessContext: string;
   businessId?: string;
   accessToken?: string;
 }
@@ -47,7 +46,6 @@ const INITIAL: BriefingSessionSnapshot = {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRealtimeBriefingSession({
-  businessContext,
   businessId,
   accessToken,
 }: BriefingSessionOptions) {
@@ -86,7 +84,8 @@ export function useRealtimeBriefingSession({
 
     const client = new OpenAIRealtimeClient({
       sessionEndpoint: "/api/openai/realtime/briefing-session",
-      sessionBody: { business_context: businessContext },
+      sessionBody: { businessId, provisionalMode: false, conversationId: sessionIdRef.current },
+      sessionHeaders: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
 
       onStateChange: (state) => {
         setSnapshot((prev) => {
@@ -155,7 +154,7 @@ export function useRealtimeBriefingSession({
     } catch {
       // Error state is already set via onError callback
     }
-  }, [businessContext, businessId]);
+  }, [accessToken, businessId]);
 
   // ── endSession ──────────────────────────────────────────────────────────────
 
