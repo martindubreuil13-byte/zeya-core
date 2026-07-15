@@ -6,6 +6,7 @@ import { cleanupFixtures } from "./representation-state-test-cleanup";
 import { jsonRequest } from "./representation-state-test-client";
 import { startTestServer } from "./representation-state-test-server";
 import { createRepresentationStateService } from "../../lib/representation/representation-service";
+import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "../../lib/voice/persistence/representation-lineage-repository";
 
 type UserFixture = { id: string; token: string; client: SupabaseClient };
 const expected = {
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   const server = await startTestServer();
   const registry = new FixtureRegistry();
   const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const operationalBriefIds: string[] = [];
   let cleanup;
   try {
     async function user(label: string): Promise<UserFixture> {
@@ -158,10 +160,92 @@ async function main(): Promise<void> {
       await assembleVoiceRepresentationContext({ db: owner.client, tenantUserId: owner.id, businessId: crypto.randomUUID(), agent: { id: "veya", type: "CALLER", role: "caller" } });
     } catch { missingBlocked = true; }
     assert(missingBlocked, "missing Representation fails closed");
+    const zeyaConversationId = `zeya_conversation_${registry.runId}`;
+    const zeyaSession = await jsonRequest<{ voice_context_id: string; representation_lineage: { canonicalVersionId: string; authorizedElementKeys: string[]; provisionalMode: boolean; tenantUserId: string; businessRepresentationId: string; agentId: string } }>(server.baseUrl, "/api/openai/realtime/briefing-session", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${owner.token}` },
+      body: JSON.stringify({ businessId: business.data.id, conversationId: zeyaConversationId, business_context: "browser supplied facts must be ignored" }),
+    });
+    assert(zeyaSession.status === 200, "authenticated Zeya briefing session");
+    registry.registerVoiceLineage(zeyaSession.body.voice_context_id, representationId);
+    assert(zeyaSession.body.representation_lineage.tenantUserId === owner.id && zeyaSession.body.representation_lineage.businessRepresentationId === representationId && zeyaSession.body.representation_lineage.canonicalVersionId === rollback.id, "Zeya route lineage identifiers");
+    assert(zeyaSession.body.representation_lineage.provisionalMode === false && JSON.stringify(zeyaSession.body.representation_lineage.authorizedElementKeys) === JSON.stringify(["approved_key"]), "Zeya default payload authorization");
+    const zeyaPersisted = await admin.from("voice_representation_lineage").select("*").eq("voice_context_id", zeyaSession.body.voice_context_id).single();
+    assert(!zeyaPersisted.error && zeyaPersisted.data.conversation_id === zeyaConversationId && zeyaPersisted.data.agent_id === "zeya-realtime", "Zeya lineage persisted through trusted route");
+
+    const { buildWorkerBrief, dispatchWorkerBrief } = await import("../../lib/workers");
+    const brief = buildWorkerBrief({ missionId: `voice-mission-${registry.runId}`, workerType: "CALLER", companyContext: "legacy company facts must not reach provider context", leadContext: "controlled prospect", objective: "qualify interest", desiredOutcome: "safe provider boundary proof", keyQuestions: [], objectionGuidance: [], escalationRules: [], successCriteria: "boundary completed", dynamicVariables: { target: "controlled prospect", targetPhone: "+10000000000", internal_key: "legacy restricted override", approved_key: "legacy approved override" } });
+    operationalBriefIds.push(brief.id);
+    const originalFetch = globalThis.fetch;
+    let capturedProviderBody = "";
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call") {
+        capturedProviderBody = typeof init?.body === "string" ? init.body : "";
+        return new Response(JSON.stringify({ success: true, message: "accepted", conversation_id: `veya_conversation_${registry.runId}`, sip_call_id: `veya_call_${registry.runId}` }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return originalFetch(input, init);
+    };
+    let dispatch;
+    try {
+      dispatch = await dispatchWorkerBrief(brief, "ELEVENLABS", business.data.id);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert(dispatch.status === "DISPATCHED", `Veya provider-bound dispatch (${dispatch.status}: ${dispatch.message})`);
+    const capturedProvider = JSON.parse(capturedProviderBody) as { conversation_initiation_client_data: { dynamic_variables: Record<string, unknown> } };
+    const capturedVariablesText = JSON.stringify(capturedProvider.conversation_initiation_client_data.dynamic_variables);
+    assert(capturedVariablesText.includes("approved_key") && capturedVariablesText.includes("approved value"), "Veya provider receives authorized approved context");
+    for (const blockedValue of ["legacy company facts", "legacy restricted override", "legacy approved override", "internal value", "disputed value", "prohibited value", "expired value"]) assert(!capturedVariablesText.includes(blockedValue), `Veya provider excludes ${blockedValue}`);
+    const veyaLineage = await admin.from("voice_representation_lineage").select("*").eq("worker_brief_id", brief.id).single();
+    if (veyaLineage.error) throw veyaLineage.error;
+    registry.registerVoiceLineage(veyaLineage.data.voice_context_id, representationId);
+    assert(veyaLineage.data.tenant_user_id === owner.id && veyaLineage.data.business_representation_id === representationId && veyaLineage.data.canonical_version_id === rollback.id && veyaLineage.data.provider_call_id === dispatch.providerCallId, "Veya persisted lineage matches provider-bound context");
+
+    const approvedLineageId = crypto.randomUUID();
+    await saveVoiceRepresentationLineage({ db: admin, voiceContextId: approvedLineageId, workerBriefId: `voice-approved-${registry.runId}`, missionId: `voice-${registry.runId}`, conversationId: `dispatch_${approvedLineageId}`, lineage: approved.lineage });
+    registry.registerVoiceLineage(approvedLineageId, representationId);
+    const provisionalLineageId = crypto.randomUUID();
+    await saveVoiceRepresentationLineage({ db: admin, voiceContextId: provisionalLineageId, workerBriefId: `voice-provisional-${registry.runId}`, missionId: `voice-${registry.runId}`, conversationId: `voice_${provisionalLineageId}`, lineage: provisional.lineage });
+    registry.registerVoiceLineage(provisionalLineageId, representationId);
+
+    const ownerLineageIds = [zeyaSession.body.voice_context_id, approvedLineageId, provisionalLineageId];
+    const ownerLineage = await owner.client.from("voice_representation_lineage").select("*").in("voice_context_id", ownerLineageIds);
+    assert(!ownerLineage.error && ownerLineage.data.length === 3, "owner reads all own lineage rows");
+    assert(ownerLineage.data.every((row) => row.tenant_user_id === owner.id && row.business_id === business.data.id && row.business_representation_id === representationId && row.canonical_version_id === rollback.id), "persisted lineage identifiers match authorized context");
+    const foreignLineage = await foreign.client.from("voice_representation_lineage").select("voice_context_id").in("voice_context_id", ownerLineageIds);
+    assert(!foreignLineage.error && foreignLineage.data.length === 0, "foreign tenant cannot read lineage");
+    assert((await owner.client.from("voice_representation_lineage").delete().eq("voice_context_id", approvedLineageId)).error, "authenticated direct lineage DELETE blocked");
+    assert((await admin.from("voice_representation_lineage").delete().eq("voice_context_id", approvedLineageId)).error, "service-role direct lineage DELETE blocked");
+
+    const providerConversationId = `provider_conversation_${registry.runId}`;
+    const providerCallId = `provider_call_${registry.runId}`;
+    await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: approvedLineageId, conversationId: providerConversationId, providerCallId });
+    const attached = await admin.from("voice_representation_lineage").select("*").eq("voice_context_id", approvedLineageId).single();
+    if (attached.error) throw attached.error;
+    await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: approvedLineageId, conversationId: providerConversationId, providerCallId });
+    const repeated = await admin.from("voice_representation_lineage").select("*").eq("voice_context_id", approvedLineageId).single();
+    assert(!repeated.error && repeated.data.updated_at === attached.data.updated_at, "identical provider attachment is idempotent");
+    assert(JSON.stringify({ ...repeated.data, updated_at: attached.data.updated_at }) === JSON.stringify(attached.data), "provider attachment preserves provenance");
+    let providerConflict = false;
+    try { await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: approvedLineageId, conversationId: providerConversationId, providerCallId: `${providerCallId}_conflict` }); } catch { providerConflict = true; }
+    assert(providerConflict, "conflicting provider identifier rejected");
+    let conversationConflict = false;
+    try { await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: approvedLineageId, conversationId: `${providerConversationId}_conflict`, providerCallId }); } catch { conversationConflict = true; }
+    assert(conversationConflict, "conflicting finalized conversation identifier rejected");
+
+    const wrongPurge = await admin.rpc("zeya_purge_business_representation", { p_business_representation_id: representationId, p_expected_business_id: crypto.randomUUID() });
+    assert(wrongPurge.error, "wrong expected Business purge rejected");
+    const afterWrongPurge = await admin.from("voice_representation_lineage").select("voice_context_id").in("voice_context_id", ownerLineageIds);
+    assert(!afterWrongPurge.error && afterWrongPurge.data.length === 3, "failed purge preserves lineage transactionally");
     const countsAfter = await Promise.all(["evidence", "observations", "representation_proposals", "approval_decisions", "representation_versions", "confidence_assessments", "audit_events"].map((table) => admin.from(table).select("*", { count: "exact", head: true }).eq("business_representation_id", representationId)));
     assert(countsBefore.every((result, index) => result.count === countsAfter[index].count), "context assembly is read-only");
-    console.log("Voice Representation Context\n\nProvider payload filtering — PASS\nProvisional default — PASS\nProvisional filtering — PASS\nTenant isolation — PASS\nMissing Representation — PASS\nCanonical lineage — PASS\nPartial-Version pointers — PASS\nRejected/expired/superseded pointers — PASS\nForeign pointer isolation — PASS\nNew-Version lineage — PASS\nRollback lineage — PASS\nRead-only boundary — PASS\nLogging payload safety — PASS");
+    console.log("Voice Representation Context\n\nProvider payload filtering — PASS\nProvisional default — PASS\nProvisional filtering — PASS\nTenant isolation — PASS\nMissing Representation — PASS\nCanonical lineage — PASS\nZeya persisted lineage — PASS\nBrowser context rejection — PASS\nVeya provider boundary — PASS\nVeya persisted lineage — PASS\nLegacy context exclusion — PASS\nThree-way consistency — PASS\nPersisted lineage — PASS\nMultiple lineage rows — PASS\nProvider attachment — PASS\nAttachment idempotency — PASS\nAttachment conflicts — PASS\nTenant-safe purge — PASS\nPartial-Version pointers — PASS\nRejected/expired/superseded pointers — PASS\nForeign pointer isolation — PASS\nNew-Version lineage — PASS\nRollback lineage — PASS\nRead-only boundary — PASS\nLogging payload safety — PASS");
   } finally {
+    for (const briefId of operationalBriefIds) {
+      await admin.from("brief_conversation_mappings").delete().eq("worker_brief_id", briefId);
+      await admin.from("worker_briefs").delete().eq("id", briefId);
+    }
     cleanup = await cleanupFixtures(admin, registry);
     console.log(`Representation cleanup — ${cleanup.success ? "PASS" : "FAIL"}\nBusiness cleanup — ${cleanup.success ? "PASS" : "FAIL"}\nAuth cleanup — ${cleanup.success ? "PASS" : "FAIL"}`);
     await server.stop();

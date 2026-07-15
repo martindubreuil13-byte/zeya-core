@@ -11,6 +11,7 @@
     "test:representation-state:test-d": "npx tsx tests/integration/representation-state.test-d.ts",
     "test:representation-state:test-e": "npx tsx tests/integration/representation-state.test-e.ts",
     "test:voice-representation": "npx tsx tests/integration/voice-representation-context.test.ts",
+    "test:voice-lineage-authorization": "npx tsx tests/integration/voice-lineage-authorization.test.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
     "build": "next build",

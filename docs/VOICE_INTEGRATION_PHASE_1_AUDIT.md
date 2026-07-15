@@ -39,7 +39,30 @@ Authenticated user or trusted mission Business → ownership verification → cu
 - Full prompts and dynamic-variable values are not written to ordinary provider logs.
 - Provider callbacks continue to resolve conversations through existing mappings; lineage is tenant-scoped with RLS and relational Business/Representation/Version constraints.
 
-## Known release gates
+## Deployment and behavioral verification
 
-- `20260714_voice_representation_lineage.sql` must be deployed before production voice dispatch uses lineage persistence.
-- The exact deployed definition of `zeya_create_canonical_version` remains open reproducibility debt and is still required before production release.
+- `20260714_voice_representation_lineage.sql` and `20260715_voice_lineage_controlled_purge_patch.sql` were manually deployed successfully on 2026-07-15.
+- The checked-in purge patch retains the deployed function signature and controlled-purge lifecycle, deletes lineage by both Business Representation and Business after Confidence Assessments and before pointer clearing and Version deletion, and returns the exact `voice_representation_lineage` count.
+- Deployed authorization passed for anonymous denial, authenticated own-row SELECT with direct-write and privileged-RPC denial, service-role direct-write denial, service-role SELECT, service-role RPC access, and mismatched-lineage rejection.
+- Valid lineage creation, multiple lineage rows, provider attachment, identical-attachment idempotency, conflicting identifier rejection, and wrong-Business purge rejection passed against the deployed database.
+- The authenticated Zeya briefing route persisted lineage matching its authorized context and final allowlisted provider variables. Browser-supplied business facts were ignored.
+- The Veya dispatcher, provider abstraction, and ElevenLabs adapter persisted and attached lineage matching the final provider-bound variables. Legacy WorkerBrief business variables and restricted Representation values were excluded.
+- New-Version and rollback context selection passed. Historical canonical Versions remained immutable, and rollback advanced the active element pointers and voice context to the rollback-created Version.
+- Voice context assembly, lineage creation, and provider attachment did not mutate Evidence, Observations, Proposals, Approval Decisions, Versions, Confidence Assessments, Audit Events, elements, eligibility, dispute, or rollback state.
+- Controlled purge reported the exact lineage count and removed all registered lineage, Representation State, Business, and Auth fixtures. No recovery artifact or dynamic test server remained.
+- A deliberate failure after the lineage-delete statement was not injected because no isolated production-safe failure mechanism exists in the deployed function. Transactional rollback for the wrong expected Business was proven; later-step rollback remains unexecuted by design.
+
+## Logging and security verification
+
+- Phase 1 targeted ESLint passed with zero errors.
+- Repository lint still reports the 29 documented unrelated pre-existing errors.
+- Ordinary Phase 1 logs contain identifiers, status, key names, counts, timestamps, and redacted phone metadata; they do not log provider variables, claim values, full prompts, credentials, or tokens.
+- `/api/elevenlabs/variables-audit` remains permanently retired and returns HTTP 410 without accepting a request body.
+- A private-value scan of source, tests, migrations, documentation, and clean production output found zero matches. Development-server cache artifacts containing server environment values were deleted before the clean production rebuild.
+
+## Release decision
+
+- Voice Integration Phase 1 release decision on 2026-07-15: CONDITIONAL GO with explicit blockers.
+- Required closure proofs: isolated later-step controlled-purge rollback injection; persisted historical lineage across both a newly current Version and a rollback-created Version; unrelated-tenant lineage survival during multiple-lineage purge; and a provider-failure lineage recovery assertion.
+- The later-step controlled-purge rollback injection was intentionally unexecuted because no safe isolated failure mechanism was available.
+- The exact deployed definition of `zeya_create_canonical_version` remains open reproducibility debt and is required before production release.

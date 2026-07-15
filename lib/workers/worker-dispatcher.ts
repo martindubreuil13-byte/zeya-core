@@ -14,12 +14,15 @@ import {
 } from "@/lib/voice/representation-context";
 import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "@/lib/voice/persistence/representation-lineage-repository";
 
-// Service-role client for privileged operations (updates after dispatch)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = supabaseUrl && supabaseKey
-  ? createClient(supabaseUrl, supabaseKey)
-  : null;
+// Resolve the service client at dispatch time so test/runtime environment loading
+// cannot permanently cache an unavailable client during module initialization.
+function createServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return supabaseUrl && supabaseKey
+    ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
+    : null;
+}
 
 function valueAsString(value: string | number | boolean | null | undefined): string | undefined {
   if (value === null || value === undefined) return undefined;
@@ -61,6 +64,7 @@ export async function dispatchWorkerBrief(
   }
 
   const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
+  const supabase = createServiceClient();
   let voiceContext: VoiceReadyContext | null = null;
   let voiceContextId: string | null = null;
   if (brief.workerType === "CALLER" || resolvedProviderType === "ELEVENLABS") {
@@ -240,7 +244,6 @@ export async function dispatchWorkerBrief(
     provider: providerResult.providerType,
     status: providerResult.status,
     providerCallId: providerResult.providerCallId,
-    message: providerResult.message,
   });
 
   // Save provider call ID and conversation ID immediately after successful dispatch

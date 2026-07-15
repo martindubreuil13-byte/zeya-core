@@ -156,9 +156,9 @@ export class ElevenLabsProvider implements WorkerProvider {
         console.log("[elevenlabs-provider] 🔵 REQUEST DETAILS", {
           workerBriefId: request.workerBriefId,
           missionId: request.missionId,
-          targetName: request.targetName,
           targetPhone: redactPhone(request.targetPhone),
-          objective: request.objective,
+          hasTargetName: Boolean(request.targetName),
+          hasObjective: Boolean(request.objective),
         });
         console.log("[elevenlabs-provider] 🔵 Provider payload shape", {
           keys: Object.keys(redactedPayload).sort(),
