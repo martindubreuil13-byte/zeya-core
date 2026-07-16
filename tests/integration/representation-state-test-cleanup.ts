@@ -10,9 +10,13 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
       const expectedLineageCount = registry.voiceLineages.filter(lineage => lineage.businessRepresentationId === item.id).length;
       const expectedOutputCount = registry.voiceOutputs.filter(output => output.businessRepresentationId === item.id).length;
       const expectedCandidateCount = registry.voiceCandidates.filter(candidate => candidate.businessRepresentationId === item.id).length;
+      const expectedReviewCount = registry.conversationReviews.filter(row => row.businessRepresentationId === item.id).length;
+      const expectedPromotionCount = registry.conversationPromotions.filter(row => row.businessRepresentationId === item.id).length;
       const deletedRows = (purge.data as { deleted?: Record<string, number> } | null)?.deleted;
       if (deletedRows?.voice_conversation_outputs !== expectedOutputCount) failures.push(`representation ${item.id}: output deletion count mismatch`);
       if (deletedRows?.voice_conversation_candidates !== expectedCandidateCount) failures.push(`representation ${item.id}: candidate deletion count mismatch`);
+      if (deletedRows?.conversation_candidate_review_decisions !== expectedReviewCount) failures.push(`representation ${item.id}: review deletion count mismatch`);
+      if (deletedRows?.conversation_candidate_promotions !== expectedPromotionCount) failures.push(`representation ${item.id}: promotion deletion count mismatch`);
       if (expectedLineageCount > 0) {
         const deleted = (purge.data as { deleted?: { voice_representation_lineage?: number } } | null)?.deleted?.voice_representation_lineage;
         if (deleted !== expectedLineageCount) failures.push(`representation ${item.id}: lineage deletion count mismatch`);

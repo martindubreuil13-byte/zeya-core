@@ -43,7 +43,7 @@ Controlled purge order is candidates, outputs, Voice Representation lineage, the
 
 The deployed integration runner proved authenticated Zeya capture with an injected external extraction-model boundary, exact replay, sanitized conflict behavior, client-relay Evidence rejection, provider-attested Veya shared capture/extraction, lineage-derived provider-call identity, full capture-field conflict behavior, status-only capture and one-way delayed finalization, durable nonempty and zero-candidate extraction, RPC validation, processing transitions, tenant isolation, wrong-Business purge safety, exact controlled-purge counts, Canonical State invariance, disabled diagnostic behavior, and exact cleanup.
 
-Direct `pg_catalog` execution is not available through the configured application clients. The repository verification SQL remains the required privileged catalog proof for exact defaults, constraint definitions, owners, ACL arrays, fixed search paths, trigger enabled state, and deployed purge source definition. A deliberate later-stage purge failure was not injected because no safe isolated failure mechanism was available without creating a temporary production database object. Wrong-Business failure transactionality and normal exact purge behavior passed.
+Phase 2 has final GO status. Privileged catalog verification passed for defaults, constraints, owners, ACL arrays, fixed search paths, triggers, and the deployed purge source. PostgreSQL catalog aliases `int4 = integer` and `bool = boolean` were confirmed. A deliberate later-stage purge failure was not injected because no safe isolated failure mechanism was available without creating a temporary production database object. Wrong-Business failure transactionality and normal exact purge behavior passed.
 
 ## Known limitations
 
@@ -51,7 +51,7 @@ Direct `pg_catalog` execution is not available through the configured applicatio
 - Extraction currently runs synchronously after capture. A durable background processing queue and delayed retry policy remain future hardening.
 - Retention duration and transcript deletion policy require an explicit product/privacy decision before production release.
 - Full signed ElevenLabs webhook ingestion was not replayed in the deployed Phase 2 runner; dispatch/provider boundary coverage and the shared provider-attested capture/extraction service passed independently.
-- Privileged catalog SQL and an isolated later-stage purge rollback injection remain production-hardening evidence gaps; neither is a known runtime defect.
+- An isolated later-stage purge rollback injection remains production-hardening evidence debt; it is not a known runtime defect.
 
 ## Manual deployment
 

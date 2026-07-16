@@ -16,6 +16,7 @@ import { useRealtimeBriefingSession } from "@/hooks/realtime/useRealtimeBriefing
 import { supabase } from "@/lib/supabase";
 import type { VoiceState } from "@/types/voice";
 import { composeZeyaOperatingView, formatUrgencyBadge, formatReadinessCategory, formatMissingInfoForBriefing, roundPercentage, getTimeAwareGreeting, type ZeyaOperatingView } from "@/lib/briefing-room/zeya-operating-view";
+import { ConversationReviewPanel } from "@/components/briefing-room/ConversationReviewPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -600,6 +601,8 @@ export function ZeyaBriefingRoom({ businessId, mockData }: Props) {
           </div>
         </div>
       </motion.div>
+
+      {businessId && <div className="w-full max-w-4xl"><ConversationReviewPanel businessId={businessId} session={session} /></div>}
 
       {/* ────────────────────────────────────────────────────────────────────── */}
       {/* MEMORY PILL CLOUD                                                      */}
