@@ -1,6 +1,6 @@
 // Worker Dispatcher — Dispatch a WorkerBrief through a provider boundary
 
-import type { WorkerBrief, WorkerDispatchResult } from "./worker-brief-types";
+import type { WorkerBrief, WorkerDispatchOptions, WorkerDispatchResult } from "./worker-brief-types";
 import { getProvider } from "@/lib/providers";
 import type { ProviderType } from "@/lib/providers";
 import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
@@ -34,7 +34,7 @@ export async function dispatchWorkerBrief(
   brief: WorkerBrief,
   providerType?: ProviderType,
   businessId?: string | null,
-  options: { provisionalMode?: boolean } = {},
+  options: WorkerDispatchOptions = {},
 ): Promise<WorkerDispatchResult> {
   console.log("[worker-dispatcher] dispatch invoked", {
     workerBriefId: brief.id,
@@ -45,7 +45,8 @@ export async function dispatchWorkerBrief(
 
   // Extract target info for dispatch and persistence
   const targetName = valueAsString(brief.dynamicVariables.target) ?? brief.leadContext ?? null;
-  const targetPhone = valueAsString(brief.dynamicVariables.targetPhone ?? brief.dynamicVariables.phone) ?? null;
+  const persistedTargetPhone = valueAsString(brief.dynamicVariables.targetPhone ?? brief.dynamicVariables.phone) ?? null;
+  const targetPhone = options.transientTargetPhone ?? persistedTargetPhone;
 
   // Validate businessId is provided (required for persistence)
   if (!businessId) {
@@ -58,6 +59,7 @@ export async function dispatchWorkerBrief(
       workerName: brief.workerName,
       workerType: brief.workerType,
       status: "FAILED",
+      providerOutcome: "REJECTED",
       message: "businessId is required for WorkerBrief persistence",
       providerCallId: "failed_" + Date.now(),
       createdAt: new Date().toISOString(),
@@ -75,6 +77,7 @@ export async function dispatchWorkerBrief(
         workerName: brief.workerName,
         workerType: brief.workerType,
         status: "FAILED",
+        providerOutcome: "REJECTED",
         message: "Authorized voice context is unavailable",
         providerCallId: "failed_" + Date.now(),
         createdAt: new Date().toISOString(),
@@ -87,6 +90,7 @@ export async function dispatchWorkerBrief(
         workerName: brief.workerName,
         workerType: brief.workerType,
         status: "FAILED",
+        providerOutcome: "REJECTED",
         message: "Authorized voice context is unavailable",
         providerCallId: "failed_" + Date.now(),
         createdAt: new Date().toISOString(),
@@ -107,6 +111,7 @@ export async function dispatchWorkerBrief(
         workerName: brief.workerName,
         workerType: brief.workerType,
         status: "FAILED",
+        providerOutcome: "REJECTED",
         message: "Authorized voice context is unavailable",
         providerCallId: "failed_" + Date.now(),
         createdAt: new Date().toISOString(),
@@ -121,7 +126,7 @@ export async function dispatchWorkerBrief(
     businessId,
   });
 
-  const saveResult = await saveWorkerBrief(brief, businessId, targetName, targetPhone);
+  const saveResult = await saveWorkerBrief(brief, businessId, targetName, persistedTargetPhone);
 
   if (!saveResult.success) {
     console.error("[worker-dispatcher] 🔴 WorkerBrief persistence failed, blocking dispatch", {
@@ -134,6 +139,7 @@ export async function dispatchWorkerBrief(
       workerName: brief.workerName,
       workerType: brief.workerType,
       status: "FAILED",
+      providerOutcome: "REJECTED",
       message: `WorkerBrief persistence failed: ${saveResult.error?.message || "Unknown error"}`,
       providerCallId: "failed_" + Date.now(),
       createdAt: new Date().toISOString(),
@@ -167,6 +173,7 @@ export async function dispatchWorkerBrief(
       workerName: brief.workerName,
       workerType: brief.workerType,
       status: "FAILED",
+      providerOutcome: "REJECTED",
       message: `Mapping persistence failed: ${mappingResult.error?.message || "Unknown error"}`,
       providerCallId: "failed_" + Date.now(),
       createdAt: new Date().toISOString(),
@@ -224,6 +231,7 @@ export async function dispatchWorkerBrief(
         workerName: brief.workerName,
         workerType: brief.workerType,
         status: "FAILED",
+        providerOutcome: "REJECTED",
         message: "Voice lineage could not be recorded",
         providerCallId: "failed_" + Date.now(),
         createdAt: new Date().toISOString(),
@@ -256,8 +264,11 @@ export async function dispatchWorkerBrief(
         resolvedProviderType === "MOCK"
         && providerResult.status === "SIMULATED"
       );
+  const durableConversationId = dispatchAccepted
+    ? providerResult.conversationId || provisionalConversationId
+    : providerResult.conversationId;
 
-    if (!dispatchAccepted && voiceContextId && supabase) {
+  if (!dispatchAccepted && voiceContextId && supabase) {
     try {
       await captureConversationOutput(supabase, {
         voiceContextId,
@@ -283,8 +294,10 @@ export async function dispatchWorkerBrief(
     }
   }
 
-  // Save provider call ID and conversation ID immediately after successful dispatch
-  if (providerResult.status === "DISPATCHED" && providerResult.providerCallId) {
+  let correlationComplete = false;
+  // Save provider identifiers immediately after provider acceptance. Both durable
+  // stores must succeed before the result may be called correlated.
+  if (dispatchAccepted && providerResult.providerCallId) {
     console.log("[worker-dispatcher] 🔵 Updating mapping", {
       workerBriefId: brief.id,
       providerCallId: providerResult.providerCallId,
@@ -302,7 +315,7 @@ export async function dispatchWorkerBrief(
           await attachVoiceProviderIdentifiers({
             db: supabase,
             voiceContextId,
-            conversationId: providerResult.conversationId || provisionalConversationId,
+            conversationId: durableConversationId ?? null,
             providerCallId: providerResult.providerCallId,
           });
         }
@@ -310,45 +323,38 @@ export async function dispatchWorkerBrief(
           .from("brief_conversation_mappings")
           .update({
             provider_call_id: providerResult.providerCallId,
-            conversation_id: providerResult.conversationId || null,
+            conversation_id: durableConversationId || null,
             updated_at: new Date().toISOString(),
           })
           .eq("worker_brief_id", brief.id)
           .select();
 
-        console.log("[worker-dispatcher] 📊 Update result", {
+        console.log("[worker-dispatcher] mapping correlation result", {
           workerBriefId: brief.id,
           success: !error,
           rowsAffected: data?.length || 0,
-          updatedRow: data?.[0] || null,
-          error: error?.message,
           code: error?.code,
         });
 
         if (error) {
           console.error("[worker-dispatcher] 🔴 Failed to update mapping with provider call ID", {
-            error: error.message,
             code: error.code,
-            details: error.details,
           });
         } else if (!data || data.length === 0) {
           console.warn("[worker-dispatcher] ⚠️  Update succeeded but no rows matched WHERE clause", {
             workerBriefId: brief.id,
-            whereCondition: `worker_brief_id = ${brief.id}`,
           });
         } else {
-          console.log("[worker-dispatcher] 🟢 Mapping updated with provider call ID", {
+          correlationComplete = true;
+          console.log("[worker-dispatcher] 🟢 Provider identifiers correlated", {
             workerBriefId: brief.id,
-            providerCallId: providerResult.providerCallId,
-            conversationId: providerResult.conversationId,
-            updateRow: data[0],
           });
         }
       }
     } catch (error) {
       console.error("[worker-dispatcher] 🔴 Exception updating mapping with provider call ID", {
-        error: error instanceof Error ? error.message : String(error),
         workerBriefId: brief.id,
+        category: "provider_identifier_correlation_failed",
       });
     }
   }
@@ -358,11 +364,16 @@ export async function dispatchWorkerBrief(
     workerName: brief.workerName,
     workerType: brief.workerType,
     status: providerResult.status,
+    providerOutcome: !dispatchAccepted
+      ? "REJECTED"
+      : correlationComplete
+        ? "ACCEPTED_CORRELATED"
+        : "ACCEPTED_PENDING_CORRELATION",
     message: providerResult.message,
     providerType: providerResult.providerType,
     providerCallId: providerResult.providerCallId,
-    conversationId: providerResult.conversationId,
-      voiceContextId: voiceContextId ?? undefined,
-      createdAt: providerResult.createdAt,
+    conversationId: durableConversationId,
+    voiceContextId: voiceContextId ?? undefined,
+    createdAt: providerResult.createdAt,
   };
 }

@@ -51,12 +51,19 @@ export interface WorkerDispatchResult {
   workerName: string;
   workerType: WorkerType;
   status: "SIMULATED" | "DISPATCHED" | "COMPLETED" | "FAILED";
+  providerOutcome: "REJECTED" | "ACCEPTED_PENDING_CORRELATION" | "ACCEPTED_CORRELATED";
   message: string;
   providerType?: "MOCK" | "TWILIO" | "ELEVENLABS";
   providerCallId?: string;
   conversationId?: string;
   voiceContextId?: string;
   createdAt: string;
+}
+
+export interface WorkerDispatchOptions {
+  provisionalMode?: boolean;
+  /** A provider-only target which is never copied into the persisted WorkerBrief. */
+  transientTargetPhone?: string | null;
 }
 
 // Human-readable summary of a brief and its dispatch

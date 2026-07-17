@@ -2,6 +2,11 @@ export type VeyaDelegationStatus =
   | "preparing_brief"
   | "dispatching_call"
   | "call_requested"
+  | "call_dispatched"
+  | "correlation_pending"
+  | "retryable"
+  | "dispatch_resolution_pending"
+  | "conflict"
   | "failed";
 
 export interface VeyaBriefingPayload {
@@ -15,11 +20,8 @@ export interface VeyaBriefingPayload {
 
 export interface VeyaDelegationResponse {
   success: boolean;
-  status: "call_requested" | "failed";
+  status: "call_dispatched" | "correlation_pending" | "retryable" | "dispatch_resolution_pending" | "conflict" | "failed";
   briefing: VeyaBriefingPayload;
-  dispatchId?: string;
-  workerBriefId?: string;
-  provider?: string;
-  providerCallId?: string;
+  message?: string;
   error?: string;
 }

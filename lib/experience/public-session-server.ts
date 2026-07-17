@@ -22,6 +22,7 @@ export type PublicExperienceSessionRow = {
   dispatch_id: string | null;
   phone_hash: string | null;
   provider_conversation_id: string | null;
+  provider_call_id: string | null;
   state: string;
   expires_at: string;
   created_at: string;
@@ -67,6 +68,7 @@ export function publicSessionState(session: PublicExperienceSessionRow) {
     case "zeya_active": return "waiting_for_zeya";
     case "zeya_finalized": return "ready_for_phone";
     case "call_requested": return "call_requested";
+    case "call_correlation_pending": return "correlation_pending";
     case "call_dispatched":
     case "call_active": return "call_in_progress";
     case "reflection_ready": return "reflection_ready";

@@ -7,9 +7,11 @@ function generateMockCallId(): string {
 
 export class MockProvider implements WorkerProvider {
   async dispatch(request: ProviderDispatchRequest): Promise<ProviderDispatchResult> {
+    const providerCallId = generateMockCallId();
     return {
       providerType: "MOCK",
-      providerCallId: generateMockCallId(),
+      providerCallId,
+      conversationId: `mock_conversation_${crypto.randomUUID()}`,
       status: "SIMULATED",
       message: `Mock dispatch accepted for brief ${request.workerBriefId}. Objective: ${request.objective}.`,
       createdAt: new Date().toISOString(),

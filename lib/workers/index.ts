@@ -15,5 +15,6 @@ export type {
   WorkerBriefStatus,
   WorkerBrief,
   WorkerDispatchResult,
+  WorkerDispatchOptions,
   WorkerBriefSummary,
 } from "./worker-brief-types";

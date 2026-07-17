@@ -82,7 +82,7 @@ function finalizationError(status: number): PublicExperienceHandoffError {
 export async function submitPublicExperienceHandoff(
   input: PublicExperienceHandoffInput,
   request: Request = fetch,
-): Promise<{ snapshot: PublicExperienceHandoffSnapshot }> {
+): Promise<{ snapshot: PublicExperienceHandoffSnapshot; dispatchStatus: "call_dispatched" | "correlation_pending" | "dispatch_resolution_pending" }> {
   let transcript: PublicExperienceTranscriptTurn[];
   try {
     transcript = normalizePublicExperienceTranscript(input.transcriptEntries);
@@ -131,7 +131,7 @@ export async function submitPublicExperienceHandoff(
     }),
   });
 
-  let result: { success?: boolean; error?: string } = {};
+  let result: { success?: boolean; status?: string; error?: string } = {};
   try {
     result = await dispatched.json() as typeof result;
   } catch {
@@ -140,12 +140,18 @@ export async function submitPublicExperienceHandoff(
       "dispatch", dispatched.status, false, true,
     );
   }
-  if (!dispatched.ok || result.success !== true) {
+  if (dispatched.status === 202 && result.status === "correlation_pending") {
+    return { snapshot, dispatchStatus: "correlation_pending" };
+  }
+  if (dispatched.status === 202 && result.status === "dispatch_resolution_pending") {
+    return { snapshot, dispatchStatus: "dispatch_resolution_pending" };
+  }
+  if (!dispatched.ok || result.success !== true || result.status !== "call_dispatched") {
     throw new PublicExperienceHandoffError(
       typeof result.error === "string" ? result.error : "The call request failed.",
       "dispatch", dispatched.status, false, dispatched.status >= 500,
     );
   }
 
-  return { snapshot };
+  return { snapshot, dispatchStatus: "call_dispatched" };
 }

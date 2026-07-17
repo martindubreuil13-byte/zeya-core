@@ -21,6 +21,7 @@
     "test:public-experience-foundation": "npx tsx tests/integration/public-experience-foundation-static.test.ts && npx tsx tests/integration/public-experience-provisioning.test.ts",
     "test:public-experience-foundation-deployed": "npx tsx tests/integration/public-experience-foundation-deployed.test.ts",
     "test:public-experience-browser-contract": "npx tsx tests/integration/public-experience-browser-contract.test.ts",
+    "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",

@@ -108,7 +108,7 @@ const result = await submitPublicExperienceHandoff(mutableInput, async (url, ini
   mutableInput.phone = "+15559999999";
   mutableInput.transcriptEntries.push(entry("late", "user", "Late mutation"));
   return new Response(
-    JSON.stringify(String(url).includes("finalize-zeya") ? { status: "ready_for_phone" } : { success: true }),
+    JSON.stringify(String(url).includes("finalize-zeya") ? { status: "ready_for_phone" } : { success: true, status: "call_dispatched" }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 });
@@ -119,6 +119,23 @@ assert.deepEqual(successfulCalls.map((call) => call.url), [
 ]);
 assert.equal(successfulCalls[1]?.body.phone, "+15550001111", "dispatch uses stable phone snapshot");
 assert(!JSON.stringify(result.snapshot.transcript).includes("Late mutation"), "transcript snapshot is stable");
+assert.equal(result.dispatchStatus, "call_dispatched");
+
+const pending = await submitPublicExperienceHandoff(baseHandoff, async (url) => new Response(
+  JSON.stringify(String(url).includes("finalize-zeya")
+    ? { status: "ready_for_phone" }
+    : { success: false, status: "correlation_pending" }),
+  { status: String(url).includes("finalize-zeya") ? 200 : 202, headers: { "content-type": "application/json" } },
+));
+assert.equal(pending.dispatchStatus, "correlation_pending", "accepted-but-pending is not reported as failure or ordinary dispatch success");
+
+const resolutionPending = await submitPublicExperienceHandoff(baseHandoff, async (url) => new Response(
+  JSON.stringify(String(url).includes("finalize-zeya")
+    ? { status: "ready_for_phone" }
+    : { success: false, status: "dispatch_resolution_pending" }),
+  { status: String(url).includes("finalize-zeya") ? 200 : 202, headers: { "content-type": "application/json" } },
+));
+assert.equal(resolutionPending.dispatchStatus, "dispatch_resolution_pending", "rejected reset failure never claims provider acceptance");
 
 const page = readFileSync(resolve(process.cwd(), "app/experience/page.tsx"), "utf8");
 const handoff = readFileSync(resolve(process.cwd(), "lib/experience/public-handoff.ts"), "utf8");

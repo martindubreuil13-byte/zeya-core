@@ -62,7 +62,9 @@ export default function ExperiencePage() {
   const handoffCompletedRef = useRef(false);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
-  const callRequested = delegationStatus === "call_requested";
+  const callRequested = delegationStatus === "call_requested"
+    || delegationStatus === "correlation_pending"
+    || delegationStatus === "dispatch_resolution_pending";
   const showPostCallReveal = callRequested && isShowingReveal;
 
   // Auto-scroll transcript to latest message
@@ -261,7 +263,7 @@ export default function ExperiencePage() {
           "finalization", null, true, false,
         );
       }
-      await submitPublicExperienceHandoff({
+      const handoff = await submitPublicExperienceHandoff({
         experienceToken: token,
         transcriptEntries,
         phone: normalizedPhone,
@@ -271,7 +273,7 @@ export default function ExperiencePage() {
       });
       succeeded = true;
       handoffCompletedRef.current = true;
-      setDelegationStatus("call_requested");
+      setDelegationStatus(handoff.dispatchStatus === "call_dispatched" ? "call_requested" : handoff.dispatchStatus);
       setDispatchRecord((current) => current ? {
         ...current,
         status: "calling",
