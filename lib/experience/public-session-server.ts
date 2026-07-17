@@ -1,10 +1,12 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+export {
+  PUBLIC_EXPERIENCE_MAX_TRANSCRIPT_CHARS,
+  PUBLIC_EXPERIENCE_MAX_TURN_CHARS,
+  PUBLIC_EXPERIENCE_MAX_TURNS,
+} from "./public-session-contract";
 
 export const PUBLIC_EXPERIENCE_TTL_MS = 30 * 60 * 1_000;
-export const PUBLIC_EXPERIENCE_MAX_TURNS = 32;
-export const PUBLIC_EXPERIENCE_MAX_TURN_CHARS = 2_000;
-export const PUBLIC_EXPERIENCE_MAX_TRANSCRIPT_CHARS = 20_000;
 
 export type PublicExperienceSessionRow = {
   id: string;

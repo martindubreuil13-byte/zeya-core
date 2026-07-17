@@ -233,8 +233,13 @@ export function useRealtimeOnboardingSession(options: { publicExperience?: boole
       error: undefined,
     }));
 
+    const client = clientRef.current;
+    if (!client) {
+      throw new Error("Realtime client is unavailable.");
+    }
+
     console.log("[HOOK] Calling client.connect()");
-    await clientRef.current?.connect(initialResponseInstructions);
+    await client.connect(initialResponseInstructions);
     console.log("[HOOK] client.connect() returned");
     console.log("[CONNECTION] After connect(), client state", {
       timestamp: Math.round(performance.now()),
@@ -249,6 +254,14 @@ export function useRealtimeOnboardingSession(options: { publicExperience?: boole
       state: "disconnected",
       connectionStatus: "disconnected",
     }));
+  }, []);
+
+  const resetConversation = useCallback(() => {
+    clientRef.current?.close();
+    memoryRef.current = {};
+    transcriptLogRef.current = [];
+    setExperienceSession(null);
+    setSnapshot(initialSnapshot);
   }, []);
 
   const speakExact = useCallback((text: string) => {
@@ -269,6 +282,7 @@ export function useRealtimeOnboardingSession(options: { publicExperience?: boole
     provider: "openai-realtime" as const,
     startConversation,
     stopConversation,
+    resetConversation,
     speakExact,
     connect: startConversation,
     disconnect: stopConversation,

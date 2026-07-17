@@ -10,13 +10,15 @@ import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
 import { analyzeConversationInsights } from "@/lib/experience/conversation-analyzer";
 import { PostCallReveal } from "@/components/experience/PostCallReveal";
+import {
+  acquirePublicExperienceAction,
+  PublicExperienceHandoffError,
+  releasePublicExperienceAction,
+  submitPublicExperienceHandoff,
+} from "@/lib/experience/public-handoff";
 import type { DispatchRecord } from "@/lib/dispatch/types";
 import type { BusinessInsights } from "@/types/experience";
-import type {
-  VeyaBriefingPayload,
-  VeyaDelegationResponse,
-  VeyaDelegationStatus,
-} from "@/lib/dispatch/veya-delegation-types";
+import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "waiting_for_call";
 
@@ -32,6 +34,7 @@ export default function ExperiencePage() {
     isConfigured,
     startConversation,
     stopConversation,
+    resetConversation,
     speakExact,
     experienceSession,
   } = voice;
@@ -43,6 +46,7 @@ export default function ExperiencePage() {
   const [delegationStatus, setDelegationStatus] =
     useState<VeyaDelegationStatus>("preparing_brief");
   const [delegationError, setDelegationError] = useState<string | null>(null);
+  const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
   const [businessInsights, setBusinessInsights] = useState<BusinessInsights | null>(null);
   const [callCompleted, setCallCompleted] = useState(false);
   const [isShowingReveal, setIsShowingReveal] = useState(false);
@@ -53,6 +57,9 @@ export default function ExperiencePage() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
+  const startInFlightRef = useRef(false);
+  const handoffInFlightRef = useRef(false);
+  const handoffCompletedRef = useRef(false);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
   const callRequested = delegationStatus === "call_requested";
@@ -116,66 +123,78 @@ export default function ExperiencePage() {
   }, [voiceTranscript, phase]);
 
   const handleStartExperience = async () => {
+    if (!acquirePublicExperienceAction(startInFlightRef)) return;
+    setVoiceStartError(null);
     const startTimestamp = performance.now();
     console.log("[EXPERIENCE] Start button clicked", {
       timestamp: startTimestamp,
       millisecondsSincePageLoad: Math.round(startTimestamp),
     });
-    if (!isConfigured) return;
+    if (!isConfigured) {
+      releasePublicExperienceAction(startInFlightRef);
+      return;
+    }
     setPhase("voice_active");
+    try {
+      console.log("[EXPERIENCE] Establishing Realtime connection");
+      const connectStartTimestamp = performance.now();
+      await startConversation();
+      const connectEndTimestamp = performance.now();
+      console.log("[EXPERIENCE] Realtime connected", {
+        connectStartTimestamp: Math.round(connectStartTimestamp),
+        connectEndTimestamp: Math.round(connectEndTimestamp),
+        connectionDuration: Math.round(connectEndTimestamp - connectStartTimestamp),
+      });
+      console.log("[CONNECTION] Before BeatController, checking voice connection state", {
+        timestamp: Math.round(performance.now()),
+      });
 
-    console.log("[EXPERIENCE] Establishing Realtime connection");
-    const connectStartTimestamp = performance.now();
-    await startConversation();
-    const connectEndTimestamp = performance.now();
-    console.log("[EXPERIENCE] Realtime connected", {
-      connectStartTimestamp: Math.round(connectStartTimestamp),
-      connectEndTimestamp: Math.round(connectEndTimestamp),
-      connectionDuration: Math.round(connectEndTimestamp - connectStartTimestamp),
-    });
-    console.log("[CONNECTION] Before BeatController, checking voice connection state", {
-      timestamp: Math.round(performance.now()),
-    });
+      console.log("[EXPERIENCE] Initializing session");
+      const session = initializeSession();
 
-    console.log("[EXPERIENCE] Initializing session");
-    const session = initializeSession();
+      console.log("[EXPERIENCE] Creating BeatController");
+      const controller = new BeatController(session, {
+        onBeatStart: async (beat, script) => {
+          console.log("[BEAT] onBeatStart() called", { beat, scriptLength: script.length });
+          console.log("[BEAT] onBeatStart() calling speakExact()");
+          await speakExact?.(script);
+          console.log("[BEAT] onBeatStart() speakExact() returned");
+        },
+        onBeatComplete: () => {
+          console.log("[BEAT] onBeatComplete() called");
+        },
+        onSessionComplete: () => {
+          console.log("[BEAT] onSessionComplete() called");
+          handoffHasStartedSpeakingRef.current = false;
+          setPhase("handoff");
+          speakExact?.(PHONE_HANDOFF);
+        },
+        onSessionFail: (session, reason) => {
+          console.error("[BEAT] onSessionFail()", reason);
+          stopConversation();
+          setPhase("initial");
+        },
+      });
 
-    console.log("[EXPERIENCE] Creating BeatController");
-    const controller = new BeatController(session, {
-      onBeatStart: async (beat, script) => {
-        console.log("[BEAT] onBeatStart() called", { beat, scriptLength: script.length });
-        console.log("[BEAT] onBeatStart() calling speakExact()");
-        await speakExact?.(script);
-        console.log("[BEAT] onBeatStart() speakExact() returned");
-      },
-      onBeatComplete: () => {
-        console.log("[BEAT] onBeatComplete() called");
-        // Phase 1B: No action on beat completion
-      },
-      onSessionComplete: () => {
-        console.log("[BEAT] onSessionComplete() called");
-        handoffHasStartedSpeakingRef.current = false;
-        setPhase("handoff");
-        speakExact?.(PHONE_HANDOFF);
-      },
-      onSessionFail: (session, reason) => {
-        console.error("[BEAT] onSessionFail()", reason);
-        stopConversation();
-        setPhase("initial");
-      },
-    });
+      console.log("[EXPERIENCE] BeatController created");
+      controllerRef.current = controller;
 
-    console.log("[EXPERIENCE] BeatController created");
-    controllerRef.current = controller;
-
-    const beatStartTimestamp = performance.now();
-    console.log("[EXPERIENCE] Calling controller.startBeat()", {
-      timestamp: beatStartTimestamp,
-      millisecondsSincePageLoad: Math.round(beatStartTimestamp),
-      timeSinceConnectionReady: "see [VOICE] timestamp for comparison",
-    });
-    await controller.startBeat();
-    console.log("[EXPERIENCE] controller.startBeat() returned");
+      const beatStartTimestamp = performance.now();
+      console.log("[EXPERIENCE] Calling controller.startBeat()", {
+        timestamp: beatStartTimestamp,
+        millisecondsSincePageLoad: Math.round(beatStartTimestamp),
+        timeSinceConnectionReady: "see [VOICE] timestamp for comparison",
+      });
+      await controller.startBeat();
+      console.log("[EXPERIENCE] controller.startBeat() returned");
+    } catch {
+      resetConversation();
+      controllerRef.current = null;
+      setVoiceStartError("The voice session could not start. Please try again.");
+      setPhase("initial");
+    } finally {
+      releasePublicExperienceAction(startInFlightRef);
+    }
   };
 
   const handleEndConversation = () => {
@@ -196,175 +215,116 @@ export default function ExperiencePage() {
     }
   }, [voiceState, phase, voiceTranscript.length]);
 
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phoneNumber.trim()) return;
-    setIsSubmittingPhone(true);
+  const submitExperienceHandoff = async (
+    finalName: string | null,
+    offer: string | null,
+    buyer: string | null,
+  ) => {
+    if (handoffCompletedRef.current || !acquirePublicExperienceAction(handoffInFlightRef)) return;
 
-    // Extract only reliable visitor data. Missing context stays null in the Veya brief.
-    const userMessages = voiceTranscript.filter((entry) => entry.role === "user");
-    const name = userMessages[0]?.text?.trim() || null;
-    const offer = userMessages[1]?.text?.trim() || null;
-    const buyer = userMessages[2]?.text?.trim() || null;
-
-    // Normalize and validate phone number
+    const token = experienceSession?.token ?? null;
     const normalizedPhone = phoneNumber.trim();
-    if (!normalizedPhone.startsWith("+")) {
-      setIsSubmittingPhone(false);
-      alert("I may be missing part of that number. Could you check it for me?");
-      return;
-    }
+    const transcriptEntries = voiceTranscript.map((entry) => ({ ...entry }));
+    let succeeded = false;
 
-    // Analyze conversation for insights (including name extraction)
-    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
-    setBusinessInsights({
-      ...analysis.insights,
-      confidence: analysis.confidence,
-    });
-
-    // Check name confidence
-    if (analysis.nameConfidence === "low" && analysis.extractedName) {
-      // Ask for confirmation if name extraction confidence is low
-      console.log("[Experience] Low confidence name extraction, asking for confirmation", {
-        confidence: analysis.nameConfidence,
-      });
-      setExtractedName(analysis.extractedName);
-      setNameConfirmation({ asking: true, name: analysis.extractedName });
-      setIsSubmittingPhone(false);
-      return;
-    }
-
-    // If we have an extracted name from low-confidence, use that confirmed name
-    const finalName = extractedName || name;
-
+    setIsSubmittingPhone(true);
     setDelegationStatus("preparing_brief");
     setDelegationError(null);
     setPhase("waiting_for_call");
 
-    // Build dispatch payload
     const dispatchPayload = {
       id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       source: "experience_conversation",
       timestamp: new Date().toISOString(),
-      visitor: {
-        name: finalName || "Unknown",
-        phone: normalizedPhone,
-      },
-      business: {
-        offer: offer || "Unknown",
-        target_buyer: buyer || "Unknown",
-      },
+      visitor: { name: finalName || "Unknown", phone: normalizedPhone },
+      business: { offer: offer || "Unknown", target_buyer: buyer || "Unknown" },
     };
-
-    // Generate agent brief (outcome-focused, not internally focused)
-    const agentBrief = {
-      visitor_name: finalName || "Unknown",
-      business_summary: `${finalName || "The visitor"} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
-      outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
-      call_context: {
-        offer: offer || "Unknown",
-        target_market: buyer || "Unknown",
-      },
-      instructions: "Be warm and natural. The visitor agreed to see a demo of how Zeya represents businesses to generate conversations. Show concretely how this helps them reach more of their ideal customers.",
-    };
-
     setDispatchRecord({
       dispatch_id: dispatchPayload.id,
       payload: dispatchPayload,
-      brief: agentBrief,
+      brief: {
+        visitor_name: finalName || "Unknown",
+        business_summary: `${finalName || "The visitor"} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
+        outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
+        call_context: { offer: offer || "Unknown", target_market: buyer || "Unknown" },
+        instructions: "Be warm and natural. The visitor agreed to see a demo of how Zeya represents businesses to generate conversations. Show concretely how this helps them reach more of their ideal customers.",
+      },
       status: "draft",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
 
-    const briefing: VeyaBriefingPayload = {
-      name,
-      business: offer,
-      customer: buyer,
-      phone: normalizedPhone,
-      source: "zeya_experience",
-      createdAt: new Date().toISOString(),
-    };
-
-    console.log("[Experience] Veya briefing created", {
-      hasName: Boolean(briefing.name),
-      hasBusiness: Boolean(briefing.business),
-      hasCustomer: Boolean(briefing.customer),
-    });
-
     try {
-      if (!experienceSession?.token) throw new Error("The Experience session is unavailable.");
-      const finalized = await fetch("/api/experience/session/finalize-zeya", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: experienceSession.token,
-          transcript: voiceTranscript.filter((entry) => entry.isFinal).map((entry) => ({ role: entry.role, text: entry.text })),
-        }),
-      });
-      if (!finalized.ok) throw new Error("The conversation could not be finalized.");
-      setDelegationStatus("dispatching_call");
-      console.log("[Experience] Veya dispatch requested", {
-        dispatchId: "server-generated",
-      });
-
-      const response = await fetch("/api/experience/delegate-call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experienceToken: experienceSession.token, phone: briefing.phone, name: briefing.name, business: briefing.business, customer: briefing.customer }),
-      });
-      const responseBody = await response.text();
-      console.log("[Experience] Veya delegation response received", {
-        dispatchId: "server-generated",
-        status: response.status,
-        ok: response.ok,
-      });
-
-      let result: VeyaDelegationResponse;
-      try {
-        result = JSON.parse(responseBody) as VeyaDelegationResponse;
-      } catch (error) {
-        const parseMessage = error instanceof Error ? error.message : String(error);
-        console.warn("[Experience] Delegation returned an invalid response", { status: response.status, parseFailure: Boolean(parseMessage) });
-        throw new Error("The call request returned an invalid response.");
+      if (!token) {
+        throw new PublicExperienceHandoffError(
+          "The Experience session is unavailable. Please restart.",
+          "finalization", null, true, false,
+        );
       }
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "The call request failed.");
-      }
-
+      await submitPublicExperienceHandoff({
+        experienceToken: token,
+        transcriptEntries,
+        phone: normalizedPhone,
+        name: finalName,
+        business: offer,
+        customer: buyer,
+      });
+      succeeded = true;
+      handoffCompletedRef.current = true;
       setDelegationStatus("call_requested");
-      setDispatchRecord((current) =>
-        current
-          ? {
-              ...current,
-              dispatch_id: result.dispatchId || current.dispatch_id,
-              status: "calling",
-              updated_at: new Date().toISOString(),
-            }
-          : current,
-      );
-      console.log("[Experience] Veya call requested", {
-        provider: result.provider,
-        providerCallId: result.providerCallId,
-      });
+      setDispatchRecord((current) => current ? {
+        ...current,
+        status: "calling",
+        updated_at: new Date().toISOString(),
+      } : current);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const handoffError = error instanceof PublicExperienceHandoffError ? error : null;
+      const message = handoffError?.message ?? "The call request failed. Please try again.";
       setDelegationStatus("failed");
       setDelegationError(message);
-      setDispatchRecord((current) =>
-        current
-          ? { ...current, status: "failed", updated_at: new Date().toISOString() }
-          : current,
-      );
-      console.error("[Experience] Veya delegation failed", {
-        message,
-        name: error instanceof Error ? error.name : typeof error,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      setDispatchRecord((current) => current ? {
+        ...current,
+        status: "failed",
+        updated_at: new Date().toISOString(),
+      } : current);
+      if (handoffError?.restartRequired) {
+        resetConversation();
+        controllerRef.current = null;
+        setVoiceStartError(message);
+        setPhase("initial");
+      }
     } finally {
+      if (!succeeded) releasePublicExperienceAction(handoffInFlightRef);
       setIsSubmittingPhone(false);
     }
+  };
+
+  const handlePhoneSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (handoffInFlightRef.current || handoffCompletedRef.current || !phoneNumber.trim()) return;
+
+    const normalizedPhone = phoneNumber.trim();
+    if (!normalizedPhone.startsWith("+")) {
+      alert("I may be missing part of that number. Could you check it for me?");
+      return;
+    }
+
+    const userMessages = voiceTranscript.filter(
+      (entry) => entry.role === "user" && entry.isFinal && entry.text.trim(),
+    );
+    const name = userMessages[0]?.text.trim() || null;
+    const offer = userMessages[1]?.text.trim() || null;
+    const buyer = userMessages[2]?.text.trim() || null;
+    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
+    setBusinessInsights({ ...analysis.insights, confidence: analysis.confidence });
+
+    if (analysis.nameConfidence === "low" && analysis.extractedName) {
+      setExtractedName(analysis.extractedName);
+      setNameConfirmation({ asking: true, name: analysis.extractedName });
+      return;
+    }
+
+    void submitExperienceHandoff(name, offer, buyer);
   };
 
   const handleCallRetry = () => {
@@ -373,122 +333,31 @@ export default function ExperiencePage() {
   };
 
   const handleReconnect = () => {
+    resetConversation();
     controllerRef.current = null;
+    handoffInFlightRef.current = false;
+    handoffCompletedRef.current = false;
     sessionStorage.removeItem("lastProcessedTranscriptId");
     setIsSubmittingPhone(false);
     setPhase("initial");
   };
 
   const handleNameConfirm = (confirmed: boolean) => {
-    console.log("[Experience] Name confirmation", { confirmed });
-
+    if (handoffInFlightRef.current || handoffCompletedRef.current) return;
     if (confirmed && extractedName) {
-      // Name was confirmed, continue with phone submission
       setNameConfirmation({ asking: false });
-      // Re-trigger the submission with confirmed name
-      // We'll need to call handlePhoneSubmit logic here
-      void handlePhoneSubmitContinued();
+      const userMessages = voiceTranscript.filter(
+        (entry) => entry.role === "user" && entry.isFinal && entry.text.trim(),
+      );
+      void submitExperienceHandoff(
+        extractedName,
+        userMessages[1]?.text.trim() || null,
+        userMessages[2]?.text.trim() || null,
+      );
     } else {
-      // Name was not confirmed, ask user to spell it out
       setNameConfirmation({ asking: false });
       setExtractedName(null);
-      // Go back to phone collection
       setPhase("collecting_phone");
-    }
-  };
-
-  const handlePhoneSubmitContinued = async () => {
-    // This is a continuation of handlePhoneSubmit after name confirmation
-    if (!extractedName) return;
-
-    setDelegationStatus("preparing_brief");
-    setDelegationError(null);
-    setPhase("waiting_for_call");
-    setIsSubmittingPhone(true);
-
-    const userMessages = voiceTranscript.filter((entry) => entry.role === "user" && entry.isFinal && entry.text?.trim());
-    const offer = userMessages[1]?.text?.trim() || null;
-    const buyer = userMessages[2]?.text?.trim() || null;
-    const normalizedPhone = phoneNumber.trim();
-
-    // Build dispatch payload
-    const dispatchPayload = {
-      id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-      source: "experience_conversation",
-      timestamp: new Date().toISOString(),
-      visitor: {
-        name: extractedName,
-        phone: normalizedPhone,
-      },
-      business: {
-        offer: offer || "Unknown",
-        target_buyer: buyer || "Unknown",
-      },
-    };
-
-    const agentBrief = {
-      visitor_name: extractedName,
-      business_summary: `${extractedName} sells ${offer || "an unspecified offer"} to ${buyer || "an unspecified customer"}.`,
-      outreach_objective: "Demonstrate how Zeya helps businesses create more customer conversations.",
-      call_context: {
-        offer: offer || "Unknown",
-        target_market: buyer || "Unknown",
-      },
-      instructions: "Be warm and natural. The visitor agreed to see a demo of how Zeya represents businesses to generate conversations. Show concretely how this helps them reach more of their ideal customers.",
-    };
-
-    setDispatchRecord({
-      dispatch_id: dispatchPayload.id,
-      payload: dispatchPayload,
-      brief: agentBrief,
-      status: "draft",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-
-    const briefing: VeyaBriefingPayload = {
-      name: extractedName,
-      business: offer,
-      customer: buyer,
-      phone: normalizedPhone,
-      source: "zeya_experience",
-      createdAt: new Date().toISOString(),
-    };
-
-    try {
-      if (!experienceSession?.token) throw new Error("The Experience session is unavailable.");
-      const finalized = await fetch("/api/experience/session/finalize-zeya", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: experienceSession.token, transcript: voiceTranscript.filter((entry) => entry.isFinal).map((entry) => ({ role: entry.role, text: entry.text })) }),
-      });
-      if (!finalized.ok) throw new Error("The conversation could not be finalized.");
-      setDelegationStatus("dispatching_call");
-
-      const response = await fetch("/api/experience/delegate-call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experienceToken: experienceSession.token, phone: briefing.phone, name: briefing.name, business: briefing.business, customer: briefing.customer }),
-      });
-
-      const responseBody = await response.text();
-      let result: VeyaDelegationResponse;
-      try {
-        result = JSON.parse(responseBody) as VeyaDelegationResponse;
-      } catch (error) {
-        throw new Error("The call request returned an invalid response.");
-      }
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "The call request failed.");
-      }
-
-      setDelegationStatus("call_requested");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setDelegationStatus("failed");
-      setDelegationError(message);
-    } finally {
-      setIsSubmittingPhone(false);
     }
   };
 
@@ -549,6 +418,11 @@ export default function ExperiencePage() {
               disabled={!isConfigured}
               state={voiceState}
             />
+            {voiceStartError && (
+              <p className="text-xs font-light text-red-300/80" role="alert">
+                {voiceStartError}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -659,6 +533,7 @@ export default function ExperiencePage() {
               <div className="flex gap-3 flex-col sm:flex-row">
                 <button
                   onClick={() => handleNameConfirm(true)}
+                  disabled={isSubmittingPhone}
                   className="flex-1 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 px-4 py-3 text-sm font-light transition-colors rounded"
                   style={{ letterSpacing: "0.08em" }}
                 >
@@ -666,6 +541,7 @@ export default function ExperiencePage() {
                 </button>
                 <button
                   onClick={() => handleNameConfirm(false)}
+                  disabled={isSubmittingPhone}
                   className="flex-1 border border-zeya-taupe/30 text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne px-4 py-3 text-sm font-light transition-colors rounded"
                   style={{ letterSpacing: "0.08em" }}
                 >
