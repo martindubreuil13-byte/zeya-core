@@ -205,7 +205,7 @@ export async function processElevenLabsWebhook(
     const durationMs = typeof webhook_typed.data.call_duration === "number"
       ? webhook_typed.data.call_duration * 1000
       : 0;
-    await captureAndExtractConversationOutput({
+    const capturedOutput = await captureAndExtractConversationOutput({
       db: trustedDb,
       capture: {
         voiceContextId: lineage.data.voice_context_id,
@@ -234,6 +234,13 @@ export async function processElevenLabsWebhook(
         },
       },
     });
+    if (webhook_typed.data.status === "done" && webhook_typed.data.transcript.length > 0) {
+      const completion = await trustedDb.rpc("zeya_complete_public_experience_call", {
+        p_veya_voice_context_id: lineage.data.voice_context_id,
+        p_conversation_output_id: capturedOutput.conversationOutputId,
+      });
+      if (completion.error) throw new Error("Public Experience completion correlation failed");
+    }
 
     console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
       conversationId,

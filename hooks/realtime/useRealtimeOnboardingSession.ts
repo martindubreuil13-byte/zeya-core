@@ -45,12 +45,13 @@ function upsertTranscriptEntry(
   return updated.slice(-limit);
 }
 
-export function useRealtimeOnboardingSession() {
+export function useRealtimeOnboardingSession(options: { publicExperience?: boolean } = {}) {
   const clientRef = useRef<OpenAIRealtimeClient | null>(null);
   const memoryRef = useRef<OnboardingMemory>({});
   const transcriptLogRef = useRef<VoiceTranscriptEntry[]>([]);
   const stuckGuardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [snapshot, setSnapshot] = useState<RealtimeOnboardingSnapshot>(initialSnapshot);
+  const [experienceSession, setExperienceSession] = useState<{ token: string; expiresAt: string } | null>(null);
 
   const appendTranscript = useCallback((entry: VoiceTranscriptEntry) => {
     const existingEntry = transcriptLogRef.current.find((existing) => existing.id === entry.id);
@@ -109,6 +110,12 @@ export function useRealtimeOnboardingSession() {
       timestamp: Math.round(performance.now()),
     });
     const client = new OpenAIRealtimeClient({
+      ...(options.publicExperience ? { sessionEndpoint: "/api/experience/session" } : {}),
+      onSessionCreated: ({ experienceToken, expiresAt }) => {
+        if (options.publicExperience && experienceToken && expiresAt) {
+          setExperienceSession({ token: experienceToken, expiresAt });
+        }
+      },
       onStateChange: (state) => {
         setSnapshot((current) => {
           const connectionStatus =
@@ -179,7 +186,7 @@ export function useRealtimeOnboardingSession() {
       client.close();
       clientRef.current = null;
     };
-  }, [appendTranscript]);
+  }, [appendTranscript, options.publicExperience]);
 
   // Safety net: if the session stays in "thinking" for more than 1500ms after the user
   // finishes speaking and no response has arrived, force a transition back to "listening".
@@ -257,6 +264,7 @@ export function useRealtimeOnboardingSession() {
 
   return {
     ...snapshot,
+    experienceSession,
     isConfigured: true,
     provider: "openai-realtime" as const,
     startConversation,

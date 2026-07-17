@@ -54,6 +54,8 @@ export interface WorkerDispatchResult {
   message: string;
   providerType?: "MOCK" | "TWILIO" | "ELEVENLABS";
   providerCallId?: string;
+  conversationId?: string;
+  voiceContextId?: string;
   createdAt: string;
 }
 

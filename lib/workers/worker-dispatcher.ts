@@ -246,9 +246,18 @@ export async function dispatchWorkerBrief(
     provider: providerResult.providerType,
     status: providerResult.status,
     providerCallId: providerResult.providerCallId,
+    conversationId: providerResult.conversationId,
+    voiceContextId: voiceContextId ?? undefined,
   });
 
-  if (providerResult.status !== "DISPATCHED" && voiceContextId && supabase) {
+  const dispatchAccepted =
+      providerResult.status === "DISPATCHED"
+      || (
+        resolvedProviderType === "MOCK"
+        && providerResult.status === "SIMULATED"
+      );
+
+    if (!dispatchAccepted && voiceContextId && supabase) {
     try {
       await captureConversationOutput(supabase, {
         voiceContextId,
@@ -352,6 +361,8 @@ export async function dispatchWorkerBrief(
     message: providerResult.message,
     providerType: providerResult.providerType,
     providerCallId: providerResult.providerCallId,
-    createdAt: providerResult.createdAt,
+    conversationId: providerResult.conversationId,
+      voiceContextId: voiceContextId ?? undefined,
+      createdAt: providerResult.createdAt,
   };
 }

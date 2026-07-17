@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
-import { useOnboardingVoiceConversation } from "@/hooks/voice/useOnboardingVoiceConversation";
+import { usePublicExperienceVoiceConversation } from "@/hooks/voice/usePublicExperienceVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
-import { createDispatchInSupabase } from "@/lib/dispatch/supabase-persistence";
 import { persistFollowUpLead } from "@/lib/leads/follow-up-lead-persistence";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
@@ -25,8 +24,8 @@ const PHONE_HANDOFF =
   "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
 
 export default function ExperiencePage() {
-  const { user, session } = useAuth();
-  const voice = useOnboardingVoiceConversation();
+  const { user } = useAuth();
+  const voice = usePublicExperienceVoiceConversation();
   const {
     state: voiceState,
     transcript: voiceTranscript,
@@ -34,6 +33,7 @@ export default function ExperiencePage() {
     startConversation,
     stopConversation,
     speakExact,
+    experienceSession,
   } = voice;
 
   const [phase, setPhase] = useState<Phase>("initial");
@@ -226,7 +226,6 @@ export default function ExperiencePage() {
     if (analysis.nameConfidence === "low" && analysis.extractedName) {
       // Ask for confirmation if name extraction confidence is low
       console.log("[Experience] Low confidence name extraction, asking for confirmation", {
-        extractedName: analysis.extractedName,
         confidence: analysis.nameConfidence,
       });
       setExtractedName(analysis.extractedName);
@@ -294,41 +293,29 @@ export default function ExperiencePage() {
     });
 
     try {
-      const isAuthenticated = Boolean(user && session?.access_token);
-      if (user && session?.access_token) {
-        await createDispatchInSupabase(
-          user.id,
-          dispatchPayload.id,
-          dispatchPayload.visitor.name,
-          normalizedPhone,
-          dispatchPayload.business.offer,
-          dispatchPayload.business.target_buyer,
-          agentBrief,
-        );
-      }
-
+      if (!experienceSession?.token) throw new Error("The Experience session is unavailable.");
+      const finalized = await fetch("/api/experience/session/finalize-zeya", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: experienceSession.token,
+          transcript: voiceTranscript.filter((entry) => entry.isFinal).map((entry) => ({ role: entry.role, text: entry.text })),
+        }),
+      });
+      if (!finalized.ok) throw new Error("The conversation could not be finalized.");
       setDelegationStatus("dispatching_call");
       console.log("[Experience] Veya dispatch requested", {
-        dispatchId: isAuthenticated ? dispatchPayload.id : "server-generated",
-        authenticationMode: isAuthenticated ? "authenticated" : "anonymous",
+        dispatchId: "server-generated",
       });
 
       const response = await fetch("/api/experience/delegate-call", {
         method: "POST",
-        headers: {
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          briefing,
-          ...(isAuthenticated ? { dispatchId: dispatchPayload.id } : {}),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ experienceToken: experienceSession.token, phone: briefing.phone, name: briefing.name, business: briefing.business, customer: briefing.customer }),
       });
       const responseBody = await response.text();
       console.log("[Experience] Veya delegation response received", {
-        dispatchId: isAuthenticated ? dispatchPayload.id : "server-generated",
+        dispatchId: "server-generated",
         status: response.status,
         ok: response.ok,
       });
@@ -338,9 +325,8 @@ export default function ExperiencePage() {
         result = JSON.parse(responseBody) as VeyaDelegationResponse;
       } catch (error) {
         const parseMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `Delegation API returned a non-JSON response (${response.status}): ${responseBody || "<empty body>"}. Parse failure: ${parseMessage}`,
-        );
+        console.warn("[Experience] Delegation returned an invalid response", { status: response.status, parseFailure: Boolean(parseMessage) });
+        throw new Error("The call request returned an invalid response.");
       }
 
       if (!response.ok || !result.success) {
@@ -394,7 +380,7 @@ export default function ExperiencePage() {
   };
 
   const handleNameConfirm = (confirmed: boolean) => {
-    console.log("[Experience] Name confirmation", { confirmed, name: extractedName });
+    console.log("[Experience] Name confirmation", { confirmed });
 
     if (confirmed && extractedName) {
       // Name was confirmed, continue with phone submission
@@ -470,33 +456,18 @@ export default function ExperiencePage() {
     };
 
     try {
-      const isAuthenticated = Boolean(user && session?.access_token);
-      if (user && session?.access_token) {
-        await createDispatchInSupabase(
-          user.id,
-          dispatchPayload.id,
-          extractedName,
-          normalizedPhone,
-          dispatchPayload.business.offer,
-          dispatchPayload.business.target_buyer,
-          agentBrief,
-        );
-      }
-
+      if (!experienceSession?.token) throw new Error("The Experience session is unavailable.");
+      const finalized = await fetch("/api/experience/session/finalize-zeya", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: experienceSession.token, transcript: voiceTranscript.filter((entry) => entry.isFinal).map((entry) => ({ role: entry.role, text: entry.text })) }),
+      });
+      if (!finalized.ok) throw new Error("The conversation could not be finalized.");
       setDelegationStatus("dispatching_call");
 
       const response = await fetch("/api/experience/delegate-call", {
         method: "POST",
-        headers: {
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          briefing,
-          ...(isAuthenticated ? { dispatchId: dispatchPayload.id } : {}),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ experienceToken: experienceSession.token, phone: briefing.phone, name: briefing.name, business: briefing.business, customer: briefing.customer }),
       });
 
       const responseBody = await response.text();
@@ -504,7 +475,7 @@ export default function ExperiencePage() {
       try {
         result = JSON.parse(responseBody) as VeyaDelegationResponse;
       } catch (error) {
-        throw new Error(`Failed to parse delegation response: ${responseBody}`);
+        throw new Error("The call request returned an invalid response.");
       }
 
       if (!response.ok || !result.success) {
@@ -534,10 +505,7 @@ export default function ExperiencePage() {
 
   const handleFollowUpCapture = async (data: { name: string; email: string }) => {
     try {
-      console.log("[Experience] Capturing follow-up lead", {
-        name: data.name,
-        email: data.email,
-      });
+      console.log("[Experience] Capturing follow-up lead");
 
       await persistFollowUpLead(user?.id, {
         name: data.name,
@@ -550,10 +518,7 @@ export default function ExperiencePage() {
         representationFit: businessInsights?.representationFit || "low",
       });
 
-      console.log("[Experience] Follow-up lead captured successfully", {
-        name: data.name,
-        email: data.email,
-      });
+      console.log("[Experience] Follow-up lead captured successfully");
     } catch (error) {
       console.error("[Experience] Failed to capture follow-up lead", error);
       throw error;

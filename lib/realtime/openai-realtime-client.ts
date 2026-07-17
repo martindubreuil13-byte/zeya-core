@@ -17,6 +17,8 @@ type RealtimeSessionResponse = {
   details?: Record<string, unknown>;
   type?: string;
   voice_context_id?: string;
+  experience_token?: string;
+  expires_at?: string;
 };
 
 export type OpenAIRealtimeClientEvents = {
@@ -26,7 +28,7 @@ export type OpenAIRealtimeClientEvents = {
   onEvent?: (event: RealtimeSessionEvent) => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
-  onSessionCreated?: (session: { voiceContextId?: string }) => void;
+  onSessionCreated?: (session: { voiceContextId?: string; experienceToken?: string; expiresAt?: string }) => void;
   // Optional overrides — if omitted, defaults to the onboarding session endpoint
   sessionEndpoint?: string;
   sessionBody?: Record<string, unknown>;
@@ -493,7 +495,11 @@ export class OpenAIRealtimeClient {
       hasClientSecret: !!data.client_secret?.value,
       model: data.model,
     });
-    this.events.onSessionCreated?.({ voiceContextId: data.voice_context_id });
+    this.events.onSessionCreated?.({
+      voiceContextId: data.voice_context_id,
+      experienceToken: data.experience_token,
+      expiresAt: data.expires_at,
+    });
 
     return data;
   }
