@@ -4,7 +4,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
 
+function testRouteUnavailable() {
+  return process.env.NODE_ENV !== "test"
+    || process.env.PUBLIC_EXPERIENCE_TEST_MODE !== "true";
+}
+
 export async function POST(req: NextRequest) {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   try {
     const body = await req.json();
     const { conversationId, workerBriefId, missionId, businessId } = body;
@@ -72,6 +80,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   return NextResponse.json({
     description: "Register a conversation-brief mapping for testing",
     usage: "POST a JSON payload with conversationId, workerBriefId, missionId, businessId",

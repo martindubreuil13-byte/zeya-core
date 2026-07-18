@@ -1,7 +1,19 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import net from 'node:net';
 
-export type TestServer = { baseUrl: string; process: ChildProcess | null; stop(): Promise<void> };
+export type TestServer = {
+  baseUrl: string;
+  process: ChildProcess | null;
+  recentLogs(): string;
+  stop(): Promise<void>;
+};
+
+function sanitizeServerLog(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/eyJ[A-Za-z0-9._-]{20,}/g, '[redacted-jwt]')
+    .replace(/(?:service_role|SUPABASE_SERVICE_ROLE_KEY)\s*[=:]\s*\S+/gi, '$1=[redacted]');
+}
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -29,12 +41,31 @@ export async function assertZeya(baseUrl: string): Promise<void> {
 
 export async function startTestServer(): Promise<TestServer> {
   const explicit = process.env.REPRESENTATION_TEST_BASE_URL?.replace(/\/$/, '');
-  if (explicit) { await assertZeya(explicit); return { baseUrl: explicit, process: null, stop: async () => {} }; }
+  if (explicit) {
+    await assertZeya(explicit);
+    return { baseUrl: explicit, process: null, recentLogs: () => '', stop: async () => {} };
+  }
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const child = spawn('npm', ['run', 'dev', '--', '--port', String(port)], { cwd: process.cwd(), stdio: ['ignore', 'inherit', 'inherit'], env: process.env, detached: true });
+  const logs: string[] = [];
+  const child = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--port', String(port)], {
+    cwd: process.cwd(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env,
+  });
+  const capture = (chunk: Buffer | string) => {
+    logs.push(sanitizeServerLog(String(chunk)));
+    if (logs.length > 200) logs.splice(0, logs.length - 200);
+  };
+  child.stdout?.on('data', capture);
+  child.stderr?.on('data', capture);
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) { try { await assertZeya(baseUrl); break; } catch { await new Promise(r => setTimeout(r, 250)); } }
   await assertZeya(baseUrl);
-  return { baseUrl, process: child, stop: () => new Promise(resolve => { if(child.exitCode!==null)return resolve(); child.once('exit', () => resolve()); if(child.pid)process.kill(-child.pid,'SIGTERM'); }) };
+  return {
+    baseUrl,
+    process: child,
+    recentLogs: () => logs.join('').slice(-12_000),
+    stop: () => new Promise(resolve => { if(child.exitCode!==null)return resolve(); child.once('exit', () => resolve()); child.kill('SIGTERM'); }),
+  };
 }

@@ -4,6 +4,7 @@ import { buildWorkerBrief, dispatchWorkerBrief } from "@/lib/workers";
 import type { ProviderType } from "@/lib/providers";
 import type { VeyaDelegationResponse } from "@/lib/dispatch/veya-delegation-types";
 import { attachVoiceProviderIdentifiers } from "@/lib/voice/persistence/representation-lineage-repository";
+import { isNewPublicExperienceDispatchReservation } from "@/lib/experience/public-dispatch-reservation";
 import {
   createExperienceServiceClient,
   findExperienceSession,
@@ -92,6 +93,21 @@ async function recoverCorrelation(
   return !correlated.error;
 }
 
+async function markDispatchResolutionPending(
+  db: SupabaseClient,
+  session: PublicExperienceSessionRow,
+  phoneHash: string,
+) {
+  if (!session.dispatch_id) return false;
+  const marked = await db.rpc("zeya_mark_public_experience_dispatch_resolution_pending", {
+    p_token_hash: session.token_hash,
+    p_dispatch_id: session.dispatch_id,
+    p_phone_hash: phoneHash,
+    p_expected_state: "call_requested",
+  });
+  return !marked.error && marked.data === "dispatch_resolution_pending";
+}
+
 export async function POST(req: NextRequest) {
   const length = Number(req.headers.get("content-length") || "0");
   if (Number.isFinite(length) && length > MAX_REQUEST_BYTES) return fail("The call request is too large.", 413);
@@ -114,11 +130,12 @@ export async function POST(req: NextRequest) {
   }
   let session: PublicExperienceSessionRow | null = null;
   let dispatchId: string | null = null;
+  let phoneHash: string | null = null;
   let providerAccepted = false;
   try {
     session = await findExperienceSession(db, body.experienceToken);
     if (!session || isExpired(session)) return fail("Experience session not found.", 404);
-    const phoneHash = hashExperiencePhone(body.experienceToken, phone);
+    phoneHash = hashExperiencePhone(body.experienceToken, phone);
     if (session.phone_hash && session.phone_hash !== phoneHash) {
       return fail("A different call request already exists for this session.", 409, "conflict");
     }
@@ -129,15 +146,15 @@ export async function POST(req: NextRequest) {
       const recovered = await recoverCorrelation(db, session);
       return response(recovered ? "call_dispatched" : "correlation_pending", recovered, recovered ? 200 : 202);
     }
+    if (session.state === "dispatch_resolution_pending") {
+      const recovered = await recoverCorrelation(db, session);
+      return response(recovered ? "call_dispatched" : "dispatch_resolution_pending", recovered, recovered ? 200 : 202);
+    }
     if (session.state === "call_requested") {
       const recovered = await recoverCorrelation(db, session);
       if (recovered) return response("call_dispatched", true);
-      const reset = session.dispatch_id ? await db.rpc("zeya_reset_public_experience_call_request", {
-        p_token_hash: session.token_hash, p_dispatch_id: session.dispatch_id,
-      }) : { error: { code: "missing_dispatch" } };
-      return reset.error
-        ? response("dispatch_resolution_pending", false, 202)
-        : response("retryable", false, 502);
+      const marked = await markDispatchResolutionPending(db, session, phoneHash);
+      return marked ? response("dispatch_resolution_pending", false, 202) : response("failed", false, 500);
     }
     if (session.state !== "zeya_finalized" || !session.zeya_conversation_output_id) {
       return fail("Finish the Zeya conversation before requesting a call.", 409, "conflict");
@@ -148,6 +165,9 @@ export async function POST(req: NextRequest) {
       p_token_hash: session.token_hash, p_dispatch_id: dispatchId, p_phone_hash: phoneHash,
     });
     if (requested.error) return fail("The call request conflicts with this session.", 409, "conflict");
+    if (!isNewPublicExperienceDispatchReservation(session.state, requested.data)) {
+      return response("failed", false, 500);
+    }
 
     const name = text(body.name, 100);
     const business = text(body.business, 500);
@@ -171,18 +191,29 @@ export async function POST(req: NextRequest) {
       },
     });
     const provider: ProviderType = process.env.PUBLIC_EXPERIENCE_PROVIDER === "MOCK" ? "MOCK" : "ELEVENLABS";
-    const result = await dispatchWorkerBrief(brief, provider, session.business_id, { transientTargetPhone: phone });
+    const result = await dispatchWorkerBrief(brief, provider, session.business_id, {
+      transientTargetPhone: phone,
+      representationSnapshot: {
+        tenantUserId: session.tenant_user_id,
+        businessRepresentationId: session.business_representation_id,
+        canonicalVersionId: session.canonical_version_id,
+      },
+    });
     providerAccepted = result.providerOutcome !== "REJECTED";
     if (result.providerOutcome === "REJECTED") {
       const reset = await db.rpc("zeya_reset_public_experience_call_request", {
         p_token_hash: session.token_hash, p_dispatch_id: dispatchId,
       });
+      const marked = reset.error
+        ? await markDispatchResolutionPending(db, { ...session, dispatch_id: dispatchId }, phoneHash)
+        : false;
       return reset.error
-        ? response("dispatch_resolution_pending", false, 202)
+        ? marked ? response("dispatch_resolution_pending", false, 202) : response("failed", false, 500)
         : response("retryable", false, 502);
     }
     if (!result.voiceContextId || !result.providerCallId || !result.conversationId) {
-      return response("dispatch_resolution_pending", false, 202);
+      const marked = await markDispatchResolutionPending(db, { ...session, dispatch_id: dispatchId }, phoneHash);
+      return marked ? response("dispatch_resolution_pending", false, 202) : response("failed", false, 500);
     }
 
     const pending = await db.rpc("zeya_record_public_experience_provider_acceptance", {
@@ -192,7 +223,11 @@ export async function POST(req: NextRequest) {
       p_provider_conversation_id: result.conversationId ?? null,
       p_provider_call_id: result.providerCallId,
     });
-    if (pending.error || result.providerOutcome !== "ACCEPTED_CORRELATED") {
+    if (pending.error) {
+      const marked = await markDispatchResolutionPending(db, { ...session, dispatch_id: dispatchId }, phoneHash);
+      return marked ? response("dispatch_resolution_pending", false, 202) : response("failed", false, 500);
+    }
+    if (result.providerOutcome !== "ACCEPTED_CORRELATED") {
       return response("correlation_pending", false, 202);
     }
     const correlated = await db.rpc("zeya_record_public_experience_dispatch", {
@@ -203,10 +238,13 @@ export async function POST(req: NextRequest) {
     if (correlated.error) return response("correlation_pending", false, 202);
     return response("call_dispatched", true);
   } catch {
-    if (session && dispatchId && !providerAccepted) {
-      await db.rpc("zeya_reset_public_experience_call_request", {
+    if (session && dispatchId && phoneHash && !providerAccepted) {
+      const reset = await db.rpc("zeya_reset_public_experience_call_request", {
         p_token_hash: session.token_hash, p_dispatch_id: dispatchId,
       });
+      if (reset.error) {
+        await markDispatchResolutionPending(db, { ...session, dispatch_id: dispatchId }, phoneHash);
+      }
     }
     return fail("The call could not be prepared. Please try again shortly.", 500, "retryable");
   }

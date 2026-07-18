@@ -4,7 +4,15 @@ import { NextResponse } from "next/server";
 import { conversationStore } from "@/lib/voice/events/elevenlabs-conversation-store";
 import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
 
+function testRouteUnavailable() {
+  return process.env.NODE_ENV !== "test"
+    || process.env.PUBLIC_EXPERIENCE_TEST_MODE !== "true";
+}
+
 export async function GET() {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   try {
     const latestConversation = conversationStore.getLatestConversation();
     const allConversationIds = conversationStore.getConversationIdsSorted();

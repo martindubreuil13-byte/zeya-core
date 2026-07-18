@@ -4,7 +4,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
+function testRouteUnavailable() {
+  return process.env.NODE_ENV !== "test"
+    || process.env.PUBLIC_EXPERIENCE_TEST_MODE !== "true";
+}
+
 export async function POST(req: NextRequest) {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
 
   if (!secret) {
@@ -49,6 +57,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   return NextResponse.json({
     description: "Test endpoint for webhook signature verification",
     usage: "POST a JSON payload to receive a signed webhook request",

@@ -6,7 +6,10 @@ import * as types from '@/types/representation-state';
 import { RepresentationNotFoundError } from './errors';
 
 export class RepresentationStateAdapter {
-  constructor(private db: SupabaseClient) {}
+  constructor(
+    private db: SupabaseClient,
+    private canonicalVersionDb: SupabaseClient = db
+  ) {}
 
   // ─────────────────────────────────────────────────────────────────────
   // EVIDENCE (Immutable)
@@ -211,8 +214,10 @@ export class RepresentationStateAdapter {
   // ─────────────────────────────────────────────────────────────────────
 
   async createCanonicalVersion(cmd: types.CreateCanonicalVersionCommand): Promise<types.RepresentationVersion> {
-    const { data, error } = await this.db.rpc('zeya_create_canonical_version', {
+    // Call atomic RPC that creates Version and updates current_version_id atomically
+    const { data, error } = await this.canonicalVersionDb.rpc('zeya_create_canonical_version_atomic', {
       p_business_representation_id: cmd.businessRepresentationId,
+      p_business_id: cmd.businessId,
       p_source_proposal_id: cmd.sourceProposalId,
       p_element_values: cmd.elementValues,
       p_overall_confidence_score: cmd.overallConfidenceScore,
@@ -221,7 +226,18 @@ export class RepresentationStateAdapter {
     });
 
     if (error) throw error;
-    return this.mapVersionRowToEntity(data as types.RepresentationVersionRow);
+
+    // RPC returns array with one row containing version_id, version_number, created_at
+    // Fetch full Version details to return canonical entity
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new Error('Version creation returned no results');
+    }
+
+    const { version_id: versionId } = data[0] as { version_id: string };
+    const version = await this.getVersion(versionId);
+    if (!version) throw new Error('Created Version not found');
+
+    return version;
   }
 
   async getVersion(versionId: string): Promise<types.RepresentationVersion | null> {
@@ -526,6 +542,17 @@ export class RepresentationStateAdapter {
     businessRepresentationId: string,
     version: types.RepresentationVersion
   ): Promise<void> {
+    const { data: preUpdate, error: preError } = await this.db
+      .from('business_representations')
+      .select('current_version_id')
+      .eq('id', businessRepresentationId)
+      .single();
+    const { error: repError, count } = await this.db
+      .from('business_representations')
+      .update({ current_version_id: version.id })
+      .eq('id', businessRepresentationId);
+    if (repError) throw new Error(`pointElementsToVersion update failed: ${repError.message}`);
+    if (count !== 1) throw new Error(`pointElementsToVersion update count ${count} !== 1`);
     const keys = Object.keys(version.elementValues);
     if (keys.length === 0) return;
     const { error } = await this.db

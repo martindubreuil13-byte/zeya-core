@@ -1,174 +1,25 @@
-// POST /api/webhooks/elevenlabs — ElevenLabs post-call webhook receiver
-
-import { NextRequest, NextResponse } from "next/server";
-import { isValidElevenLabsWebhook } from "@/lib/voice/events/elevenlabs-event-validator";
+import { createHash } from "node:crypto";
+import { NextRequest,NextResponse } from "next/server";
+import { getWebhookSecret,mayBypassElevenLabsSignature,verifyElevenLabsSignature } from "@/lib/voice/events/elevenlabs-signature-verifier";
+import { normalizeElevenLabsWebhook } from "@/lib/voice/events/elevenlabs-event-validator";
 import { processElevenLabsWebhook } from "@/lib/voice/events/elevenlabs-event-processor";
-import {
-  verifyElevenLabsSignature,
-  shouldVerifySignature,
-  getWebhookSecret,
-  logSignatureWarning,
-} from "@/lib/voice/events/elevenlabs-signature-verifier";
-import {
-  logWebhookReceived,
-  logWebhookDuplicate,
-  logValidationFailed,
-  logSignatureVerificationFailed,
-} from "@/lib/voice/events/elevenlabs-webhook-logger";
-import { conversationStore } from "@/lib/voice/events/elevenlabs-conversation-store";
 
-export async function POST(req: NextRequest) {
-  console.log("[webhook] 🔵 Webhook route: Request received");
+const MAX_BODY_BYTES=1_000_000;
+const safe=(error:string,status:number)=>NextResponse.json({success:false,error},{status});
 
-  try {
-    // Get raw body for signature verification
-    const rawBody = await req.text();
-    console.log("[webhook] 🔵 Webhook route: Body received", { size: rawBody.length });
-
-    // Verify signature if secret is configured
-    const secret = getWebhookSecret();
-    if (shouldVerifySignature()) {
-      // ElevenLabs sends signature in elevenlabs-signature header (format: t=timestamp,v0=signature)
-      const signature = req.headers.get("elevenlabs-signature");
-
-      if (!signature) {
-        console.log("[webhook] 🔴 Webhook route: Missing signature header (elevenlabs-signature)");
-        return NextResponse.json(
-          { success: false, error: "Missing signature header" },
-          { status: 401 }
-        );
-      }
-
-      console.log("[webhook] 🔵 Webhook route: Signature header received");
-
-      if (!secret || !verifyElevenLabsSignature(rawBody, signature, secret)) {
-        console.log("[webhook] 🔴 Webhook route: Signature verification failed");
-        logSignatureVerificationFailed();
-        return NextResponse.json(
-          { success: false, error: "Invalid signature" },
-          { status: 401 }
-        );
-      }
-
-      console.log("[webhook] 🟢 Webhook route: Signature verification passed");
-    } else {
-      console.log("[webhook] 🟡 Webhook route: Signature verification skipped (no secret configured)");
-      logSignatureWarning(process.env.NODE_ENV === "development");
-    }
-
-    // Parse webhook payload
-    let payload: unknown;
-    try {
-      payload = JSON.parse(rawBody);
-      console.log("[webhook] 🟢 Webhook route: JSON parsing succeeded");
-    } catch (error) {
-      console.log("[webhook] 🔴 Webhook route: JSON parsing failed", { error: String(error) });
-      return NextResponse.json(
-        { success: false, error: "Malformed JSON" },
-        { status: 400 }
-      );
-    }
-
-    // Validate webhook structure
-    if (!isValidElevenLabsWebhook(payload)) {
-      console.log("[webhook] 🔴 Webhook route: Payload validation failed");
-      logValidationFailed("Invalid webhook structure or type");
-      return NextResponse.json(
-        { success: false, error: "Invalid webhook structure" },
-        { status: 400 }
-      );
-    }
-
-    const webhookData = payload as unknown as Record<string, unknown>;
-    console.log("[webhook] 🟢 Webhook route: Payload validation passed", {
-      type: webhookData.type,
-      timestamp: webhookData.event_timestamp,
-    });
-
-    // Extract workerBriefId if provided (for linking dispatch context to webhook)
-    const workerBriefId =
-      req.nextUrl.searchParams.get("workerBriefId") ||
-      req.headers.get("X-Worker-Brief-Id") ||
-      undefined;
-
-    if (workerBriefId) {
-      console.log("[webhook] 🔵 Webhook route: Found workerBriefId in request context", { workerBriefId });
-    }
-
-    // Process the webhook
-    console.log("[webhook] 🔵 Webhook route: Starting webhook processing");
-    const result = await processElevenLabsWebhook(
-      payload,
-      payload as unknown as Record<string, unknown>,
-      workerBriefId
-    );
-
-    console.log("[webhook] 🔵 Webhook route: Webhook processing completed", {
-      success: result.success,
-      type: result.type,
-      conversationId: result.conversationId,
-      message: result.message,
-    });
-
-    // Log successful processing
-    if (result.success) {
-      if (result.duplicate) {
-        console.log("[webhook] 🟡 Webhook route: Duplicate webhook detected", { conversationId: result.conversationId });
-        logWebhookDuplicate(result.conversationId);
-      } else {
-        const conversation = conversationStore.getConversation(result.conversationId);
-        if (conversation) {
-          console.log("[webhook] 🟢 Webhook route: Successfully processed webhook", {
-            conversationId: result.conversationId,
-            outcome: (result as any).outcome,
-          });
-          logWebhookReceived(conversation);
-        }
-      }
-    } else {
-      console.log("[webhook] 🔴 Webhook route: Processing failed", {
-        conversationId: result.conversationId,
-        message: result.message,
-      });
-    }
-
-    const statusCode = result.success ? 200 : 400;
-
-    const response: any = {
-      success: result.success,
-      type: result.type,
-      conversationId: result.conversationId,
-      duplicate: result.duplicate,
-      message: result.message,
-    };
-
-    if ((result as any).error) {
-      response.error = (result as any).error;
-    }
-
-    return NextResponse.json(response, { status: statusCode });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    const code = (error as any)?.code;
-    const details = (error as any)?.details;
-
-    console.error("[webhook] 🔴 Webhook route: Unexpected error", {
-      message,
-      code,
-      details,
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: {
-          code: code || "UNEXPECTED_ERROR",
-          message,
-          details,
-        },
-      },
-      { status: 500 }
-    );
+export async function POST(req:NextRequest){
+  const raw=await req.text();
+  if(Buffer.byteLength(raw,"utf8")>MAX_BODY_BYTES)return safe("Webhook payload is too large.",413);
+  const secret=getWebhookSecret(),bypass=mayBypassElevenLabsSignature();
+  if(!bypass){
+    if(!secret)return safe("Webhook authentication is unavailable.",503);
+    const signature=req.headers.get("elevenlabs-signature");
+    if(!signature||!verifyElevenLabsSignature(raw,signature,secret))return safe("Webhook authentication failed.",401);
   }
+  let parsed:unknown;
+  try{parsed=JSON.parse(raw);}catch{return safe("Webhook payload is invalid.",400);}
+  const event=normalizeElevenLabsWebhook(parsed);
+  if(!event)return safe("Webhook payload is invalid.",400);
+  const result=await processElevenLabsWebhook(event,createHash("sha256").update(raw).digest("hex"));
+  return NextResponse.json({success:result.success,duplicate:result.duplicate===true,pending:result.pending===true,message:result.message},{status:result.success?200:503});
 }

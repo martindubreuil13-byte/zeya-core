@@ -62,6 +62,7 @@ export async function assembleVoiceRepresentationContext(input: {
   agent: VoiceAgentIdentity;
   provisionalMode?: boolean;
   businessRepresentationId?: string;
+  canonicalVersionId?: string;
 }): Promise<VoiceReadyContext> {
   const provisionalMode = input.provisionalMode === true;
   const business = await input.db
@@ -79,10 +80,23 @@ export async function assembleVoiceRepresentationContext(input: {
     .eq("user_id", input.tenantUserId);
   if (input.businessRepresentationId) representationQuery = representationQuery.eq("id", input.businessRepresentationId);
   const representation = await representationQuery.maybeSingle();
-  if (representation.error || !representation.data?.current_version_id) throw new VoiceContextUnavailableError();
+  if (representation.error || !representation.data) throw new VoiceContextUnavailableError();
+  const canonicalVersionId = input.canonicalVersionId ?? representation.data.current_version_id;
+  if (!canonicalVersionId) throw new VoiceContextUnavailableError();
+
+  const frozenVersion = input.canonicalVersionId
+    ? await input.db
+      .from("representation_versions")
+      .select("id,business_representation_id,element_values")
+      .eq("id", input.canonicalVersionId)
+      .eq("business_representation_id", representation.data.id)
+      .maybeSingle()
+    : null;
+  if (frozenVersion && (frozenVersion.error || !frozenVersion.data)) throw new VoiceContextUnavailableError();
 
   let authorized = null;
   try {
+    if (input.canonicalVersionId) throw new VoiceContextUnavailableError();
     authorized = await createRepresentationStateService(input.db)
       .getAgentContext(representation.data.id, provisionalMode);
   } catch {
@@ -111,17 +125,22 @@ export async function assembleVoiceRepresentationContext(input: {
       .eq("is_disputed", false);
     if (elements.error) throw new VoiceContextUnavailableError();
 
-    const versionIds = [...new Set((elements.data ?? [])
-      .map((element) => element.current_value_version_id)
-      .filter((id): id is string => typeof id === "string"))];
-    const versions = versionIds.length > 0
-      ? await input.db.from("representation_versions").select("id,element_values").in("id", versionIds)
-      : { data: [], error: null };
+    const versionIds = input.canonicalVersionId
+      ? [input.canonicalVersionId]
+      : [...new Set((elements.data ?? [])
+        .map((element) => element.current_value_version_id)
+        .filter((id): id is string => typeof id === "string"))];
+    const versions = frozenVersion?.data
+      ? { data: [frozenVersion.data], error: null }
+      : versionIds.length > 0
+        ? await input.db.from("representation_versions").select("id,element_values").in("id", versionIds)
+        : { data: [], error: null };
     if (versions.error) throw new VoiceContextUnavailableError();
     const valuesByVersion = new Map((versions.data ?? []).map((version) => [version.id, version.element_values]));
     claims = Object.fromEntries((elements.data ?? []).flatMap((element) => {
-      const values = element.current_value_version_id
-        ? valuesByVersion.get(element.current_value_version_id)
+      const valueVersionId = input.canonicalVersionId ?? element.current_value_version_id;
+      const values = valueVersionId
+        ? valuesByVersion.get(valueVersionId)
         : null;
       if (!values || typeof values !== "object" || Array.isArray(values)) return [];
       const canonical = values as Record<string, unknown>;
@@ -136,7 +155,7 @@ export async function assembleVoiceRepresentationContext(input: {
     tenantUserId: input.tenantUserId,
     businessId: input.businessId,
     businessRepresentationId: representation.data.id,
-    canonicalVersionId: representation.data.current_version_id,
+    canonicalVersionId,
     generatedAt: (authorized?.retrievedAt ?? new Date()).toISOString(),
     authorizedElementKeys,
     provisionalMode,

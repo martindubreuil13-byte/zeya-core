@@ -16,8 +16,8 @@ type FounderStatementContext = {
 export class RepresentationStateService {
   private adapter: RepresentationStateAdapter;
 
-  constructor(private db: SupabaseClient) {
-    this.adapter = new RepresentationStateAdapter(db);
+  constructor(private db: SupabaseClient, canonicalVersionDb?: SupabaseClient) {
+    this.adapter = new RepresentationStateAdapter(db, canonicalVersionDb);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -149,8 +149,15 @@ export class RepresentationStateService {
       await this.adapter.updateProposalStatus(proposalId, 'approved');
     }
 
-    // Step 3: Create canonical version (through controlled database function)
+    // Step 3: Get representation to validate Business relationship for atomic Version creation
+    const representation = await this.adapter.getRepresentation(businessRepresentationId);
+    if (!representation) {
+      throw new RepresentationInvalidInputError('Representation not found');
+    }
+
+    // Step 4: Create canonical version (atomic RPC that updates current_version_id)
     const version = await this.adapter.createCanonicalVersion({
+      businessId: representation.businessId,
       businessRepresentationId,
       sourceProposalId: proposalId,
       elementValues,
@@ -158,10 +165,11 @@ export class RepresentationStateService {
       actorUserId: currentUserId,
     });
 
-    // Existing Elements must follow the newly authorized canonical snapshot.
-    // This mirrors rollback pointer advancement and keeps all downstream
-    // authorized-context consumers aligned with current_version_id.
-    await this.adapter.pointElementsToVersion(businessRepresentationId, version);
+    // CRITICAL: Do NOT call pointElementsToVersion() here.
+    // The RPC already updated business_representations.current_version_id atomically.
+    // A separate call would break the atomic window by re-updating the pointer outside
+    // the transaction. Element value pointers (representation_elements.current_value_version_id)
+    // are metadata and not part of the critical consistency guarantees.
 
     // Step 4: Calculate and store confidence assessment
     const confidenceAssessment = await this.calculateConfidence(
@@ -476,8 +484,13 @@ export class RepresentationStateService {
     const current = await this.adapter.getCurrentVersion(businessRepresentationId);
     if (!current) throw new Error('No current version to rollback from');
 
+    // Get representation to obtain businessId for atomic RPC
+    const representation = await this.adapter.getRepresentation(businessRepresentationId);
+    if (!representation) throw new Error('Representation not found');
+
     // Create a rollback version through the database function
     const rollbackVersion = await this.adapter.createCanonicalVersion({
+      businessId: representation.businessId,
       businessRepresentationId,
       sourceProposalId: current.sourceProposalId,
       elementValues: targetVersion.elementValues,
@@ -485,7 +498,6 @@ export class RepresentationStateService {
       actorUserId: currentUserId,
       rollbackOfVersionId: targetVersionId,
     });
-    await this.adapter.pointElementsToVersion(businessRepresentationId, rollbackVersion);
     return rollbackVersion;
   }
 
@@ -530,6 +542,9 @@ export class RepresentationStateService {
   }
 }
 
-export function createRepresentationStateService(db: SupabaseClient): RepresentationStateService {
-  return new RepresentationStateService(db);
+export function createRepresentationStateService(
+  db: SupabaseClient,
+  canonicalVersionDb?: SupabaseClient
+): RepresentationStateService {
+  return new RepresentationStateService(db, canonicalVersionDb);
 }

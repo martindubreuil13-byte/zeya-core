@@ -144,3 +144,18 @@ export async function assertVisibleProposalForRepresentation(
     throw new RepresentationNotFoundError();
   }
 }
+
+export async function assertVisibleVersionForRepresentation(
+  supabase: SupabaseClient,
+  versionId: string,
+  businessRepresentationId: string
+): Promise<void> {
+  if (!isUuid(versionId)) throw new RepresentationNotFoundError();
+  const { data, error } = await supabase
+    .from('representation_versions')
+    .select('id')
+    .eq('id', versionId)
+    .eq('business_representation_id', businessRepresentationId)
+    .maybeSingle();
+  if (error || !data?.id) throw new RepresentationNotFoundError();
+}

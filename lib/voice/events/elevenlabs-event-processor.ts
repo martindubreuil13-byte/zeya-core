@@ -1,294 +1,106 @@
-// ElevenLabs event processor — handles post-call webhook data
-
-import { isPostCallTranscriptionWebhook } from "./elevenlabs-event-validator";
-import type { ElevenLabsPostCallTranscriptionWebhook } from "./elevenlabs-event-types";
-import { conversationStore } from "./elevenlabs-conversation-store";
-import { mappingStore } from "./conversation-brief-mapping";
-import { processAndStoreOutcome } from "../outcomes/call-outcome-processor";
-import {
-  getMappingByWorkerBriefId,
-  saveBriefConversationMapping,
-} from "../persistence/brief-conversation-mapping-repository";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import { captureAndExtractConversationOutput } from "../conversation-output/service";
-
-function createTrustedDb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
-}
+import type { NormalizedElevenLabsEvent } from "./elevenlabs-event-types";
+import { normalizeElevenLabsWebhook } from "./elevenlabs-event-validator";
 
 export interface ProcessedWebhookResult {
   success: boolean;
   type: string;
-  conversationId: string;
   duplicate?: boolean;
+  pending?: boolean;
   message: string;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
+  conversationId?: string;
+  error?: {code:string;message:string};
 }
 
-// Simple deduplication: track conversation_id + event_timestamp
-interface SeenWebhookKey {
-  eventTimestamp: number;
-  conversationId: string;
+type ReceiptAcquisition = { status: "acquired" | "in_progress" | "completed"; attempt: number };
+
+function receiptAcquisition(value: unknown): ReceiptAcquisition | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (!["acquired", "in_progress", "completed"].includes(String(candidate.status))
+      || typeof candidate.attempt !== "number" || !Number.isInteger(candidate.attempt)
+      || candidate.attempt < 1) return null;
+  return candidate as ReceiptAcquisition;
 }
 
-const seenWebhooks = new Set<string>();
-
-function getWebhookKey(
-  eventTimestamp: number,
-  conversationId: string
-): string {
-  return `${eventTimestamp}:${conversationId}`;
+function trustedDb(): SupabaseClient | null {
+  const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return url&&key?createClient(url,key,{auth:{persistSession:false}}):null;
 }
 
-function isDuplicate(
-  eventTimestamp: number,
-  conversationId: string
-): boolean {
-  const key = getWebhookKey(eventTimestamp, conversationId);
-  return seenWebhooks.has(key);
-}
-
-function markAsSeen(
-  eventTimestamp: number,
-  conversationId: string
-): void {
-  const key = getWebhookKey(eventTimestamp, conversationId);
-  seenWebhooks.add(key);
-}
-
-export async function processElevenLabsWebhook(
-  webhook: unknown,
-  rawPayload?: Record<string, unknown>,
-  workerBriefId?: string
-): Promise<ProcessedWebhookResult> {
-  if (!isPostCallTranscriptionWebhook(webhook)) {
-    return {
-      success: false,
-      type: "unknown",
-      conversationId: "",
-      message: "Invalid webhook structure or unsupported type",
-    };
-  }
-
-  const webhook_typed = webhook as ElevenLabsPostCallTranscriptionWebhook;
-  const conversationId = webhook_typed.data.conversation_id;
-  const eventTimestamp = webhook_typed.event_timestamp;
-
-  // Extract workerBriefId from webhook's user_id field if not provided as parameter
-  // ElevenLabs returns user_id in webhook if it was passed during conversation init
-  if (!workerBriefId && webhook_typed.data.user_id) {
-    workerBriefId = webhook_typed.data.user_id;
-    console.log("[event-processor] 🟢 Found workerBriefId in webhook user_id field", { workerBriefId });
-  }
-
-  // Check for duplicates
-  if (isDuplicate(eventTimestamp, conversationId)) {
-    return {
-      success: true,
-      type: "post_call_transcription",
-      conversationId,
-      duplicate: true,
-      message: `Duplicate webhook for conversation ${conversationId}`,
-    };
-  }
-
-  try {
-    console.log("[event-processor] 🔵 Saving conversation to in-memory store", { conversationId });
-
-    // Save conversation to store
-    const conversation = conversationStore.saveConversation(
-      conversationId,
-      webhook_typed.data.agent_id,
-      webhook_typed.data,
-      eventTimestamp,
-      rawPayload
-    );
-
-    console.log("[event-processor] 🟢 Conversation saved to in-memory store", { conversationId });
-
-    // Mark as seen
-    markAsSeen(eventTimestamp, conversationId);
-
-    // Generate CallOutcome from conversation
-    console.log("[event-processor] 🔵 Generating CallOutcome from conversation", { conversationId });
-
-    // Task 5: Try to get mapping from persistent storage first (survives restart)
-    let resolvedWorkerBriefId = mappingStore.getWorkerBriefId(conversationId);
-    let businessId = mappingStore.getBusinessId(conversationId);
-    let missionId = mappingStore.getMissionId(conversationId);
-
-    // If workerBriefId provided in request, try to resolve by that
-    if (workerBriefId && !businessId) {
-      // First try in-memory mapping
-      const briefinessId = mappingStore.getBusinessIdByWorkerBriefId(workerBriefId);
-      const briefMissionId = mappingStore.getConversationId(workerBriefId)
-        ? mappingStore.getMissionId(mappingStore.getConversationId(workerBriefId) || "")
-        : null;
-
-      // If not in memory, try persistent storage (for post-restart webhooks)
-      if (!briefinessId) {
-        console.log("[event-processor] 🔵 Mapping not in memory, checking persistent storage", {
-          workerBriefId,
+export async function processElevenLabsWebhook(input: unknown,payloadHashInput?: string|Record<string,unknown>,_workerBriefId?:string): Promise<ProcessedWebhookResult> {
+  const event=(input&&typeof input==="object"&&"providerEventType" in input?input:normalizeElevenLabsWebhook(input)) as NormalizedElevenLabsEvent|null;
+  if(!event)return{success:false,type:"unknown",message:"Webhook payload is invalid."};
+  const payloadHash=typeof payloadHashInput==="string"?payloadHashInput:createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  const db=trustedDb();
+  if(!db)return{success:false,type:event.providerEventType,message:"Webhook processing is unavailable."};
+  let receiptAcquired=false;
+  let receiptAttempt: number | null = null;
+  let correlatedVoiceContextId: string | null = null;
+  let correlatedProviderCallId: string | null = null;
+  try{
+    let lineageQuery=db.from("voice_representation_lineage").select("voice_context_id,mission_id,conversation_id,provider_call_id,business_id,business_representation_id,canonical_version_id").eq("conversation_id",event.conversationId);
+    if(event.providerCallId)lineageQuery=lineageQuery.eq("provider_call_id",event.providerCallId);
+    const lineage=await lineageQuery.maybeSingle();
+    if(lineage.error||!lineage.data?.provider_call_id)throw new Error("provider_lineage_unavailable");
+    const session=await db.from("public_experience_sessions").select("id,state,business_id,business_representation_id,canonical_version_id,provider_conversation_id,provider_call_id")
+      .or(`veya_voice_context_id.eq.${lineage.data.voice_context_id},dispatch_id.eq.${lineage.data.mission_id}`).maybeSingle();
+    if(session.error||!session.data)throw new Error("public_session_unavailable");
+    if(session.data.business_id!==lineage.data.business_id||session.data.business_representation_id!==lineage.data.business_representation_id||session.data.canonical_version_id!==lineage.data.canonical_version_id)throw new Error("lineage_identity_mismatch");
+    const repair=await db.rpc("zeya_repair_public_experience_dispatch",{p_veya_voice_context_id:lineage.data.voice_context_id,p_provider_conversation_id:event.conversationId,p_provider_call_id:lineage.data.provider_call_id});
+    if(repair.error)throw new Error("dispatch_correlation_unavailable");
+    const begun=await db.rpc("zeya_begin_voice_webhook_receipt",{p_event_key:event.eventKey,p_event_type:event.providerEventType,p_provider_conversation_id:event.conversationId,p_payload_hash:payloadHash,p_public_experience_session_id:session.data.id});
+    if(begun.error)throw new Error("webhook_receipt_unavailable");
+    const acquisition=receiptAcquisition(begun.data);
+    if(!acquisition)throw new Error("webhook_receipt_unavailable");
+    if(acquisition.status==="completed")return{success:true,type:event.providerEventType,duplicate:true,message:"Webhook already processed."};
+    if(acquisition.status==="in_progress")return{success:true,type:event.providerEventType,pending:true,message:"Webhook processing is already in progress."};
+    receiptAcquired=true;
+    receiptAttempt=acquisition.attempt;
+    correlatedVoiceContextId=lineage.data.voice_context_id;
+    correlatedProviderCallId=lineage.data.provider_call_id;
+    if(event.outcome!=="completed"){
+      const failed=await db.rpc("zeya_record_public_experience_call_failure",{p_veya_voice_context_id:lineage.data.voice_context_id,p_provider_conversation_id:event.conversationId,p_provider_call_id:lineage.data.provider_call_id,p_outcome:event.outcome});
+      if(failed.error)throw new Error("call_outcome_persistence_failed");
+      const finished=await db.rpc("zeya_finish_voice_webhook_receipt",{p_event_key:event.eventKey,p_expected_attempt:receiptAttempt,p_succeeded:true});
+      if(finished.error)throw new Error("webhook_receipt_completion_failed");
+      if(finished.data==="stale_attempt")return{success:true,type:event.providerEventType,pending:true,message:"Webhook processing was superseded."};
+      return{success:true,type:event.providerEventType,message:"Call outcome recorded."};
+    }
+    const completedAt=new Date(event.eventTimestamp*1000);
+    const output=await captureAndExtractConversationOutput({db,capture:{
+      voiceContextId:lineage.data.voice_context_id,conversationId:event.conversationId,providerCallId:lineage.data.provider_call_id,
+      provider:"elevenlabs",channel:"veya_outbound",captureSource:"provider_callback",transcriptTrustLevel:"provider_attested",providerAttested:true,
+      startedAt:event.durationSeconds!==null?new Date(completedAt.getTime()-event.durationSeconds*1000).toISOString():null,completedAt:completedAt.toISOString(),
+      transcript:event.transcript.map(turn=>({role:turn.role==="user"?"customer":"agent",text:turn.message,startedAtMs:turn.timestamp})),
+      transcriptStatus:"finalized",conversationStatus:"done",completionReason:"provider_completed",safeMetadata:{turnCount:event.transcript.length},
+    },extractionModel:process.env.PUBLIC_EXPERIENCE_TEST_MODE==="true"
+      ? async()=>[{candidateType:"customer_need",content:{summary:"A provider-attested customer need requires founder review."},speakerRole:"customer",statementKind:"assertion",sourceReference:{turnIndexes:[Math.max(0,event.transcript.length-1)]},relevantElementKeys:[],confidence:0.8,rationale:"Deterministic deployed integration fixture."}]
+      : undefined});
+    const completion=await db.rpc("zeya_complete_public_experience_call",{p_veya_voice_context_id:lineage.data.voice_context_id,p_conversation_output_id:output.conversationOutputId});
+    if(completion.error||completion.data!=="reflection_ready")throw new Error("public_completion_failed");
+    const finished=await db.rpc("zeya_finish_voice_webhook_receipt",{p_event_key:event.eventKey,p_expected_attempt:receiptAttempt,p_succeeded:true});
+    if(finished.error)throw new Error("webhook_receipt_completion_failed");
+    if(finished.data==="stale_attempt")return{success:true,type:event.providerEventType,pending:true,message:"Webhook processing was superseded."};
+    return{success:true,type:event.providerEventType,message:"Webhook processed."};
+  }catch{
+    if(receiptAcquired&&receiptAttempt!==null){
+      const failedReceipt=await db.rpc("zeya_finish_voice_webhook_receipt",{p_event_key:event.eventKey,p_expected_attempt:receiptAttempt,p_succeeded:false});
+      if(!failedReceipt.error&&failedReceipt.data==="failed"&&correlatedVoiceContextId&&correlatedProviderCallId){
+        await db.rpc("zeya_record_public_experience_call_failure",{
+          p_veya_voice_context_id:correlatedVoiceContextId,
+          p_provider_conversation_id:event.conversationId,
+          p_provider_call_id:correlatedProviderCallId,
+          p_outcome:"completion_processing_failed",
         });
-
-        const persistedMapping = await getMappingByWorkerBriefId(workerBriefId);
-
-        if (persistedMapping) {
-          resolvedWorkerBriefId = workerBriefId;
-          businessId = persistedMapping.business_id;
-          missionId = persistedMapping.mission_id;
-
-          // Update persistent mapping with real conversationId
-          await saveBriefConversationMapping(workerBriefId, missionId, businessId, conversationId);
-          console.log("[event-processor] 🟢 Updated persistent mapping with real conversationId", {
-            conversationId,
-            workerBriefId,
-            businessId,
-            missionId,
-          });
-        }
-      } else if (briefinessId) {
-        resolvedWorkerBriefId = workerBriefId;
-        businessId = briefinessId;
-        missionId = briefMissionId;
-
-        // Register new mapping with real conversationId using data from in-memory mapping
-        if (briefMissionId) {
-          mappingStore.createMapping(conversationId, workerBriefId, briefMissionId, briefinessId);
-
-          // Also update persistent storage
-          await saveBriefConversationMapping(workerBriefId, briefMissionId, briefinessId, conversationId);
-          console.log("[event-processor] 🟢 Updated mapping with real conversationId", {
-            conversationId,
-            workerBriefId,
-            businessId,
-            missionId: briefMissionId,
-          });
-        }
       }
     }
-
-    console.log("[event-processor] 🔵 Retrieved context from mapping", {
-      conversationId,
-      workerBriefId: resolvedWorkerBriefId,
-      businessId,
-      missionId,
-    });
-
-    // Task 4: Get target info from webhook if available
-    const targetName = (webhook_typed.data as any).target_name;
-    const targetPhone = (webhook_typed.data as any).target_phone;
-
-    await processAndStoreOutcome(
-      conversation,
-      resolvedWorkerBriefId,
-      businessId,
-      missionId,
-      targetName,
-      targetPhone
-    );
-
-    const trustedDb = createTrustedDb();
-    if (!trustedDb) throw new Error("Conversation capture is unavailable");
-    const lineage = await trustedDb.from("voice_representation_lineage")
-      .select("voice_context_id,provider_call_id")
-      .eq("conversation_id", conversationId)
-      .maybeSingle();
-    if (lineage.error || !lineage.data) throw new Error("Conversation lineage is unavailable");
-    const completedAt = new Date(eventTimestamp * 1000);
-    const durationMs = typeof webhook_typed.data.call_duration === "number"
-      ? webhook_typed.data.call_duration * 1000
-      : 0;
-    const capturedOutput = await captureAndExtractConversationOutput({
-      db: trustedDb,
-      capture: {
-        voiceContextId: lineage.data.voice_context_id,
-        conversationId,
-        providerCallId: lineage.data.provider_call_id,
-        provider: "elevenlabs",
-        channel: "veya_outbound",
-        captureSource: webhook_typed.data.transcript.length > 0 ? "provider_callback" : "status_only",
-        transcriptTrustLevel: webhook_typed.data.transcript.length > 0 ? "provider_attested" : "status_only",
-        providerAttested: webhook_typed.data.transcript.length > 0,
-        startedAt: durationMs > 0 ? new Date(completedAt.getTime() - durationMs).toISOString() : null,
-        completedAt: completedAt.toISOString(),
-        transcript: webhook_typed.data.transcript.map((turn) => ({
-          role: turn.role === "user" ? "customer" : "agent",
-          text: turn.message,
-          startedAtMs: turn.timestamp,
-        })),
-        transcriptStatus: webhook_typed.data.transcript.length > 0
-          ? "finalized"
-          : webhook_typed.data.status === "failed" ? "unavailable" : "pending",
-        conversationStatus: webhook_typed.data.status,
-        completionReason: webhook_typed.data.status === "done" ? "provider_completed" : "provider_failed",
-        safeMetadata: {
-          turnCount: webhook_typed.data.transcript.length,
-          hasAudio: webhook_typed.data.has_audio === true,
-        },
-      },
-    });
-    if (webhook_typed.data.status === "done" && webhook_typed.data.transcript.length > 0) {
-      const completion = await trustedDb.rpc("zeya_complete_public_experience_call", {
-        p_veya_voice_context_id: lineage.data.voice_context_id,
-        p_conversation_output_id: capturedOutput.conversationOutputId,
-      });
-      if (completion.error) throw new Error("Public Experience completion correlation failed");
-    }
-
-    console.log("[event-processor] 🟢 CallOutcome and MemoryEvent persisted successfully", {
-      conversationId,
-      workerBriefId: resolvedWorkerBriefId,
-    });
-
-    return {
-      success: true,
-      type: "post_call_transcription",
-      conversationId,
-      message: `Post-call webhook processed for conversation ${conversationId}`,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    const code = (error as any)?.code;
-    const details = (error as any)?.details;
-
-    console.error("[event-processor] 🔴 Failed to process webhook", {
-      conversationId,
-      error: message,
-      code,
-      details,
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-
-    return {
-      success: false,
-      type: "post_call_transcription",
-      conversationId,
-      message: `Failed to process post-call webhook: ${message}`,
-      error: {
-        code: code || "UNKNOWN",
-        message,
-        details,
-      },
-    };
+    return{success:false,type:event.providerEventType,message:"Webhook processing failed."};
   }
 }
 
-export function getConversation(conversationId: string) {
-  return conversationStore.getConversation(conversationId);
-}
-
-export function getAllConversations() {
-  return conversationStore.getAllConversations();
-}
-
-export function clearAllState() {
-  conversationStore.clear();
-  seenWebhooks.clear();
-}
+export function getConversation(){return null}
+export function getAllConversations(){return []}
+export function clearAllState():void{}

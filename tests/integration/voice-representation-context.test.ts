@@ -5,7 +5,6 @@ import { FixtureRegistry } from "./representation-state-test-fixtures";
 import { cleanupFixtures } from "./representation-state-test-cleanup";
 import { jsonRequest } from "./representation-state-test-client";
 import { startTestServer } from "./representation-state-test-server";
-import { createRepresentationStateService } from "../../lib/representation/representation-service";
 import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "../../lib/voice/persistence/representation-lineage-repository";
 
 type UserFixture = { id: string; token: string; client: SupabaseClient };
@@ -127,13 +126,15 @@ async function main(): Promise<void> {
     assert(originalContext.lineage.canonicalVersionId === version.body.data.versionId, "existing context retains old Version lineage");
     assert(newContext.lineage.canonicalVersionId === nextVersion.body.data.versionId, "new context uses new Version lineage");
     assert(newContext.systemContext.includes("new approved value"), "new context uses new canonical value");
-    const rollback = await createRepresentationStateService(owner.client).rollbackToVersion(representationId, version.body.data.versionId);
-    registry.registerVersion(rollback.id);
-    const rollbackAudit = await admin.from("audit_events").select("id").eq("business_representation_id", representationId).eq("version_id", rollback.id).eq("event_type", "version_rolled_back").single();
+    const rollbackResponse = await jsonRequest<{ data: { versionId: string } }>(server.baseUrl, "/api/representation/versions/rollback", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${owner.token}` }, body: JSON.stringify({ businessRepresentationId: representationId, targetVersionId: version.body.data.versionId }) });
+    assert(rollbackResponse.status === 201, "authenticated rollback route");
+    const rollbackId = rollbackResponse.body.data.versionId;
+    registry.registerVersion(rollbackId);
+    const rollbackAudit = await admin.from("audit_events").select("id").eq("business_representation_id", representationId).eq("version_id", rollbackId).eq("event_type", "version_rolled_back").single();
     if (rollbackAudit.error) throw rollbackAudit.error;
     registry.registerAuditEvent(rollbackAudit.data.id);
     const rollbackContext = await assembleVoiceRepresentationContext({ db: owner.client, tenantUserId: owner.id, businessId: business.data.id, agent: { id: "veya", type: "CALLER", role: "outbound_representative" } });
-    assert(rollbackContext.lineage.canonicalVersionId === rollback.id, "rollback context uses rollback-created Version");
+    assert(rollbackContext.lineage.canonicalVersionId === rollbackId, "rollback context uses rollback-created Version");
     assert(rollbackContext.systemContext.includes("approved value") && !rollbackContext.systemContext.includes("new approved value"), "rollback restores provider content");
 
     const countsBefore = await Promise.all(["evidence", "observations", "representation_proposals", "approval_decisions", "representation_versions", "confidence_assessments", "audit_events"].map((table) => admin.from(table).select("*", { count: "exact", head: true }).eq("business_representation_id", representationId)));
@@ -141,7 +142,7 @@ async function main(): Promise<void> {
     const approvedPayload = buildVoiceProviderVariables({ targetName: "prospect", targetPhone: null, objective: "qualify interest", context: approved });
     const approvedText = JSON.stringify(approvedPayload);
     assert(approved.lineage.provisionalMode === false, "provisional defaults false");
-    assert(approved.lineage.canonicalVersionId === rollback.id, "canonical lineage");
+    assert(approved.lineage.canonicalVersionId === rollbackId, "canonical lineage");
     assert(approvedText.includes("approved_key") && approvedText.includes("approved value"), "approved reaches provider payload");
     for (const hidden of ["provisional_key", "internal_key", "disputed_key", "prohibited_key", "expired_key", "provisional value", "internal value", "disputed value", "prohibited value", "expired value"]) assert(!approvedText.includes(hidden), `default payload excludes ${hidden}`);
 
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
     });
     assert(zeyaSession.status === 200, "authenticated Zeya briefing session");
     registry.registerVoiceLineage(zeyaSession.body.voice_context_id, representationId);
-    assert(zeyaSession.body.representation_lineage.tenantUserId === owner.id && zeyaSession.body.representation_lineage.businessRepresentationId === representationId && zeyaSession.body.representation_lineage.canonicalVersionId === rollback.id, "Zeya route lineage identifiers");
+    assert(zeyaSession.body.representation_lineage.tenantUserId === owner.id && zeyaSession.body.representation_lineage.businessRepresentationId === representationId && zeyaSession.body.representation_lineage.canonicalVersionId === rollbackId, "Zeya route lineage identifiers");
     assert(zeyaSession.body.representation_lineage.provisionalMode === false && JSON.stringify(zeyaSession.body.representation_lineage.authorizedElementKeys) === JSON.stringify(["approved_key"]), "Zeya default payload authorization");
     const zeyaPersisted = await admin.from("voice_representation_lineage").select("*").eq("voice_context_id", zeyaSession.body.voice_context_id).single();
     assert(!zeyaPersisted.error && zeyaPersisted.data.conversation_id === zeyaConversationId && zeyaPersisted.data.agent_id === "zeya-realtime", "Zeya lineage persisted through trusted route");
@@ -200,7 +201,7 @@ async function main(): Promise<void> {
     const veyaLineage = await admin.from("voice_representation_lineage").select("*").eq("worker_brief_id", brief.id).single();
     if (veyaLineage.error) throw veyaLineage.error;
     registry.registerVoiceLineage(veyaLineage.data.voice_context_id, representationId);
-    assert(veyaLineage.data.tenant_user_id === owner.id && veyaLineage.data.business_representation_id === representationId && veyaLineage.data.canonical_version_id === rollback.id && veyaLineage.data.provider_call_id === dispatch.providerCallId, "Veya persisted lineage matches provider-bound context");
+    assert(veyaLineage.data.tenant_user_id === owner.id && veyaLineage.data.business_representation_id === representationId && veyaLineage.data.canonical_version_id === rollbackId && veyaLineage.data.provider_call_id === dispatch.providerCallId, "Veya persisted lineage matches provider-bound context");
 
     const approvedLineageId = crypto.randomUUID();
     await saveVoiceRepresentationLineage({ db: admin, voiceContextId: approvedLineageId, workerBriefId: `voice-approved-${registry.runId}`, missionId: `voice-${registry.runId}`, conversationId: `dispatch_${approvedLineageId}`, lineage: approved.lineage });
@@ -212,7 +213,7 @@ async function main(): Promise<void> {
     const ownerLineageIds = [zeyaSession.body.voice_context_id, approvedLineageId, provisionalLineageId];
     const ownerLineage = await owner.client.from("voice_representation_lineage").select("*").in("voice_context_id", ownerLineageIds);
     assert(!ownerLineage.error && ownerLineage.data.length === 3, "owner reads all own lineage rows");
-    assert(ownerLineage.data.every((row) => row.tenant_user_id === owner.id && row.business_id === business.data.id && row.business_representation_id === representationId && row.canonical_version_id === rollback.id), "persisted lineage identifiers match authorized context");
+    assert(ownerLineage.data.every((row) => row.tenant_user_id === owner.id && row.business_id === business.data.id && row.business_representation_id === representationId && row.canonical_version_id === rollbackId), "persisted lineage identifiers match authorized context");
     const foreignLineage = await foreign.client.from("voice_representation_lineage").select("voice_context_id").in("voice_context_id", ownerLineageIds);
     assert(!foreignLineage.error && foreignLineage.data.length === 0, "foreign tenant cannot read lineage");
     assert((await owner.client.from("voice_representation_lineage").delete().eq("voice_context_id", approvedLineageId)).error, "authenticated direct lineage DELETE blocked");

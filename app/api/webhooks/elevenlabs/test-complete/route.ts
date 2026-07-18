@@ -21,7 +21,15 @@ interface TestCompleteRequest {
   missionId: string;
 }
 
+function testRouteUnavailable() {
+  return process.env.NODE_ENV !== "test"
+    || process.env.PUBLIC_EXPERIENCE_TEST_MODE !== "true";
+}
+
 export async function POST(req: NextRequest) {
+  if (testRouteUnavailable()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   const errors: string[] = [];
   let mappingCreated = false;
   let webhookProcessed = false;

@@ -386,6 +386,7 @@ export interface CreateApprovalCommand {
 }
 
 export interface CreateCanonicalVersionCommand {
+  businessId: string;
   businessRepresentationId: string;
   sourceProposalId: string;
   elementValues: Record<string, any>;

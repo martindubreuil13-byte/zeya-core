@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MockProvider } from "../../lib/providers/mock-provider";
+import { isNewPublicExperienceDispatchReservation } from "../../lib/experience/public-dispatch-reservation";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const route = read("app/api/experience/delegate-call/route.ts");
@@ -10,6 +11,10 @@ const migration = read("supabase/migrations/20260717120000_public_experience_dis
 const preflight = read("docs/database/preflight/public_experience_dispatch_integrity_preflight.sql");
 const verification = read("docs/database/verification/public_experience_dispatch_integrity_verification.sql");
 const rollback = read("docs/database/rollbacks/public_experience_dispatch_integrity_rollback.sql");
+const resolutionMigration = read("supabase/migrations/20260717190000_public_experience_resolution_pending.sql");
+const resolutionPreflight = read("docs/database/preflight/public_experience_resolution_pending_preflight.sql");
+const resolutionVerification = read("docs/database/verification/public_experience_resolution_pending_verification.sql");
+const resolutionRollback = read("docs/database/rollbacks/public_experience_resolution_pending_rollback.sql");
 
 async function main() {
 const rawPhone = "+15550004242";
@@ -32,7 +37,8 @@ const dynamicBlock = route.slice(route.indexOf("dynamicVariables: {"), route.ind
 assert(dynamicBlock.includes("hasTargetPhone: true"), "persisted brief records only target presence");
 assert(!dynamicBlock.includes("targetPhone"), "persisted dynamic variables omit plaintext phone");
 assert(!dynamicBlock.includes("phone,"), "persisted dynamic variables omit the request phone");
-assert(route.includes("{ transientTargetPhone: phone }"), "raw E.164 phone crosses only the transient dispatcher boundary");
+assert(route.includes("transientTargetPhone: phone,"), "raw E.164 phone crosses only the transient dispatcher boundary");
+assert(route.includes("canonicalVersionId: session.canonical_version_id"), "provider dispatch uses the session-frozen canonical Version");
 assert(dispatcher.includes("saveWorkerBrief(brief, businessId, targetName, persistedTargetPhone)"), "repository receives only the persisted target");
 assert(dispatcher.includes("options.transientTargetPhone ?? persistedTargetPhone"), "ordinary authenticated target persistence remains the default");
 
@@ -52,6 +58,17 @@ assert(route.includes("recoverCorrelation(db, session)"), "uncertain replay atte
 assert(route.includes("zeya_reset_public_experience_call_request"), "confirmed rejection restores retryability");
 assert(route.includes('return response("correlation_pending", false, 202)'), "uncertain acceptance is not ordinary success");
 assert(route.includes('response("dispatch_resolution_pending", false, 202)'), "rejected reset failure is distinct from provider acceptance");
+assert(route.includes("zeya_mark_public_experience_dispatch_resolution_pending"), "uncertain dispatch is persisted before it is reported");
+assert(route.includes('session.state === "dispatch_resolution_pending"'), "durable resolution-pending replay attempts recovery without redispatch");
+assert(route.includes('marked ? response("dispatch_resolution_pending", false, 202) : response("failed", false, 500)'), "the route never reports an unpersisted resolution-pending state");
+const existingReservationBranch = route.slice(
+  route.indexOf('if (session.state === "call_requested")'),
+  route.indexOf('if (session.state !== "zeya_finalized"'),
+);
+assert(!existingReservationBranch.includes("dispatchWorkerBrief"), "existing call_requested never invokes the provider");
+assert(!existingReservationBranch.includes("zeya_reset_public_experience_call_request"), "existing call_requested is never reset into a redispatchable state");
+assert(existingReservationBranch.includes("markDispatchResolutionPending"), "existing reservation is durably classified or fails closed");
+assert(route.indexOf("isNewPublicExperienceDispatchReservation(session.state, requested.data)") < route.indexOf("dispatchWorkerBrief(brief"), "provider invocation requires the exact reservation-acquired result");
 assert(route.includes("!result.providerCallId || !result.conversationId"), "incomplete provider identity never enters correlation_pending");
 assert(route.includes('["call_dispatched", "call_active", "reflection_ready"]'), "only durable dispatch states replay as success");
 assert(route.includes("session.phone_hash !== phoneHash"), "different-phone replay remains a conflict");
@@ -105,6 +122,52 @@ for (const signature of ["(TEXT,TEXT,TEXT)", "(TEXT,TEXT,UUID,TEXT)", "(TEXT,TEX
 }
 assert(migration.includes("l.business_id=v.business_id") && migration.includes("l.business_representation_id=v.business_representation_id") && migration.includes("l.canonical_version_id=v.canonical_version_id"), "tenant and canonical lineage remain exact");
 assert(!route.includes("console."), "route logs no phone, token, transcript, secret, or canonical context");
+
+assert(resolutionMigration.includes("CREATE FUNCTION public.zeya_mark_public_experience_dispatch_resolution_pending"));
+assert(!resolutionMigration.includes("CREATE OR REPLACE FUNCTION"), "the additive correction cannot replace an unknown function");
+assert(resolutionMigration.includes("SET search_path = ''"));
+assert(resolutionMigration.includes("auth.role() <> 'service_role'"));
+assert(resolutionMigration.includes("session_row.dispatch_id IS DISTINCT FROM p_dispatch_id"));
+assert(resolutionMigration.includes("session_row.phone_hash IS DISTINCT FROM p_phone_hash"));
+assert(resolutionMigration.includes("session_row.state IS DISTINCT FROM p_expected_state"));
+assert(resolutionMigration.includes("p_expected_state IS DISTINCT FROM 'call_requested'"));
+assert(resolutionMigration.includes("session_row.veya_voice_context_id IS NOT NULL"));
+assert(resolutionMigration.includes("session_row.provider_conversation_id IS NOT NULL"));
+assert(resolutionMigration.includes("session_row.provider_call_id IS NOT NULL"));
+assert(resolutionMigration.includes("set_config('zeya.public_experience_session_write', 'on', true)"));
+assert(resolutionMigration.includes("GRANT EXECUTE ON FUNCTION public.zeya_mark_public_experience_dispatch_resolution_pending(TEXT, TEXT, TEXT, TEXT)\n  TO service_role"));
+assert(!resolutionMigration.includes("raw_phone") && !resolutionMigration.includes("experience_token"));
+for (const check of ["session_schema_exact", "fifteen_state_constraint_exact", "phase_4b3_completion_rpcs_exact", "session_table_security_exact", "session_mutation_trigger_exact", "session_trigger_function_exact", "controlled_purge_compatible", "corrective_rpc_absent", "active_rows_compatible", "session_state_inventory"]) {
+  assert(resolutionPreflight.includes(check), `resolution-pending preflight includes ${check}`);
+}
+for (const inventory of ["call_requested_count", "call_correlation_pending_count", "dispatch_resolution_pending_count", "call_dispatched_count", "call_active_count", "terminal_outcome_count", "reflection_ready_count", "partial_provider_identity_count"]) {
+  assert(resolutionPreflight.includes(inventory), `resolution-pending preflight reports ${inventory}`);
+}
+assert(resolutionVerification.includes("resolution_pending_rpc_catalog_exact"));
+assert(resolutionVerification.includes("resolution_pending_rpc_body_exact"));
+assert(resolutionVerification.includes("session_table_privileges_unchanged"));
+assert(resolutionVerification.includes("named_overload_count = 1 AND exact_oid_count = 1 AND secure_count = 1"));
+assert(resolutionRollback.includes("unresolved dispatch reservations would be stranded"));
+assert(resolutionRollback.includes("security drift detected"));
+assert(resolutionRollback.includes("DROP FUNCTION public.zeya_mark_public_experience_dispatch_resolution_pending(TEXT, TEXT, TEXT, TEXT)"));
+assert(!resolutionRollback.includes("CASCADE"));
+
+let providerInvocations = 0;
+const replayModel = (state: "zeya_finalized" | "call_requested", persistenceAvailable: boolean) => {
+  const reservationResult = state === "zeya_finalized" ? "call_requested" : null;
+  if (isNewPublicExperienceDispatchReservation(state, reservationResult)) providerInvocations += 1;
+  if (state === "call_requested") return persistenceAvailable ? "dispatch_resolution_pending" : "failed";
+  return "provider_invoked";
+};
+assert(isNewPublicExperienceDispatchReservation("zeya_finalized", "call_requested"));
+assert(!isNewPublicExperienceDispatchReservation("call_requested", "call_requested"));
+assert(!isNewPublicExperienceDispatchReservation("zeya_finalized", "call_dispatched"));
+assert(!isNewPublicExperienceDispatchReservation("zeya_finalized", null));
+assert.equal(replayModel("zeya_finalized", true), "provider_invoked", "new reservation invokes the provider once");
+assert.equal(replayModel("call_requested", false), "failed", "corrective RPC failure fails closed");
+assert.equal(replayModel("call_requested", true), "dispatch_resolution_pending", "existing reservation is classified without redispatch");
+assert.equal(replayModel("call_requested", true), "dispatch_resolution_pending", "repeated replay remains idempotent");
+assert.equal(providerInvocations, 1, "replays invoke the provider at most once even when persistence was unavailable");
 
 console.log("Public Experience dispatch integrity static contract — PASS");
 }

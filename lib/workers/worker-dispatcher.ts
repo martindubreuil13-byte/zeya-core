@@ -97,12 +97,17 @@ export async function dispatchWorkerBrief(
       };
     }
     try {
+      if (options.representationSnapshot && options.representationSnapshot.tenantUserId !== owner.data.user_id) {
+        throw new Error("Representation snapshot owner mismatch");
+      }
       voiceContext = await assembleVoiceRepresentationContext({
         db: supabase,
-        tenantUserId: owner.data.user_id,
+        tenantUserId: options.representationSnapshot?.tenantUserId ?? owner.data.user_id,
         businessId,
         agent: { id: brief.workerName, type: brief.workerType, role: "outbound_representative" },
         provisionalMode: options.provisionalMode === true,
+        businessRepresentationId: options.representationSnapshot?.businessRepresentationId,
+        canonicalVersionId: options.representationSnapshot?.canonicalVersionId,
       });
       voiceContextId = crypto.randomUUID();
     } catch {

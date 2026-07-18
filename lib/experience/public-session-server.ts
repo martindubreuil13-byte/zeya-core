@@ -63,16 +63,24 @@ export function isExpired(session: Pick<PublicExperienceSessionRow, "expires_at"
 }
 
 export function publicSessionState(session: PublicExperienceSessionRow) {
-  if (isExpired(session)) return "expired";
+  switch (session.state) {
+    case "reflection_ready": return "reflection_ready";
+    case "call_failed":
+    case "call_unanswered":
+    case "call_rejected":
+    case "call_completed_without_transcript":
+    case "completion_processing_failed":
+    case "failed": return "call_failed";
+  }
+  if (isExpired(session) && !["call_requested","call_correlation_pending","dispatch_resolution_pending","call_dispatched","call_active"].includes(session.state)) return "expired";
   switch (session.state) {
     case "zeya_active": return "waiting_for_zeya";
     case "zeya_finalized": return "ready_for_phone";
     case "call_requested": return "call_requested";
     case "call_correlation_pending": return "correlation_pending";
+    case "dispatch_resolution_pending": return "resolution_pending";
     case "call_dispatched":
     case "call_active": return "call_in_progress";
-    case "reflection_ready": return "reflection_ready";
-    case "failed": return "failed";
-    default: return "failed";
+    default: return "call_failed";
   }
 }

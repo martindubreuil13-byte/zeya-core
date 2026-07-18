@@ -2,6 +2,7 @@
 // Create canonical representation version after approval
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { createRepresentationStateService } from '@/lib/representation/representation-service';
 import {
   assertVisibleBusinessRepresentation,
@@ -52,7 +53,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateVer
     await assertVisibleBusinessRepresentation(auth.supabase, body.businessRepresentationId);
     await assertVisibleProposalForRepresentation(auth.supabase, body.proposalId, body.businessRepresentationId);
 
-    const service = createRepresentationStateService(auth.supabase);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error('Canonical Version authority is unavailable');
+    }
+    const canonicalVersionDb = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    });
+    const service = createRepresentationStateService(auth.supabase, canonicalVersionDb);
 
     // Approve and create canonical version
     const result = await service.approveAndCreateCanonicalVersion(

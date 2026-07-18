@@ -7,7 +7,6 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
     const purge = await db.rpc('zeya_purge_business_representation', { p_business_representation_id: item.id, p_expected_business_id: item.businessId });
     if (purge.error) failures.push(`representation ${item.id}: ${purge.error.code}`);
     else {
-      const expectedLineageCount = registry.voiceLineages.filter(lineage => lineage.businessRepresentationId === item.id).length;
       const expectedOutputCount = registry.voiceOutputs.filter(output => output.businessRepresentationId === item.id).length;
       const expectedCandidateCount = registry.voiceCandidates.filter(candidate => candidate.businessRepresentationId === item.id).length;
       const expectedReviewCount = registry.conversationReviews.filter(row => row.businessRepresentationId === item.id).length;
@@ -17,10 +16,6 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
       if (deletedRows?.voice_conversation_candidates !== expectedCandidateCount) failures.push(`representation ${item.id}: candidate deletion count mismatch`);
       if (deletedRows?.conversation_candidate_review_decisions !== expectedReviewCount) failures.push(`representation ${item.id}: review deletion count mismatch`);
       if (deletedRows?.conversation_candidate_promotions !== expectedPromotionCount) failures.push(`representation ${item.id}: promotion deletion count mismatch`);
-      if (expectedLineageCount > 0) {
-        const deleted = (purge.data as { deleted?: { voice_representation_lineage?: number } } | null)?.deleted?.voice_representation_lineage;
-        if (deleted !== expectedLineageCount) failures.push(`representation ${item.id}: lineage deletion count mismatch`);
-      }
       const lineageIds = registry.voiceLineages.filter(lineage => lineage.businessRepresentationId === item.id).map(lineage => lineage.id);
       if (lineageIds.length > 0) {
         const remainingLineage = await db.from('voice_representation_lineage').select('voice_context_id').in('voice_context_id', lineageIds);

@@ -1,94 +1,30 @@
-// ElevenLabs webhook signature verification — HMAC-SHA256
+import crypto from "node:crypto";
 
-import crypto from "crypto";
+const MAX_SIGNATURE_AGE_SECONDS = 30 * 60;
 
-export function verifyElevenLabsSignature(
-  rawBody: string,
-  headerValue: string,
-  secret: string
-): boolean {
-  try {
-    // Parse header format: t=timestamp,v0=signature
-    const parts = headerValue.split(',');
-    let timestamp = '';
-    let signature = '';
-
-    for (const part of parts) {
-      const [key, value] = part.split('=');
-      if (key === 't') {
-        timestamp = value;
-      } else if (key === 'v0') {
-        signature = value;
-      }
-    }
-
-    if (!timestamp || !signature) {
-      console.error("[sig-verify] 🔴 Invalid signature header format", {
-        headerValue: headerValue.substring(0, 50),
-      });
-      return false;
-    }
-
-    // Validate timestamp is within 30 minutes
-    const timestampSeconds = parseInt(timestamp, 10);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const ageSeconds = nowSeconds - timestampSeconds;
-    const thirtyMinutesSeconds = 30 * 60;
-
-    if (ageSeconds > thirtyMinutesSeconds || ageSeconds < 0) {
-      console.error("[sig-verify] 🔴 Timestamp outside 30-minute window", {
-        timestamp,
-        ageSeconds,
-        maxAge: thirtyMinutesSeconds,
-      });
-      return false;
-    }
-
-    // Compute HMAC-SHA256 over "${timestamp}.${rawBody}"
-    const message = `${timestamp}.${rawBody}`;
-    const computed = crypto.createHmac("sha256", secret).update(message).digest("hex");
-
-    // Compare safely using timing-safe comparison
-    try {
-      const isMatch = crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(computed)
-      );
-
-      if (!isMatch) {
-        console.warn("[sig-verify] 🔴 Signature verification failed", {
-          provided: signature.substring(0, 16),
-          computed: computed.substring(0, 16),
-        });
-      }
-
-      return isMatch;
-    } catch (comparisonError) {
-      // timingSafeEqual throws if buffers are different lengths
-      console.error("[sig-verify] 🔴 Signature length mismatch", {
-        providedLength: signature.length,
-        computedLength: computed.length,
-      });
-      return false;
-    }
-  } catch (error) {
-    console.error("[sig-verify] 🔴 Exception during signature verification", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return false;
-  }
-}
-
-export function shouldVerifySignature(): boolean {
-  return typeof process.env.ELEVENLABS_WEBHOOK_SECRET === "string" && process.env.ELEVENLABS_WEBHOOK_SECRET.length > 0;
+export function verifyElevenLabsSignature(rawBody: string, headerValue: string, secret: string, nowMs = Date.now()): boolean {
+  const fields = new Map(headerValue.split(",").map((part) => {
+    const index = part.indexOf("=");
+    return index > 0 ? [part.slice(0, index).trim(), part.slice(index + 1).trim()] : ["", ""];
+  }));
+  const timestamp = fields.get("t") ?? "";
+  const signature = fields.get("v0") ?? "";
+  if (!/^\d{10,13}$/.test(timestamp) || !/^[0-9a-f]{64}$/i.test(signature)) return false;
+  const seconds = Number(timestamp.length === 13 ? Math.floor(Number(timestamp) / 1000) : timestamp);
+  const age = Math.floor(nowMs / 1000) - seconds;
+  if (!Number.isFinite(seconds) || age < 0 || age > MAX_SIGNATURE_AGE_SECONDS) return false;
+  const computed = crypto.createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(computed, "hex"));
 }
 
 export function getWebhookSecret(): string | null {
-  return process.env.ELEVENLABS_WEBHOOK_SECRET ?? null;
+  const value = process.env.ELEVENLABS_WEBHOOK_SECRET;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export function logSignatureWarning(isDevelopment: boolean) {
-  if (isDevelopment) {
-    console.warn("[webhook] ELEVENLABS_WEBHOOK_SECRET not configured. Skipping signature verification for development.");
-  }
+export function mayBypassElevenLabsSignature(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.ELEVENLABS_WEBHOOK_TEST_BYPASS === "true";
 }
+
+export function shouldVerifySignature():boolean{return !mayBypassElevenLabsSignature()}
+export function logSignatureWarning():void{/* compatibility no-op: production never warns and bypasses */}

@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useAuth } from "@/components/auth/auth-provider";
 import { usePublicExperienceVoiceConversation } from "@/hooks/voice/usePublicExperienceVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
-import { persistFollowUpLead } from "@/lib/leads/follow-up-lead-persistence";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
 import { analyzeConversationInsights } from "@/lib/experience/conversation-analyzer";
-import { PostCallReveal } from "@/components/experience/PostCallReveal";
+import { PublicExperienceReflection,type PublicExperienceReflectionData } from "@/components/experience/PublicExperienceReflection";
 import {
   acquirePublicExperienceAction,
   PublicExperienceHandoffError,
@@ -17,7 +15,6 @@ import {
   submitPublicExperienceHandoff,
 } from "@/lib/experience/public-handoff";
 import type { DispatchRecord } from "@/lib/dispatch/types";
-import type { BusinessInsights } from "@/types/experience";
 import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "waiting_for_call";
@@ -26,7 +23,6 @@ const PHONE_HANDOFF =
   "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
 
 export default function ExperiencePage() {
-  const { user } = useAuth();
   const voice = usePublicExperienceVoiceConversation();
   const {
     state: voiceState,
@@ -47,9 +43,8 @@ export default function ExperiencePage() {
     useState<VeyaDelegationStatus>("preparing_brief");
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
-  const [businessInsights, setBusinessInsights] = useState<BusinessInsights | null>(null);
-  const [callCompleted, setCallCompleted] = useState(false);
-  const [isShowingReveal, setIsShowingReveal] = useState(false);
+  const [durableCallStatus,setDurableCallStatus]=useState<string|null>(null);
+  const [reflection,setReflection]=useState<PublicExperienceReflectionData|null>(null);
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
@@ -65,12 +60,41 @@ export default function ExperiencePage() {
   const callRequested = delegationStatus === "call_requested"
     || delegationStatus === "correlation_pending"
     || delegationStatus === "dispatch_resolution_pending";
-  const showPostCallReveal = callRequested && isShowingReveal;
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [voiceTranscript]);
+
+  useEffect(()=>{
+    const token=experienceSession?.token;
+    if(phase!=="waiting_for_call"||!token||!callRequested)return;
+    let stopped=false,inFlight=false,timer:number|undefined;
+    const controller=new AbortController();
+    const poll=async()=>{
+      if(stopped||inFlight)return;
+      inFlight=true;
+      try{
+        const statusResponse=await fetch("/api/experience/session/status",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
+        if(stopped)return;
+        if(statusResponse.status===404){setDurableCallStatus("expired");stopped=true;return;}
+        if(statusResponse.ok){
+          const body=await statusResponse.json() as {status?:string};
+          if(body.status)setDurableCallStatus(body.status);
+          if(body.status==="reflection_ready"){
+            const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
+            if(stopped)return;
+            if(reflectionResponse.ok){const data=await reflectionResponse.json() as {reflection:PublicExperienceReflectionData};setReflection(data.reflection);stopped=true;}
+            return;
+          }
+          if(body.status==="call_failed"||body.status==="expired"){stopped=true;return;}
+        }
+      }catch{/* transient network errors are retried */}
+      finally{inFlight=false;if(!stopped)timer=window.setTimeout(poll,3000);}
+    };
+    void poll();
+    return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
+  },[callRequested,experienceSession?.token,phase]);
 
   // Keep the voice session alive until the handoff has actually been spoken,
   // then stop microphone capture before revealing phone collection.
@@ -318,7 +342,6 @@ export default function ExperiencePage() {
     const offer = userMessages[1]?.text.trim() || null;
     const buyer = userMessages[2]?.text.trim() || null;
     const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
-    setBusinessInsights({ ...analysis.insights, confidence: analysis.confidence });
 
     if (analysis.nameConfidence === "low" && analysis.extractedName) {
       setExtractedName(analysis.extractedName);
@@ -360,39 +383,6 @@ export default function ExperiencePage() {
       setNameConfirmation({ asking: false });
       setExtractedName(null);
       setPhase("collecting_phone");
-    }
-  };
-
-  const handleCallComplete = () => {
-    console.log("[Experience] User confirmed call is complete, preparing reveal...");
-    setCallCompleted(true);
-
-    // Wait 2 seconds before showing reveal (pause for breath)
-    setTimeout(() => {
-      console.log("[Experience] Showing reveal experience");
-      setIsShowingReveal(true);
-    }, 2000);
-  };
-
-  const handleFollowUpCapture = async (data: { name: string; email: string }) => {
-    try {
-      console.log("[Experience] Capturing follow-up lead");
-
-      await persistFollowUpLead(user?.id, {
-        name: data.name,
-        email: data.email,
-        phone: phoneNumber || undefined,
-        businessSummary: businessInsights
-          ? `${businessInsights.businessType || "Unknown"}: ${businessInsights.offer || "Unknown"}`
-          : undefined,
-        goal: businessInsights?.goal,
-        representationFit: businessInsights?.representationFit || "low",
-      });
-
-      console.log("[Experience] Follow-up lead captured successfully");
-    } catch (error) {
-      console.error("[Experience] Failed to capture follow-up lead", error);
-      throw error;
     }
   };
 
@@ -598,12 +588,15 @@ export default function ExperiencePage() {
 
       {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
-          {showPostCallReveal && businessInsights ? (
-            <PostCallReveal
-              insights={businessInsights}
-              onFollowUpCapture={handleFollowUpCapture}
-            />
-          ) : callRequested && !callCompleted ? (
+          {reflection ? (
+            <PublicExperienceReflection reflection={reflection}/>
+          ) : durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
+            <div className="w-full max-w-md text-center space-y-4">
+              <PresenceCore state="idle"/>
+              <p className="font-serif text-lg text-zeya-ivory">{durableCallStatus === "expired" ? "This Experience has expired." : "The call could not be completed."}</p>
+              <p className="text-sm text-zeya-taupe">No business Representation was changed.</p>
+            </div>
+          ) : callRequested ? (
             <div className="w-full max-w-md space-y-8">
               <div className="flex flex-col items-center text-center">
                 <PresenceCore state="idle" />
@@ -612,24 +605,17 @@ export default function ExperiencePage() {
                     className="font-serif text-lg text-zeya-ivory font-light"
                     style={{ letterSpacing: "0.06em" }}
                   >
-                    You're on the call with my agent.
+                    {durableCallStatus === "call_in_progress" ? "You're on the call with my agent." : "The call is being connected."}
                   </p>
                   <p
                     className="text-sm font-light text-zeya-taupe"
                     style={{ letterSpacing: "0.02em", lineHeight: "1.8" }}
                   >
-                    Take your time. When you're finished talking, click below to continue.
+                    Keep this page open. Zeya will return only after the provider confirms the call is complete.
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={handleCallComplete}
-                className="w-full border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 px-6 py-4 text-sm font-light transition-colors rounded"
-                style={{ letterSpacing: "0.08em" }}
-              >
-                My Call Is Complete
-              </button>
             </div>
           ) : (
             <div className="w-full max-w-md space-y-7">
@@ -709,53 +695,6 @@ export default function ExperiencePage() {
                   </span>
                 </div>
               </div>
-
-              {dispatchRecord && (
-                <div className="space-y-4 p-4 border border-zeya-taupe/20 rounded">
-                  <div className="space-y-2">
-                    <p
-                      className="text-xs text-zeya-taupe opacity-60"
-                      style={{ letterSpacing: "0.1em" }}
-                    >
-                      DISPATCH MONITOR
-                    </p>
-                    <div className="space-y-3 text-sm font-light">
-                      <div className="flex justify-between">
-                        <span className="text-zeya-taupe">ID</span>
-                        <span className="text-zeya-ivory opacity-70 font-mono text-xs">
-                          {dispatchRecord.dispatch_id.slice(0, 12)}...
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-zeya-taupe">Visitor</span>
-                        <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-zeya-taupe">Phone</span>
-                        <span className="text-zeya-ivory opacity-70">{dispatchRecord.payload.visitor.phone}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-zeya-taupe">Status</span>
-                        <span
-                          className="font-light"
-                          style={{
-                            color:
-                              dispatchRecord.status === "queued"
-                                ? "rgb(215, 193, 155)"
-                                : "rgb(204, 182, 142)",
-                          }}
-                        >
-                          {dispatchRecord.status.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-zeya-taupe/10 text-xs text-zeya-taupe opacity-40">
-                    <p>Ready for outbound execution</p>
-                  </div>
-                </div>
-              )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
