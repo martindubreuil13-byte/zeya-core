@@ -8,6 +8,7 @@ export type PromotionTarget = typeof promotionTargets[number];
 export type ReviewCandidate = {
   id: string;
   conversationOutputId: string;
+  sourceEvidenceId: string | null;
   candidateType: ConversationCandidateType;
   content: Record<string, unknown> & { summary?: string };
   speakerRole: ConversationSpeakerRole;
@@ -33,6 +34,7 @@ export type ReviewConversation = {
   status: string;
   trustLevel: "provider_attested" | "authenticated_client_relay" | "status_only";
   completedAt: string | null;
+  publicExperienceSessionId: string | null;
   transcript: Array<{ role: "customer" | "agent"; text: string }>;
   candidates: ReviewCandidate[];
 };

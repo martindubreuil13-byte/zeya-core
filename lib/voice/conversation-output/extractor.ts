@@ -21,6 +21,16 @@ A customer objection is evidence of perception, not proof that its content is tr
 Possible contradictions remain pending review and must only reference authorized element keys.
 Do not invent facts or include transcript text beyond the concise structured summary.`;
 
+export function sanitizeConversationCandidateSummary(value: string): string {
+  return value
+    .replace(/https?:\/\/\S+/gi, "[link]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[contact detail]")
+    .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, "[contact detail]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
 export function createOpenAIConversationExtractionModel(): ConversationExtractionModel {
   return async (input) => {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -55,6 +65,16 @@ export async function extractConversationCandidates(
   if (input.transcript.length === 0) throw new Error("Conversation transcript is empty");
   const candidates = validateCandidates(await model(input));
   for (const candidate of candidates) {
+    candidate.content = {
+      summary: sanitizeConversationCandidateSummary(candidate.content.summary),
+    };
+    candidate.rationale = sanitizeConversationCandidateSummary(candidate.rationale);
+    if (!candidate.content.summary) {
+      throw new Error("Candidate summary is empty after sanitization");
+    }
+    if (!candidate.rationale) {
+      throw new Error("Candidate rationale is empty after sanitization");
+    }
     if (candidate.speakerRole === "zeya" || candidate.speakerRole === "veya") {
       if (candidate.candidateType === "candidate_evidence") {
         throw new Error("Agent statements cannot become candidate Evidence");
