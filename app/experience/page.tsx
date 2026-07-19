@@ -10,6 +10,7 @@ import { analyzeConversationInsights } from "@/lib/experience/conversation-analy
 import { PublicExperienceReflection,type PublicExperienceReflectionData } from "@/components/experience/PublicExperienceReflection";
 import {
   acquirePublicExperienceAction,
+  normalizePublicExperiencePhone,
   PublicExperienceHandoffError,
   releasePublicExperienceAction,
   submitPublicExperienceHandoff,
@@ -246,17 +247,16 @@ export default function ExperiencePage() {
     offer: string | null,
     buyer: string | null,
   ) => {
+    const normalizedPhone = normalizePublicExperiencePhone(phoneNumber);
+    if (!normalizedPhone) return;
     if (handoffCompletedRef.current || !acquirePublicExperienceAction(handoffInFlightRef)) return;
 
     const token = experienceSession?.token ?? null;
-    const normalizedPhone = phoneNumber.trim();
     const transcriptEntries = voiceTranscript.map((entry) => ({ ...entry }));
     let succeeded = false;
 
     setIsSubmittingPhone(true);
-    setDelegationStatus("preparing_brief");
     setDelegationError(null);
-    setPhase("waiting_for_call");
 
     const dispatchPayload = {
       id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
@@ -294,6 +294,9 @@ export default function ExperiencePage() {
         name: finalName,
         business: offer,
         customer: buyer,
+      }, fetch, () => {
+        setDelegationStatus("dispatching_call");
+        setPhase("waiting_for_call");
       });
       succeeded = true;
       handoffCompletedRef.current = true;
@@ -329,8 +332,8 @@ export default function ExperiencePage() {
     e.preventDefault();
     if (handoffInFlightRef.current || handoffCompletedRef.current || !phoneNumber.trim()) return;
 
-    const normalizedPhone = phoneNumber.trim();
-    if (!normalizedPhone.startsWith("+")) {
+    const normalizedPhone = normalizePublicExperiencePhone(phoneNumber);
+    if (!normalizedPhone) {
       alert("I may be missing part of that number. Could you check it for me?");
       return;
     }

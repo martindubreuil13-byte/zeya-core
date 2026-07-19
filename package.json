@@ -30,6 +30,7 @@
     "test:public-experience-browser-contract": "npx tsx tests/integration/public-experience-browser-contract.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
+    "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",
     "test:public-experience-completion-deployed": "npx tsx tests/integration/public-experience-completion-deployed.test.ts",
     "test:public-experience-governed-learning-deployed:provenance": "npx tsx tests/integration/public-experience-governed-learning-deployed.test.ts --scenario provenance",
     "test:public-experience-governed-learning-deployed:frozen": "npx tsx tests/integration/public-experience-governed-learning-deployed.test.ts --scenario frozen",

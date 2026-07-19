@@ -35,6 +35,16 @@ export class PublicExperienceHandoffError extends Error {
 }
 
 type Request = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type Finalized = () => void;
+
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+export function normalizePublicExperiencePhone(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^\+[\d\s().-]+$/.test(trimmed)) return null;
+  const normalized = `+${trimmed.slice(1).replace(/[\s().-]/g, "")}`;
+  return E164.test(normalized) ? normalized : null;
+}
 
 export type PublicExperienceActionGuard = { current: boolean };
 
@@ -82,7 +92,15 @@ function finalizationError(status: number): PublicExperienceHandoffError {
 export async function submitPublicExperienceHandoff(
   input: PublicExperienceHandoffInput,
   request: Request = fetch,
+  onFinalized?: Finalized,
 ): Promise<{ snapshot: PublicExperienceHandoffSnapshot; dispatchStatus: "call_dispatched" | "correlation_pending" | "dispatch_resolution_pending" }> {
+  const normalizedPhone = normalizePublicExperiencePhone(input.phone);
+  if (!normalizedPhone) {
+    throw new PublicExperienceHandoffError(
+      "Enter a valid international phone number, including + and country code.",
+      "dispatch", null, false, false,
+    );
+  }
   let transcript: PublicExperienceTranscriptTurn[];
   try {
     transcript = normalizePublicExperienceTranscript(input.transcriptEntries);
@@ -106,7 +124,7 @@ export async function submitPublicExperienceHandoff(
   const snapshot: PublicExperienceHandoffSnapshot = Object.freeze({
     experienceToken: input.experienceToken,
     transcript: Object.freeze(transcript.map((turn) => Object.freeze({ ...turn }))),
-    phone: input.phone,
+    phone: normalizedPhone,
     name: input.name,
     business: input.business,
     customer: input.customer,
@@ -115,9 +133,10 @@ export async function submitPublicExperienceHandoff(
   const finalized = await request("/api/experience/session/finalize-zeya", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: snapshot.experienceToken, transcript: snapshot.transcript }),
+    body: JSON.stringify({ token: snapshot.experienceToken, transcript: snapshot.transcript, phoneCaptured: true }),
   });
   if (!finalized.ok) throw finalizationError(finalized.status);
+  onFinalized?.();
 
   const dispatched = await request("/api/experience/delegate-call", {
     method: "POST",

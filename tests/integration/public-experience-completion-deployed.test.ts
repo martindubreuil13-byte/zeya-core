@@ -111,6 +111,9 @@ async function createFinalizedSession(admin: SupabaseClient, registry: FixtureRe
   if (row.error) throw row.error;
   registry.registerPublicExperienceSession(row.data.id);
   registry.registerVoiceLineage(row.data.zeya_voice_context_id, tenant.representationId);
+  const incomplete = await json(server.baseUrl, "/api/experience/session/finalize-zeya", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, transcript: [{ role: "assistant", text: "What is the best phone number to reach you on?" }] }) });
+  assert.equal(incomplete.status, 409, "unanswered assistant phone question was finalized");
+  assert.equal(incomplete.body.error, "incomplete_handoff", "incomplete handoff error contract");
   const finalized = await json(server.baseUrl, "/api/experience/session/finalize-zeya", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, transcript: [{ role: "assistant", text: "What are you selling?" }, { role: "user", text: "A bounded completion test service." }] }) });
   assert.equal(finalized.status, 200, "Zeya finalization");
   const stored = await admin.from("public_experience_sessions").select("zeya_conversation_output_id").eq("id", row.data.id).single();

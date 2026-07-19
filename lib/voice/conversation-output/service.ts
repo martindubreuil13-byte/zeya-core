@@ -3,6 +3,13 @@ import { extractConversationCandidates, type ConversationExtractionModel } from 
 import { captureConversationOutput, finalizeConversationTranscript, storeConversationCandidates } from "./repository";
 import type { ConversationOutputCapture } from "./types";
 
+export class ConversationOutputProcessingError extends Error {
+  constructor(public readonly stage: "extraction" | "candidate_storage", cause: unknown) {
+    super(stage === "extraction" ? "Conversation extraction failed" : "Conversation candidate storage failed", { cause });
+    this.name = "ConversationOutputProcessingError";
+  }
+}
+
 export async function captureAndExtractConversationOutput(input: {
   db: SupabaseClient;
   capture: ConversationOutputCapture;
@@ -24,14 +31,24 @@ export async function captureAndExtractConversationOutput(input: {
   if (input.capture.transcript.length === 0) {
     return { conversationOutputId, candidateCount: 0 };
   }
-  const candidates = await extractConversationCandidates({
-    transcript: input.capture.transcript,
-    channel: input.capture.channel,
-    agentType: lineage.data.agent_type,
-    canonicalVersionId: lineage.data.canonical_version_id,
-    authorizedElementKeys: lineage.data.authorized_element_keys,
-    transcriptTrustLevel: input.capture.transcriptTrustLevel,
-  }, input.extractionModel);
-  const candidateCount = await storeConversationCandidates(input.db, conversationOutputId, candidates);
+  let candidates;
+  try {
+    candidates = await extractConversationCandidates({
+      transcript: input.capture.transcript,
+      channel: input.capture.channel,
+      agentType: lineage.data.agent_type,
+      canonicalVersionId: lineage.data.canonical_version_id,
+      authorizedElementKeys: lineage.data.authorized_element_keys,
+      transcriptTrustLevel: input.capture.transcriptTrustLevel,
+    }, input.extractionModel);
+  } catch (error) {
+    throw new ConversationOutputProcessingError("extraction", error);
+  }
+  let candidateCount: number;
+  try {
+    candidateCount = await storeConversationCandidates(input.db, conversationOutputId, candidates);
+  } catch (error) {
+    throw new ConversationOutputProcessingError("candidate_storage", error);
+  }
   return { conversationOutputId, candidateCount };
 }

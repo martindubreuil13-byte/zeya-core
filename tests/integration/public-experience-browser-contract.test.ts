@@ -14,6 +14,7 @@ import {
   acquirePublicExperienceAction,
   PublicExperienceHandoffError,
   releasePublicExperienceAction,
+  normalizePublicExperiencePhone,
   submitPublicExperienceHandoff,
 } from "../../lib/experience/public-handoff";
 import type { VoiceTranscriptEntry } from "../../types/voice";
@@ -77,12 +78,26 @@ const baseHandoff = {
   customer: "Founders",
 };
 
+assert.equal(normalizePublicExperiencePhone("+1 (555) 000-1111"), "+15550001111");
+assert.equal(normalizePublicExperiencePhone("15550001111"), null);
+assert.equal(normalizePublicExperiencePhone("+12-call-me"), null);
+
 async function runHandoffContractTests() {
 const guard = { current: false };
 assert.equal(acquirePublicExperienceAction(guard), true, "first action acquires synchronously");
 assert.equal(acquirePublicExperienceAction(guard), false, "rapid duplicate action is rejected");
 releasePublicExperienceAction(guard);
 assert.equal(acquirePublicExperienceAction(guard), true, "recoverable failure can release the guard");
+
+const incompleteCalls: string[] = [];
+await assert.rejects(
+  submitPublicExperienceHandoff({ ...baseHandoff, phone: "not-a-phone" }, async (url) => {
+    incompleteCalls.push(String(url));
+    return new Response(null, { status: 200 });
+  }),
+  (error) => error instanceof PublicExperienceHandoffError && error.status === null,
+);
+assert.deepEqual(incompleteCalls, [], "invalid phone must not finalize the conversation");
 
 for (const status of [400, 404, 409, 413, 500]) {
   const calls: string[] = [];
@@ -102,8 +117,10 @@ for (const status of [400, 404, 409, 413, 500]) {
 }
 
 const successfulCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+const lifecycle: string[] = [];
 const mutableInput = { ...baseHandoff, transcriptEntries: [...baseHandoff.transcriptEntries] };
 const result = await submitPublicExperienceHandoff(mutableInput, async (url, init) => {
+  lifecycle.push(String(url));
   successfulCalls.push({ url: String(url), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
   mutableInput.phone = "+15559999999";
   mutableInput.transcriptEntries.push(entry("late", "user", "Late mutation"));
@@ -111,13 +128,16 @@ const result = await submitPublicExperienceHandoff(mutableInput, async (url, ini
     JSON.stringify(String(url).includes("finalize-zeya") ? { status: "ready_for_phone" } : { success: true, status: "call_dispatched" }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
-});
+}, () => lifecycle.push("finalized"));
 assert.equal(successfulCalls.length, 2, "exact replay success proceeds to one dispatch");
 assert.deepEqual(successfulCalls.map((call) => call.url), [
   "/api/experience/session/finalize-zeya",
   "/api/experience/delegate-call",
 ]);
 assert.equal(successfulCalls[1]?.body.phone, "+15550001111", "dispatch uses stable phone snapshot");
+assert.equal(successfulCalls[0]?.body.phoneCaptured, true, "finalization proves separate phone capture without sending the phone");
+assert(!("phone" in successfulCalls[0]!.body), "phone is excluded from governed transcript finalization");
+assert.deepEqual(lifecycle, ["/api/experience/session/finalize-zeya", "finalized", "/api/experience/delegate-call"], "UI advances only after finalization succeeds");
 assert(!JSON.stringify(result.snapshot.transcript).includes("Late mutation"), "transcript snapshot is stable");
 assert.equal(result.dispatchStatus, "call_dispatched");
 

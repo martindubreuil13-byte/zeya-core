@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { captureAndExtractConversationOutput } from "@/lib/voice/conversation-output/service";
+import { captureAndExtractConversationOutput, ConversationOutputProcessingError } from "@/lib/voice/conversation-output/service";
 import type { ConversationTranscriptTurn } from "@/lib/voice/conversation-output/types";
 import {
   createExperienceServiceClient, findExperienceSession, isExpired, isPlausibleExperienceToken,
@@ -7,7 +7,7 @@ import {
 } from "@/lib/experience/public-session-server";
 
 export async function POST(req: NextRequest) {
-  let body: { token?: unknown; transcript?: unknown };
+  let body: { token?: unknown; transcript?: unknown; phoneCaptured?: unknown };
   try { body = await req.json() as typeof body; } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
   if (!isPlausibleExperienceToken(body.token) || !Array.isArray(body.transcript) || body.transcript.length === 0 || body.transcript.length > PUBLIC_EXPERIENCE_MAX_TURNS) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
     transcript.push({ role: value.role === "user" ? "customer" : "agent", text: value.text.trim() });
   }
   if (total > PUBLIC_EXPERIENCE_MAX_TRANSCRIPT_CHARS) return NextResponse.json({ error: "Invalid request." }, { status: 413 });
+  if (transcript.at(-1)?.role === "agent" && body.phoneCaptured !== true) {
+    return NextResponse.json({ error: "incomplete_handoff", message: "Provide a valid phone number before finalizing the Experience." }, { status: 409 });
+  }
 
   try {
     const db = createExperienceServiceClient();
@@ -99,9 +102,23 @@ export async function POST(req: NextRequest) {
     if (finalized.error) throw new Error("finalization failed");
     return NextResponse.json({ status: "ready_for_phone" });
   } catch (error) {
-
-
+    if (error instanceof ConversationOutputProcessingError) {
+      console.error("[public-experience] Zeya conversation processing failed", {
+        operation: "finalize_zeya",
+        stage: error.stage,
+        errorName: error.cause instanceof Error ? error.cause.name : "UnknownError",
+      });
+      return NextResponse.json(
+        { error: error.stage === "extraction" ? "conversation_extraction_failed" : "candidate_storage_failed", message: "The conversation could not be processed. Please try again." },
+        { status: error.stage === "extraction" ? 502 : 500 },
+      );
+    }
     const conflict = error instanceof Error && error.message.includes("conflict");
+    console.error("[public-experience] Zeya finalization failed", {
+      operation: "finalize_zeya",
+      stage: "finalization",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
     return NextResponse.json(
       { error: conflict ? "Experience session conflict." : "The conversation could not be finalized." },
       { status: conflict ? 409 : 500 },
