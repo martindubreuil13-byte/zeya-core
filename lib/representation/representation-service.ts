@@ -166,10 +166,8 @@ export class RepresentationStateService {
     });
 
     // CRITICAL: Do NOT call pointElementsToVersion() here.
-    // The RPC already updated business_representations.current_version_id atomically.
-    // A separate call would break the atomic window by re-updating the pointer outside
-    // the transaction. Element value pointers (representation_elements.current_value_version_id)
-    // are metadata and not part of the critical consistency guarantees.
+    // zeya_create_canonical_version_atomic updates both the Business Representation
+    // current-Version pointer and matching Element current-value pointers in the same transaction.
 
     // Step 4: Calculate and store confidence assessment
     const confidenceAssessment = await this.calculateConfidence(

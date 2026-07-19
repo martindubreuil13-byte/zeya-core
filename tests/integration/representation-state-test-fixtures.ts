@@ -13,6 +13,7 @@ export class FixtureRegistry {
   readonly voiceOutputs:VoiceOutputFixture[]=[]; readonly voiceCandidates:VoiceCandidateFixture[]=[];
   readonly conversationReviews:Array<{id:string;businessRepresentationId:string}>=[];
   readonly conversationPromotions:Array<{id:string;businessRepresentationId:string}>=[];
+  readonly conversationCanonicalizations:Array<{id:string;businessRepresentationId:string}>=[];
   readonly publicExperienceSessionIds:string[]=[]; readonly webhookReceiptIds:string[]=[]; readonly missionIds:string[]=[];
   constructor(readonly runId=crypto.randomUUID()){}
   get recoveryFile(){return join(process.cwd(),'.test-artifacts',`representation-${this.runId}.json`)}
@@ -23,6 +24,7 @@ export class FixtureRegistry {
   registerVoiceCandidate(id:string,businessRepresentationId:string){this.voiceCandidates.push({id,businessRepresentationId})}
   registerConversationReview(id:string,businessRepresentationId:string){if(!this.conversationReviews.some(item=>item.id===id))this.conversationReviews.push({id,businessRepresentationId})}
   registerConversationPromotion(id:string,businessRepresentationId:string){if(!this.conversationPromotions.some(item=>item.id===id))this.conversationPromotions.push({id,businessRepresentationId})}
+  registerConversationCanonicalization(id:string,businessRepresentationId:string){if(!this.conversationCanonicalizations.some(item=>item.id===id))this.conversationCanonicalizations.push({id,businessRepresentationId})}
   registerPublicExperienceSession(id:string){if(!this.publicExperienceSessionIds.includes(id))this.publicExperienceSessionIds.push(id)}
   registerWebhookReceipt(id:string){if(!this.webhookReceiptIds.includes(id))this.webhookReceiptIds.push(id)}
   registerMission(id:string){if(!this.missionIds.includes(id))this.missionIds.push(id)}

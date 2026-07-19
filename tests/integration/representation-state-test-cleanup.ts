@@ -11,11 +11,13 @@ export async function cleanupFixtures(db: SupabaseClient, registry: FixtureRegis
       const expectedCandidateCount = registry.voiceCandidates.filter(candidate => candidate.businessRepresentationId === item.id).length;
       const expectedReviewCount = registry.conversationReviews.filter(row => row.businessRepresentationId === item.id).length;
       const expectedPromotionCount = registry.conversationPromotions.filter(row => row.businessRepresentationId === item.id).length;
+      const expectedCanonicalizationCount = registry.conversationCanonicalizations.filter(row => row.businessRepresentationId === item.id).length;
       const deletedRows = (purge.data as { deleted?: Record<string, number> } | null)?.deleted;
       if (deletedRows?.voice_conversation_outputs !== expectedOutputCount) failures.push(`representation ${item.id}: output deletion count mismatch`);
       if (deletedRows?.voice_conversation_candidates !== expectedCandidateCount) failures.push(`representation ${item.id}: candidate deletion count mismatch`);
       if (deletedRows?.conversation_candidate_review_decisions !== expectedReviewCount) failures.push(`representation ${item.id}: review deletion count mismatch`);
       if (deletedRows?.conversation_candidate_promotions !== expectedPromotionCount) failures.push(`representation ${item.id}: promotion deletion count mismatch`);
+      if (deletedRows?.conversation_candidate_canonicalizations !== expectedCanonicalizationCount) failures.push(`representation ${item.id}: canonicalization deletion count mismatch`);
       const lineageIds = registry.voiceLineages.filter(lineage => lineage.businessRepresentationId === item.id).map(lineage => lineage.id);
       if (lineageIds.length > 0) {
         const remainingLineage = await db.from('voice_representation_lineage').select('voice_context_id').in('voice_context_id', lineageIds);

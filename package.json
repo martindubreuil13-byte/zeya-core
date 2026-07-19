@@ -14,6 +14,8 @@
     "test:voice-representation": "npx tsx tests/integration/voice-representation-context.test.ts",
     "test:voice-candidate-promotion-core": "npx tsx tests/integration/voice-candidate-promotion-core-static.test.ts",
     "test:voice-candidate-promotion-wrapper-compatibility": "npx tsx tests/integration/voice-candidate-promotion-wrapper-compatibility.test.ts",
+    "test:voice-candidate-atomic-canonicalization": "npx tsx tests/integration/voice-candidate-atomic-canonicalization-static.test.ts",
+    "test:voice-candidate-atomic-canonicalization-deployed": "npx tsx tests/integration/voice-candidate-atomic-canonicalization-deployed.test.ts",
     "test:voice-lineage-authorization": "npx tsx tests/integration/voice-lineage-authorization.test.ts",
     "test:voice-conversation-extraction": "npx tsx tests/integration/voice-conversation-extraction.test.ts",
     "test:voice-conversation-migration": "npx tsx tests/integration/voice-conversation-migration-static.test.ts",
