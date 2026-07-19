@@ -77,7 +77,7 @@ export async function processElevenLabsWebhook(input: unknown,payloadHashInput?:
       transcript:event.transcript.map(turn=>({role:turn.role==="user"?"customer":"agent",text:turn.message,startedAtMs:turn.timestamp})),
       transcriptStatus:"finalized",conversationStatus:"done",completionReason:"provider_completed",safeMetadata:{turnCount:event.transcript.length},
     },extractionModel:process.env.PUBLIC_EXPERIENCE_TEST_MODE==="true"
-      ? async()=>[{candidateType:"customer_need",content:{summary:"A provider-attested customer need requires founder review."},speakerRole:"customer",statementKind:"assertion",sourceReference:{turnIndexes:[Math.max(0,event.transcript.length-1)]},relevantElementKeys:[],confidence:0.8,rationale:"Deterministic deployed integration fixture."}]
+      ? async()=>[{candidateType:"customer_need",content:{summary:"A provider-attested customer need requires founder review."},speakerRole:"customer",statementKind:"assertion",sourceReference:{turnIndexes:[Math.max(0,event.transcript.length-1)]},relevantElementKeys:process.env.PUBLIC_EXPERIENCE_TEST_ELEMENT_KEY?[process.env.PUBLIC_EXPERIENCE_TEST_ELEMENT_KEY]:[],confidence:0.8,rationale:"Deterministic deployed integration fixture."}]
       : undefined});
     const completion=await db.rpc("zeya_complete_public_experience_call",{p_veya_voice_context_id:lineage.data.voice_context_id,p_conversation_output_id:output.conversationOutputId});
     if(completion.error||completion.data!=="reflection_ready")throw new Error("public_completion_failed");

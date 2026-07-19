@@ -23,6 +23,8 @@
     "test:conversation-review-static": "npx tsx tests/integration/conversation-review-migration-static.test.ts",
     "test:conversation-review-source-reference": "npx tsx tests/integration/conversation-review-source-reference.test.ts",
     "test:conversation-review-deployed": "npx tsx tests/integration/conversation-review-deployed.test.ts",
+    "test:voice-live-learning-static": "npx tsx tests/integration/voice-live-learning-static.test.ts",
+    "test:voice-live-learning-deployed": "npx tsx tests/integration/voice-live-learning-deployed.test.ts",
     "test:public-experience-foundation": "npx tsx tests/integration/public-experience-foundation-static.test.ts && npx tsx tests/integration/public-experience-provisioning.test.ts",
     "test:public-experience-foundation-deployed": "npx tsx tests/integration/public-experience-foundation-deployed.test.ts",
     "test:public-experience-browser-contract": "npx tsx tests/integration/public-experience-browser-contract.test.ts",

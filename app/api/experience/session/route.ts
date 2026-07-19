@@ -9,6 +9,11 @@ import {
 
 const OPENAI_REALTIME_SESSION_URL = process.env.OPENAI_REALTIME_SESSION_URL ?? "https://api.openai.com/v1/realtime/client_secrets";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PUBLIC_EXPERIENCE_INSTRUCTIONS = `Follow the public Experience's client-provided beat instructions exactly. Keep responses concise and do not expose internal metadata.`;
+
+export function buildPublicExperienceInstructions(governedContext: string): string {
+  return `${PUBLIC_EXPERIENCE_INSTRUCTIONS}\n\n--- GOVERNED REPRESENTATION CONTEXT ---\n${governedContext}`;
+}
 
 export async function POST() {
   const businessId = process.env.ZEYA_EXPERIENCE_BUSINESS_ID?.trim();
@@ -63,6 +68,7 @@ export async function POST() {
       body: JSON.stringify({ session: {
         type: "realtime",
         model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime",
+        instructions: buildPublicExperienceInstructions(voiceContext.systemContext),
         audio: {
           input: { turn_detection: { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 500, create_response: false, interrupt_response: false }, transcription: { model: "gpt-4o-mini-transcribe" } },
           output: { voice: process.env.OPENAI_REALTIME_VOICE ?? "sage" },

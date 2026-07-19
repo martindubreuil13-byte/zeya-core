@@ -1,7 +1,73 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { PromotionTarget, ReviewConversation, ReviewDecision } from "./types";
 
 type Row = Record<string, unknown>;
+
+export type CanonicalizeConversationCandidateInput = {
+  actorUserId: string;
+  candidateId: string;
+  requestKey: string;
+  confirmedContent: { statement: string; elementKey: string };
+  reason: string;
+  relatedElementId: string;
+  elementValues: Record<string, { value: string }>;
+  overallConfidenceScore: number;
+  approvalReason: string;
+};
+
+export type CanonicalizeConversationCandidateResult = {
+  reviewDecisionId: string;
+  promotionId: string;
+  proposalId: string;
+  approvalDecisionId: string;
+  baselineCanonicalVersionId: string;
+  canonicalVersionId: string;
+  canonicalVersionNumber: number;
+  confidenceAssessmentId: string;
+  canonicalizationId: string;
+  idempotent: boolean;
+};
+
+export class ConversationReviewRepositoryError extends Error {
+  readonly code: string;
+  readonly operation: string;
+
+  constructor(operation: string, code: string, message: string) {
+    super(message);
+    this.name = "ConversationReviewRepositoryError";
+    this.code = code;
+    this.operation = operation;
+  }
+}
+
+function createConversationReviewServiceClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new ConversationReviewRepositoryError("canonicalizeConversationCandidate", "CONFIGURATION", "Conversation canonicalization is unavailable");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+export async function canonicalizeConversationCandidate(input: CanonicalizeConversationCandidateInput): Promise<CanonicalizeConversationCandidateResult> {
+  const db = createConversationReviewServiceClient();
+  const { data, error } = await db.rpc("zeya_promote_voice_candidate_to_canonical", {
+    p_actor_user_id: input.actorUserId,
+    p_candidate_id: input.candidateId,
+    p_request_key: input.requestKey,
+    p_confirmed_content: input.confirmedContent,
+    p_reason: input.reason,
+    p_related_element_id: input.relatedElementId,
+    p_element_values: input.elementValues,
+    p_overall_confidence_score: input.overallConfidenceScore,
+    p_approval_reason: input.approvalReason,
+  });
+  if (error) {
+    const safeMessage = error.code === "22023" && error.message === "canonical baseline changed"
+      ? "canonical baseline changed"
+      : "Conversation canonicalization failed";
+    throw new ConversationReviewRepositoryError("canonicalizeConversationCandidate", error.code ?? "UNKNOWN", safeMessage);
+  }
+  return data as CanonicalizeConversationCandidateResult;
+}
 
 export async function listReviewConversations(db: SupabaseClient, businessId: string): Promise<ReviewConversation[]> {
   const { data: outputs, error } = await db.from("voice_conversation_outputs")

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { loadEnvConfig } from "@next/env";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { startTestServer, type TestServer } from "./representation-state-test-server";
@@ -8,6 +9,7 @@ import { cleanupFixtures } from "./representation-state-test-cleanup";
 import { createExperienceToken, hashExperiencePhone, hashExperienceToken } from "../../lib/experience/public-session-server";
 import { saveVoiceRepresentationLineage, attachVoiceProviderIdentifiers } from "../../lib/voice/persistence/representation-lineage-repository";
 import { captureAndExtractConversationOutput } from "../../lib/voice/conversation-output/service";
+import { assembleVoiceRepresentationContext, buildVoiceProviderVariables } from "../../lib/voice/representation-context";
 
 loadEnvConfig(process.cwd());
 
@@ -232,8 +234,25 @@ async function main() {
   process.env.PUBLIC_EXPERIENCE_TEST_MODE = "true";
   process.env.ELEVENLABS_WEBHOOK_SECRET = webhookSecret;
   let server: TestServer | null = null;
+  let realtimeMock: HttpServer | null = null;
+  const realtimeRequests: Array<Record<string, unknown>> = [];
   let cleanupPassed = false;
   try {
+    if (process.env.PUBLIC_EXPERIENCE_LIVE_LEARNING_TEST === "true") {
+      realtimeMock = createHttpServer((request, response) => {
+        let raw = "";
+        request.on("data", chunk => { raw += String(chunk); });
+        request.on("end", () => {
+          try { realtimeRequests.push(JSON.parse(raw) as Record<string, unknown>); } catch { /* assertion below reports missing payload */ }
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ value: `mock_realtime_${crypto.randomUUID()}` }));
+        });
+      });
+      await new Promise<void>((resolve, reject) => { realtimeMock!.once("error", reject); realtimeMock!.listen(0, "127.0.0.1", resolve); });
+      const address = realtimeMock.address();
+      assert(address && typeof address !== "string", "realtime mock address unavailable");
+      process.env.OPENAI_REALTIME_SESSION_URL = `http://127.0.0.1:${address.port}/v1/realtime/client_secrets`;
+    }
     const identityA = await createTenantIdentity(admin, registry, "a");
     const identityB = await createTenantIdentity(admin, registry, "b");
     server = await startTestServer({ envOverrides: { ZEYA_EXPERIENCE_BUSINESS_ID: identityA.businessId }, allowExternal: false });
@@ -241,6 +260,7 @@ async function main() {
     const tenantA = await createTenant(admin, registry, server.baseUrl, "a", identityA);
     const tenantB = await createTenant(admin, registry, server.baseUrl, "b", identityB);
     const canonicalBeforeA = (await admin.from("business_representations").select("current_version_id").eq("id", tenantA.representationId).single()).data!.current_version_id;
+    let canonicalExpectedA = canonicalBeforeA;
     const canonicalBeforeB = (await admin.from("business_representations").select("current_version_id").eq("id", tenantB.representationId).single()).data!.current_version_id;
 
     const receiptSession = await createFinalizedSession(admin, registry, server, tenantA);
@@ -361,11 +381,87 @@ async function main() {
     console.log("Governed candidate creation ............ PASS");
     console.log("Canonical state unchanged .............. PASS");
 
+    if (process.env.PUBLIC_EXPERIENCE_LIVE_LEARNING_TEST === "true") {
+      const approvedStatement = "Founder-approved live learning knowledge";
+      const requestKey = crypto.randomUUID();
+      const staleVoiceContextId = crypto.randomUUID();
+      await saveVoiceRepresentationLineage({ db: admin, voiceContextId: staleVoiceContextId, workerBriefId: `stale-${registry.runId}`, missionId: `stale-${registry.runId}`, conversationId: `stale-${registry.runId}`, lineage: { tenantUserId: tenantA.userId, businessId: tenantA.businessId, businessRepresentationId: tenantA.representationId, canonicalVersionId: canonicalBeforeA, generatedAt: new Date().toISOString(), authorizedElementKeys: ["offer"], provisionalMode: false, agentId: "zeya-stale-test", agentType: "ZEYA", agentRole: "test", contextSchemaVersion: "1.0", promptAssemblyVersion: "1.0" } });
+      registry.registerVoiceLineage(staleVoiceContextId, tenantA.representationId);
+      const staleOutput = await captureAndExtractConversationOutput({ db: admin, capture: { voiceContextId: staleVoiceContextId, conversationId: `stale-${registry.runId}`, provider: "openai_realtime", channel: "zeya_realtime", captureSource: "authenticated_client_relay", transcriptTrustLevel: "authenticated_client_relay", providerAttested: false, submittedBy: tenantA.userId, completedAt: new Date().toISOString(), transcript: [{ role: "customer", text: "Stale baseline candidate" }], transcriptStatus: "finalized", conversationStatus: "completed", completionReason: "test" }, extractionModel: async () => [{ candidateType: "possible_representation_gap", content: { summary: "Stale baseline candidate" }, speakerRole: "customer", statementKind: "assertion", sourceReference: { turnIndexes: [0] }, relevantElementKeys: ["offer"], confidence: 0.8, rationale: "Deterministic stale route fixture" }] });
+      registry.registerVoiceOutput(staleOutput.conversationOutputId, tenantA.representationId);
+      const staleCandidateQuery = await admin.from("voice_conversation_candidates").select("id").eq("conversation_output_id", staleOutput.conversationOutputId).single();
+      if (staleCandidateQuery.error) throw staleCandidateQuery.error;
+      registry.registerVoiceCandidate(staleCandidateQuery.data.id, tenantA.representationId);
+      const canonicalPayload = {
+        action: "canonicalize", candidateId: governedCandidate.id, requestKey,
+        statement: approvedStatement, reason: "Founder confirmed the completed call",
+        approvalReason: "Approved for the canonical public Experience",
+        relatedElementId: (await admin.from("representation_elements").select("id").eq("business_representation_id", tenantA.representationId).eq("element_key", "offer").single()).data?.id,
+        elementKey: "offer", elementValues: { offer: { value: approvedStatement } }, overallConfidenceScore: 88,
+      };
+      const unauthenticated = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(canonicalPayload) });
+      assert.equal(unauthenticated.status, 401, "canonicalization accepted without authentication");
+      const malformed = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` }, body: JSON.stringify({ ...canonicalPayload, requestKey: "invalid" }) });
+      assert.equal(malformed.status, 400, "malformed canonicalization accepted");
+      const foreign = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantB.token}` }, body: JSON.stringify(canonicalPayload) });
+      assert.equal(foreign.status, 404, "foreign owner canonicalized Experience candidate");
+      await stopOwnedServer(server);
+      currentTestServer = null;
+      const disabledServer = await startTestServer({ envOverrides: { ZEYA_EXPERIENCE_BUSINESS_ID: tenantA.businessId, ZEYA_VOICE_LEARNING_ENABLED: "false", OPENAI_REALTIME_SESSION_URL: process.env.OPENAI_REALTIME_SESSION_URL ?? "" }, allowExternal: false });
+      try {
+        const disabled = await json(disabledServer.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` }, body: JSON.stringify(canonicalPayload) });
+        assert.equal(disabled.status, 404, "disabled canonicalization action remained available");
+      } finally { await disabledServer.stop(); }
+      server = await startTestServer({ envOverrides: { ZEYA_EXPERIENCE_BUSINESS_ID: tenantA.businessId, ZEYA_VOICE_LEARNING_ENABLED: "true", OPENAI_REALTIME_SESSION_URL: process.env.OPENAI_REALTIME_SESSION_URL ?? "" }, allowExternal: false });
+      currentTestServer = server;
+      const canonicalized = await json(server.baseUrl, "/api/voice/conversation-review", {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` },
+        body: JSON.stringify(canonicalPayload),
+      });
+      assert.equal(canonicalized.status, 201, `live-learning route failed: ${canonicalized.raw}`);
+      const learned = canonicalized.body.data as Record<string, unknown>;
+      for (const key of ["reviewDecisionId", "promotionId", "proposalId", "approvalDecisionId", "canonicalVersionId", "confidenceAssessmentId", "canonicalizationId"]) assert(typeof learned[key] === "string", `canonicalization result missing ${key}`);
+      registry.registerConversationReview(String(learned.reviewDecisionId), tenantA.representationId);
+      registry.registerConversationPromotion(String(learned.promotionId), tenantA.representationId);
+      registry.registerProposal(String(learned.proposalId)); registry.registerApproval(String(learned.approvalDecisionId));
+      registry.registerVersion(String(learned.canonicalVersionId)); registry.registerConfidenceAssessment(String(learned.confidenceAssessmentId));
+      registry.registerConversationCanonicalization(String(learned.canonicalizationId), tenantA.representationId);
+      canonicalExpectedA = String(learned.canonicalVersionId);
+      assert.equal((await admin.from("business_representations").select("current_version_id").eq("id", tenantA.representationId).single()).data?.current_version_id, canonicalExpectedA, "canonical pointer did not advance");
+      const refreshed = await assembleVoiceRepresentationContext({ db: admin, tenantUserId: tenantA.userId, businessId: tenantA.businessId, agent: { id: "veya-live-learning-b", type: "CALLER", role: "outbound_representative" }, provisionalMode: false });
+      assert.equal(refreshed.lineage.canonicalVersionId, canonicalExpectedA, "Conversation B context uses old Version");
+      assert(Object.values(refreshed.claims).some(value => value === approvedStatement || (typeof value === "object" && value !== null && (value as Record<string, unknown>).value === approvedStatement)), "approved knowledge absent from claims");
+      assert(refreshed.systemContext.includes(approvedStatement), "approved knowledge absent from systemContext");
+      const conversationBVoiceContextId = crypto.randomUUID();
+      await saveVoiceRepresentationLineage({ db: admin, voiceContextId: conversationBVoiceContextId, workerBriefId: `live-learning-b-${registry.runId}`, missionId: `live-learning-b-${registry.runId}`, conversationId: `live-learning-b-${registry.runId}`, lineage: refreshed.lineage });
+      registry.registerVoiceLineage(conversationBVoiceContextId, tenantA.representationId);
+      const conversationB = await admin.from("voice_representation_lineage").select("canonical_version_id").eq("voice_context_id", conversationBVoiceContextId).single();
+      assert.equal(conversationB.data?.canonical_version_id, canonicalExpectedA, "Conversation B lineage uses old Version");
+      const providerVariables = buildVoiceProviderVariables({ context: refreshed, targetName: "Live learning prospect", targetPhone: "+15550001111", objective: "live learning proof" });
+      assert(String(providerVariables.authorizedBusinessContext).includes(approvedStatement), "provider variables omit approved knowledge");
+      assert.equal(success.canonicalVersionId, canonicalBeforeA, "Conversation A frozen Version changed");
+      const instructionsBefore = String(((realtimeRequests[0]?.session as Record<string, unknown> | undefined)?.instructions) ?? "");
+      assert(instructionsBefore.includes("--- GOVERNED REPRESENTATION CONTEXT ---") && !instructionsBefore.includes(approvedStatement), "Conversation A realtime instructions were not frozen");
+      const realtimeCountBeforeB = realtimeRequests.length;
+      await createFinalizedSession(admin, registry, server, tenantA);
+      const instructionsForB = String(((realtimeRequests.at(-1)?.session as Record<string, unknown> | undefined)?.instructions) ?? "");
+      assert(realtimeRequests.length === realtimeCountBeforeB + 1 && instructionsForB.includes("--- GOVERNED REPRESENTATION CONTEXT ---") && instructionsForB.includes(approvedStatement), "new public Zeya session omitted governed canonical context");
+      const replay = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` }, body: JSON.stringify(canonicalPayload) });
+      assert.equal(replay.status, 201); assert.equal((replay.body.data as Record<string, unknown>).canonicalizationId, learned.canonicalizationId); assert.equal((replay.body.data as Record<string, unknown>).idempotent, true);
+      const changed = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` }, body: JSON.stringify({ ...canonicalPayload, statement: "Changed replay", elementValues: { offer: { value: "Changed replay" } } }) });
+      assert.equal(changed.status, 409, "changed canonicalization payload did not conflict");
+      const stale = await json(server.baseUrl, "/api/voice/conversation-review", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${tenantA.token}` }, body: JSON.stringify({ ...canonicalPayload, candidateId: staleCandidateQuery.data.id, requestKey: crypto.randomUUID() }) });
+      assert.equal(stale.status, 409); assert.equal(stale.body.error, "canonical_baseline_changed");
+      console.log(`LIVE_LEARNING_PROOF ${JSON.stringify({ conversationOutputId: storedSuccess.data.veya_conversation_output_id, candidateId: governedCandidate.id, reviewDecisionId: learned.reviewDecisionId, promotionId: learned.promotionId, proposalId: learned.proposalId, approvalDecisionId: learned.approvalDecisionId, oldVersionId: canonicalBeforeA, newVersionId: learned.canonicalVersionId, confidenceAssessmentId: learned.confidenceAssessmentId, canonicalizationId: learned.canonicalizationId, conversationBVoiceContextId })}`);
+      console.log("Phase 5B-C deployed vertical slice ...... PASS");
+    }
+
     const expiringToken = createExperienceToken();
     const expiringZeyaVoice = crypto.randomUUID();
     const expiringZeyaConversation = `public_zeya_${expiringZeyaVoice}`;
     const expiresAt = new Date(Date.now() + 4_000).toISOString();
-    const expiringCreate = await admin.rpc("zeya_create_public_experience_session", { p_token_hash: hashExperienceToken(expiringToken), p_expires_at: expiresAt, p_voice_context_id: expiringZeyaVoice, p_worker_brief_id: `expiry_zeya_${crypto.randomUUID()}`, p_conversation_id: expiringZeyaConversation, p_tenant_user_id: tenantA.userId, p_business_id: tenantA.businessId, p_business_representation_id: tenantA.representationId, p_canonical_version_id: tenantA.versionId, p_context_generated_at: new Date().toISOString(), p_authorized_element_keys: ["offer"], p_agent_id: "zeya-expiry", p_context_schema_version: "1.0", p_prompt_assembly_version: "1.0" });
+    const expiringCreate = await admin.rpc("zeya_create_public_experience_session", { p_token_hash: hashExperienceToken(expiringToken), p_expires_at: expiresAt, p_voice_context_id: expiringZeyaVoice, p_worker_brief_id: `expiry_zeya_${crypto.randomUUID()}`, p_conversation_id: expiringZeyaConversation, p_tenant_user_id: tenantA.userId, p_business_id: tenantA.businessId, p_business_representation_id: tenantA.representationId, p_canonical_version_id: canonicalExpectedA, p_context_generated_at: new Date().toISOString(), p_authorized_element_keys: ["offer"], p_agent_id: "zeya-expiry", p_context_schema_version: "1.0", p_prompt_assembly_version: "1.0" });
     assert(!expiringCreate.error, "expiring session creation");
     registry.registerVoiceLineage(expiringZeyaVoice, tenantA.representationId);
     const expiringSessionId = String(expiringCreate.data);
@@ -380,7 +476,7 @@ async function main() {
     const expiryVoice = crypto.randomUUID();
     const expiryConversation = `expiry_conversation_${crypto.randomUUID()}`;
     const expiryCall = `expiry_call_${crypto.randomUUID()}`;
-    await saveVoiceRepresentationLineage({ db: admin, voiceContextId: expiryVoice, workerBriefId: `expiry_brief_${crypto.randomUUID()}`, missionId: expiryDispatch, conversationId: expiryConversation, lineage: { tenantUserId: tenantA.userId, businessId: tenantA.businessId, businessRepresentationId: tenantA.representationId, canonicalVersionId: tenantA.versionId, generatedAt: new Date().toISOString(), authorizedElementKeys: ["offer"], provisionalMode: false, agentId: "veya-expiry", agentType: "CALLER", agentRole: "outbound_representative", contextSchemaVersion: "1.0", promptAssemblyVersion: "1.0" } });
+    await saveVoiceRepresentationLineage({ db: admin, voiceContextId: expiryVoice, workerBriefId: `expiry_brief_${crypto.randomUUID()}`, missionId: expiryDispatch, conversationId: expiryConversation, lineage: { tenantUserId: tenantA.userId, businessId: tenantA.businessId, businessRepresentationId: tenantA.representationId, canonicalVersionId: canonicalExpectedA, generatedAt: new Date().toISOString(), authorizedElementKeys: ["offer"], provisionalMode: false, agentId: "veya-expiry", agentType: "CALLER", agentRole: "outbound_representative", contextSchemaVersion: "1.0", promptAssemblyVersion: "1.0" } });
     await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: expiryVoice, conversationId: expiryConversation, providerCallId: expiryCall });
     registry.registerVoiceLineage(expiryVoice, tenantA.representationId);
     await new Promise(resolve => setTimeout(resolve, Math.max(0, Date.parse(expiresAt) - Date.now() + 250)));
@@ -424,7 +520,7 @@ async function main() {
     assert(crossTenantCompletion.error, "Business A output completed Business B session");
     assert.equal((await admin.from("public_experience_sessions").select("state").eq("id", tenantBProvider.id).single()).data?.state, "call_dispatched", "cross-tenant attempt mutated session");
 
-    assert.equal((await admin.from("business_representations").select("current_version_id").eq("id", tenantA.representationId).single()).data!.current_version_id, canonicalBeforeA);
+    assert.equal((await admin.from("business_representations").select("current_version_id").eq("id", tenantA.representationId).single()).data!.current_version_id, canonicalExpectedA);
     assert.equal((await admin.from("business_representations").select("current_version_id").eq("id", tenantB.representationId).single()).data!.current_version_id, canonicalBeforeB);
     const completionReplay = await admin.rpc("zeya_complete_public_experience_call", { p_veya_voice_context_id: success.voiceContextId, p_conversation_output_id: storedSuccess.data.veya_conversation_output_id });
     assert(!completionReplay.error && completionReplay.data === "reflection_ready", "completion replay should remain idempotent");
@@ -439,13 +535,16 @@ async function main() {
     throw error;
   } finally {
     await stopOwnedServer(server);
+    if (realtimeMock) await new Promise<void>(resolve => realtimeMock!.close(() => resolve()));
     currentTestServer = null;
     await cleanupMatrix(admin, registry);
     cleanupPassed = true;
     delete process.env.ELEVENLABS_WEBHOOK_SECRET;
     delete process.env.PUBLIC_EXPERIENCE_TEST_MODE;
+    delete process.env.PUBLIC_EXPERIENCE_TEST_ELEMENT_KEY;
     delete process.env.PUBLIC_EXPERIENCE_PROVIDER;
     delete process.env.ZEYA_EXPERIENCE_BUSINESS_ID;
+    delete process.env.OPENAI_REALTIME_SESSION_URL;
   }
   assert(cleanupPassed, "fixture cleanup failed");
   console.log("Fixture cleanup ......................... PASS");
