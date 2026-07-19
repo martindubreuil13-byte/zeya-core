@@ -1,0 +1,13 @@
+WITH functions AS (
+  SELECT p.*, n.nspname, pg_get_functiondef(p.oid) AS src, pg_get_userbyid(p.proowner) AS owner_name
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'
+), checks(check_name, passed, details) AS (
+ SELECT 'internal_identity', (SELECT count(*)=1 AND bool_and(owner_name='postgres' AND prosecdef AND provolatile='v' AND COALESCE(proconfig,'{}') @> ARRAY['search_path=""']::text[]) FROM functions WHERE proname='zeya_promote_voice_conversation_candidate_internal'), '{}'::jsonb
+ UNION ALL SELECT 'internal_acl', NOT EXISTS (SELECT 1 FROM functions f CROSS JOIN LATERAL unnest(COALESCE(f.proacl,'{}')) a WHERE f.proname='zeya_promote_voice_conversation_candidate_internal' AND a::text ~ '(public|anon|authenticated|service_role)=X'), '{}'::jsonb
+ UNION ALL SELECT 'core_actor_only', (SELECT src LIKE '%p_actor_user_id IS NULL%' AND src NOT LIKE '%auth.uid()%' AND src NOT LIKE '%auth.role()%' FROM functions WHERE proname='zeya_promote_voice_conversation_candidate_internal'), '{}'::jsonb
+ UNION ALL SELECT 'core_semantics', (SELECT src LIKE '%conversation_candidate_review_decisions%' AND src LIKE '%public.evidence%' AND src LIKE '%public.observations%' AND src LIKE '%public.representation_proposals%' AND src LIKE '%public.proposal_evidence%' AND src LIKE '%public.proposal_observations%' AND src LIKE '%public.proposal_elements%' AND src LIKE '%public.conversation_candidate_promotions%' AND src LIKE '%jsonb_build_object(''reviewDecisionId''%' FROM functions WHERE proname='zeya_promote_voice_conversation_candidate_internal'), '{}'::jsonb
+ UNION ALL SELECT 'wrapper_compatibility', (SELECT src LIKE '%auth.role()%' AND src LIKE '%auth.uid()%' AND src LIKE '%zeya_promote_voice_conversation_candidate_internal(auth.uid()%' AND src NOT LIKE '%INSERT INTO%' AND src NOT LIKE '%UPDATE public.%' AND src NOT LIKE '%DELETE FROM%' FROM functions WHERE proname='zeya_promote_voice_conversation_candidate'), '{}'::jsonb
+ UNION ALL SELECT 'no_canonical_scope_expansion', NOT EXISTS (SELECT 1 FROM functions WHERE proname='zeya_promote_voice_conversation_candidate_internal' AND (src LIKE '%representation_versions%' OR src LIKE '%current_version_id%' OR src LIKE '%approval_decisions%')), '{}'::jsonb
+ UNION ALL SELECT 'immutable_review_tables', EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgname='zeya_conversation_review_immutability') AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgname='zeya_conversation_promotion_immutability'), '{}'::jsonb
+)
+SELECT check_name::text, passed::boolean, details::jsonb FROM checks ORDER BY check_name;

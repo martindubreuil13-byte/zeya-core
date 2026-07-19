@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const source = readFileSync("supabase/migrations/20260716103000_conversation_review_canonical_insert_parity_repair.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260719100000_voice_candidate_promotion_core.sql", "utf8");
+const rollback = readFileSync("docs/database/rollbacks/voice_candidate_promotion_core_rollback.sql", "utf8");
+const preflight = readFileSync("docs/database/preflight/voice_candidate_promotion_core_preflight.sql", "utf8");
+const verification = readFileSync("docs/database/verification/voice_candidate_promotion_core_verification.sql", "utf8");
+
+assert.equal((source.match(/CREATE OR REPLACE FUNCTION public\.zeya_promote_voice_conversation_candidate\(/g) ?? []).length, 1);
+assert.match(migration, /CREATE FUNCTION public\.zeya_promote_voice_conversation_candidate_internal\(p_actor_user_id uuid,p_candidate_id uuid/);
+assert.match(migration, /CREATE OR REPLACE FUNCTION public\.zeya_promote_voice_conversation_candidate\(p_candidate_id uuid/);
+const internalDeclaration = migration.match(/CREATE FUNCTION public\.zeya_promote_voice_conversation_candidate_internal\(([^\n]+)\)/)?.[1] ?? "";
+const publicDeclaration = migration.match(/CREATE OR REPLACE FUNCTION public\.zeya_promote_voice_conversation_candidate\(([^\n]+)\)/)?.[1] ?? "";
+assert.equal((internalDeclaration.match(/DEFAULT/gi) ?? []).length, 0, "internal core must have no defaults");
+assert.equal((publicDeclaration.match(/DEFAULT/gi) ?? []).length, 3, "public wrapper must default only its final three parameters");
+const publicParameters = publicDeclaration.split(",");
+assert(publicParameters.slice(0, 4).every((parameter) => !parameter.includes("DEFAULT")), "required parameter follows a default");
+assert(publicParameters.slice(4).every((parameter) => parameter.includes("DEFAULT")), "wrapper defaults must be final three parameters");
+assert.equal((migration.match(/RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''/g) ?? []).length, 2);
+assert.match(rollback, /RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''/);
+assert.equal((migration.match(/(?:CREATE|CREATE OR REPLACE) FUNCTION/g) ?? []).length, 2, "migration must contain two functions");
+assert.equal((rollback.match(/(?:CREATE|CREATE OR REPLACE) FUNCTION/g) ?? []).length, 1, "rollback must contain one restored function");
+const core = migration.slice(0, migration.indexOf("CREATE OR REPLACE FUNCTION public.zeya_promote_voice_conversation_candidate("));
+const wrapper = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.zeya_promote_voice_conversation_candidate("));
+assert.doesNotMatch(core, /auth\.(uid|role)\(\)/);
+assert.match(wrapper, /auth\.role\(\).*authenticated/);
+assert.match(wrapper, /internal\(auth\.uid\(\),p_candidate_id,p_target_type,p_request_key,p_confirmed_content,p_reason,p_related_element_id,p_evidence_source_type\)/);
+assert.doesNotMatch(wrapper, /\b(?:INSERT|UPDATE|DELETE)\b/);
+for (const marker of ["conversation_candidate_review_decisions", "public.evidence", "public.observations", "public.representation_proposals", "public.proposal_evidence", "public.proposal_observations", "public.proposal_elements", "public.conversation_candidate_promotions"]) assert.match(core, new RegExp(marker.replace(/[.]/g, "\\.")));
+assert.match(migration, /REVOKE ALL ON FUNCTION public\.zeya_promote_voice_conversation_candidate_internal[\s\S]*FROM PUBLIC, anon, authenticated, service_role/);
+assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.zeya_promote_voice_conversation_candidate_internal[\s\S]* TO postgres/);
+assert.match(rollback, /CREATE OR REPLACE FUNCTION public\.zeya_promote_voice_conversation_candidate\([\s\S]*DROP FUNCTION public\.zeya_promote_voice_conversation_candidate_internal/);
+assert.doesNotMatch(migration, /INSERT INTO public\.representation_versions|UPDATE public\.business_representations|UPDATE public\.representation_elements/);
+for (const sql of [preflight, verification]) assert.match(sql, /WITH[\s\S]*checks\(check_name, passed, details\)/);
+const readOnlySql = (preflight + verification).replace(/'(?:''|[^'])*'/g, "''");
+assert.doesNotMatch(readOnlySql, /\b(?:INSERT INTO|UPDATE|DELETE FROM|CREATE TABLE|CREATE FUNCTION|DROP TABLE|DROP FUNCTION)\b/);
+console.log("Voice candidate-promotion core static contract — PASS");
