@@ -89,11 +89,12 @@ export default function ExperiencePage() {
           const body=await statusResponse.json() as {status?:string};
           if(body.status)setDurableCallStatus(body.status);
           if(body.status==="reflection_ready"){
+            console.info("[browser]", { reflection_ready: true });
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
             if(stopped)return;
             if(reflectionResponse.ok){
               const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome};
-              if(completed.outcome){setCallOutcome(completed.outcome);stopped=true;setPhase("completed");}
+              if(completed.outcome){setCallOutcome(completed.outcome);stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
             }
             return;
           }

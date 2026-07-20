@@ -117,7 +117,9 @@ export class ElevenLabsProvider implements WorkerProvider {
         target: request.targetName || "prospect",
         targetPhone: request.targetPhone,
         objective: request.objective,
-        missionObjective: request.objective, // Alias for ElevenLabs first message validation
+        // missionObjective is spoken by the configured first-message template.
+        // Preserve the planner's speech-safe value; objective is private guidance.
+        missionObjective: request.dynamicVariables.missionObjective ?? request.objective,
       };
 
       // Build the ElevenLabs SIP trunk outbound call payload

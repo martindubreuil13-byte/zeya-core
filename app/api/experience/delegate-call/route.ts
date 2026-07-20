@@ -6,7 +6,7 @@ import type { VeyaDelegationResponse } from "@/lib/dispatch/veya-delegation-type
 import { attachVoiceProviderIdentifiers } from "@/lib/voice/persistence/representation-lineage-repository";
 import { isNewPublicExperienceDispatchReservation } from "@/lib/experience/public-dispatch-reservation";
 import { publicExperienceSpokenName } from "@/lib/experience/public-identity";
-import { buildPublicExperienceVeyaObjective, selectPublicExperienceVeyaQuestion } from "@/lib/experience/public-veya-brief";
+import { planPublicExperienceVeyaConversation } from "@/lib/experience/public-veya-brief";
 import {
   createExperienceServiceClient,
   findExperienceSession,
@@ -176,16 +176,15 @@ export async function POST(req: NextRequest) {
     const conversationSummary = text(body.conversationSummary, 700);
     const relevantDetail = text(body.relevantDetail, 300);
     const adaptiveInput = { name, conversationSummary, offer: business, customer, relevantDetail };
-    const veyaObjective = buildPublicExperienceVeyaObjective(adaptiveInput);
-    const primaryQuestion = selectPublicExperienceVeyaQuestion(adaptiveInput);
+    const conversationPlan = planPublicExperienceVeyaConversation(adaptiveInput);
     const brief = buildWorkerBrief({
       missionId: dispatchId,
       workerType: "CALLER",
       companyContext: [business && `Business: ${business}.`, customer && `Customer: ${customer}.`].filter(Boolean).join(" ") || "Zeya completed an introductory experience with this visitor.",
       leadContext: name ? `Visitor name: ${name}.` : undefined,
-      objective: veyaObjective,
+      objective: conversationPlan.privateGuidance,
       desiredOutcome: "The visitor experiences a natural contextual continuation and indicates interested, uncertain, or not interested.",
-      keyQuestions: [primaryQuestion],
+      keyQuestions: [conversationPlan.primaryQuestion],
       objectionGuidance: ["Acknowledge the answer in one short response and connect it to consistent business representation."],
       escalationRules: ["Ask no more than one primary question.", "Use no more than two short adaptive responses.", "Close and end within 60 seconds."],
       successCriteria: "One contextual detail is referenced, one relevant question is answered, interest is understood, and the visitor is handed back to Zeya.",
@@ -193,7 +192,9 @@ export async function POST(req: NextRequest) {
       dynamicVariables: {
         target: name, visitorName: name, business, customer,
         source: "zeya_experience", zeyaConversationOccurred: true,
-        hasTargetPhone: true, conversationSummary, relevantDetail, primaryQuestion,
+        hasTargetPhone: true, conversationSummary, relevantDetail,
+        primaryQuestion: conversationPlan.primaryQuestion,
+        spokenHandoffContext: conversationPlan.spokenHandoffContext,
       },
     });
     const provider: ProviderType = process.env.PUBLIC_EXPERIENCE_PROVIDER === "MOCK" ? "MOCK" : "ELEVENLABS";

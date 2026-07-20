@@ -10,9 +10,12 @@ export async function POST(req: NextRequest) {
     const db = createExperienceServiceClient();
     let session = await findExperienceSession(db, token);
     if (!session) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
-    await reconcilePublicExperienceCall(session);
+    const reconciliation = await reconcilePublicExperienceCall(session);
     session = await findExperienceSession(db, token);
     if (!session) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
+    if (reconciliation.normalized) {
+      console.info("[completion]", { sessionUpdated: session.state === "reflection_ready" });
+    }
     return NextResponse.json({ status: publicSessionState(session), expiresAt: session.expires_at });
   } catch {
     return NextResponse.json({ error: "Experience status is unavailable." }, { status: 503 });

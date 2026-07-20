@@ -10,6 +10,12 @@ type ProviderConversation = {
   metadata?: { start_time_unix_secs?: unknown; call_duration_secs?: unknown } | null;
 };
 
+export type PublicCallReconciliationResult = {
+  providerStatus: string;
+  normalized: boolean;
+  completionProcessed: boolean;
+};
+
 export function publicExperienceProviderConversationEvent(
   session: PublicExperienceSessionRow,
   body: ProviderConversation,
@@ -36,17 +42,28 @@ export function publicExperienceProviderConversationEvent(
 export async function reconcilePublicExperienceCall(
   session: PublicExperienceSessionRow,
   request: typeof fetch = fetch,
-): Promise<void> {
-  if (!session.provider_conversation_id || !session.provider_call_id || !["call_dispatched", "call_active"].includes(session.state)) return;
+): Promise<PublicCallReconciliationResult> {
+  const idle = { providerStatus: "not_requested", normalized: false, completionProcessed: false };
+  if (!session.provider_conversation_id || !session.provider_call_id || !["call_dispatched", "call_active"].includes(session.state)) return idle;
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) return;
+  if (!apiKey) return { ...idle, providerStatus: "configuration_unavailable" };
   const response = await request(`https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(session.provider_conversation_id)}`, {
     headers: { "xi-api-key": apiKey },
     signal: AbortSignal.timeout(4_000),
   });
-  if (!response.ok) return;
+  if (!response.ok) {
+    console.info("[reconcile]", { providerStatus: `http_${response.status}` });
+    return { ...idle, providerStatus: `http_${response.status}` };
+  }
   const body = await response.json() as ProviderConversation;
+  const providerStatus = typeof body.status === "string" ? body.status : "unknown";
+  console.info("[reconcile]", { providerStatus });
   const event = publicExperienceProviderConversationEvent(session, body);
-  if (!event) return;
-  await processElevenLabsWebhook(event, `provider_status_reconciliation:${session.provider_conversation_id}`);
+  if (!event) return { providerStatus, normalized: false, completionProcessed: false };
+  console.info("[completion]", { normalized: true });
+  // Let the existing processor hash the normalized event. Passing the event key
+  // here used to violate the receipt RPC's required SHA-256 payload contract.
+  const processed = await processElevenLabsWebhook(event);
+  console.info("[completion]", { processorSucceeded: processed.success });
+  return { providerStatus, normalized: true, completionProcessed: processed.success };
 }

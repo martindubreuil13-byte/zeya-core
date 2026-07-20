@@ -217,7 +217,11 @@ export async function dispatchWorkerBrief(
     provider: resolvedProviderType,
   });
   const providerVariables = voiceContext
-    ? buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext })
+    ? {
+        ...buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext }),
+        missionObjective:
+          valueAsString(brief.dynamicVariables.spokenHandoffContext) ?? brief.objective,
+      }
     : brief.dynamicVariables;
 
   if (voiceContext && voiceContextId && supabase) {
