@@ -28,6 +28,7 @@ export class PublicExperienceHandoffError extends Error {
     public readonly status: number | null,
     public readonly restartRequired: boolean,
     public readonly retryable: boolean,
+    public readonly serverCode: string | null = null,
   ) {
     super(message);
     this.name = "PublicExperienceHandoffError";
@@ -68,34 +69,34 @@ export function releasePublicExperienceAction(guard: PublicExperienceActionGuard
   guard.current = false;
 }
 
-function finalizationError(status: number): PublicExperienceHandoffError {
+function finalizationError(status: number, serverCode: string | null = null): PublicExperienceHandoffError {
   if (status === 400) {
     return new PublicExperienceHandoffError(
       "The conversation transcript is invalid. Please restart the Experience.",
-      "finalization", status, true, false,
+      "finalization", status, true, false, serverCode,
     );
   }
   if (status === 404) {
     return new PublicExperienceHandoffError(
       "This Experience session has expired. Please restart the Experience.",
-      "finalization", status, true, false,
+      "finalization", status, true, false, serverCode,
     );
   }
   if (status === 409) {
     return new PublicExperienceHandoffError(
       "The finalized Experience does not match this conversation.",
-      "finalization", status, false, false,
+      "finalization", status, false, false, serverCode,
     );
   }
   if (status === 413) {
     return new PublicExperienceHandoffError(
       "This conversation is too long to submit. Please restart the Experience.",
-      "finalization", status, true, false,
+      "finalization", status, true, false, serverCode,
     );
   }
   return new PublicExperienceHandoffError(
     "The conversation could not be finalized. Please try again.",
-    "finalization", status, false, status >= 500,
+    "finalization", status, false, status >= 500, serverCode,
   );
 }
 
@@ -179,7 +180,12 @@ export async function submitPublicExperienceHandoff(
     body: JSON.stringify({ token: snapshot.experienceToken, transcript: snapshot.transcript, phoneCaptured: true }),
   });
   if (!finalized.ok) {
-    if (finalized.status !== 409) throw finalizationError(finalized.status);
+    let serverCode: string | null = null;
+    try {
+      const failure = await finalized.json() as { error?: unknown };
+      serverCode = typeof failure.error === "string" ? failure.error : null;
+    } catch { /* status remains authoritative */ }
+    if (finalized.status !== 409) throw finalizationError(finalized.status, serverCode);
     onStage?.("finalize_conflict");
     const state = await readServerState(request, snapshot.experienceToken);
     if (dispatchedState(state)) {
@@ -187,7 +193,7 @@ export async function submitPublicExperienceHandoff(
       return { snapshot, dispatchStatus: "call_dispatched" };
     }
     if (state !== "zeya_finalized" && state !== "call_requested" && state !== "call_correlation_pending" && state !== "dispatch_resolution_pending") {
-      throw finalizationError(finalized.status);
+      throw finalizationError(finalized.status, serverCode);
     }
     onStage?.("handoff_recovered");
   } else {

@@ -4,10 +4,29 @@ import { captureConversationOutput, finalizeConversationTranscript, storeConvers
 import type { ConversationOutputCapture } from "./types";
 
 export class ConversationOutputProcessingError extends Error {
+  public readonly code: string;
+
   constructor(public readonly stage: "extraction" | "candidate_storage", cause: unknown) {
     super(stage === "extraction" ? "Conversation extraction failed" : "Conversation candidate storage failed", { cause });
     this.name = "ConversationOutputProcessingError";
+    this.code = classifyConversationOutputFailure(stage, cause);
   }
+}
+
+function classifyConversationOutputFailure(stage: "extraction" | "candidate_storage", cause: unknown): string {
+  if (stage === "candidate_storage") return "candidate_storage_failed";
+  const message = cause instanceof Error ? cause.message : "";
+  if (message.includes("unavailable")) return "extraction_model_unavailable";
+  if (message.includes("no result")) return "extraction_empty_response";
+  if (message.includes("response must be an array") || message.includes("Invalid candidate")) return "extraction_schema_invalid";
+  if (message.includes("unauthorized Representation element")) return "extraction_element_key_unauthorized";
+  if (message.includes("source reference is invalid")) return "extraction_source_turn_invalid";
+  if (message.includes("Unattested transcript")) return "extraction_evidence_not_authorized";
+  if (message.includes("Agent statements")) return "extraction_agent_evidence_invalid";
+  if (message.includes("summary")) return "extraction_summary_invalid";
+  if (message.includes("rationale")) return "extraction_rationale_invalid";
+  if (cause instanceof SyntaxError) return "extraction_json_invalid";
+  return "conversation_extraction_failed";
 }
 
 export async function captureAndExtractConversationOutput(input: {
@@ -21,13 +40,21 @@ export async function captureAndExtractConversationOutput(input: {
   if (lineage.error || !lineage.data) throw new Error("Conversation lineage is unavailable");
 
   const existing = await input.db.from("voice_conversation_outputs")
-    .select("id,transcript_status")
+    .select("id,transcript_status,transcript")
     .eq("voice_context_id", input.capture.voiceContextId)
     .maybeSingle();
   if (existing.error) throw new Error("Conversation output lookup failed");
-  const conversationOutputId = existing.data && existing.data.transcript_status !== "finalized" && input.capture.transcript.length > 0
-    ? await finalizeConversationTranscript(input.db, input.capture)
-    : await captureConversationOutput(input.db, input.capture);
+  let conversationOutputId: string;
+  if (existing.data?.transcript_status === "finalized") {
+    if (JSON.stringify(existing.data.transcript) !== JSON.stringify(input.capture.transcript)) {
+      throw new Error("Finalized conversation transcript conflict");
+    }
+    conversationOutputId = existing.data.id;
+  } else if (existing.data && input.capture.transcript.length > 0) {
+    conversationOutputId = await finalizeConversationTranscript(input.db, input.capture);
+  } else {
+    conversationOutputId = await captureConversationOutput(input.db, input.capture);
+  }
   if (input.capture.transcript.length === 0) {
     return { conversationOutputId, candidateCount: 0 };
   }

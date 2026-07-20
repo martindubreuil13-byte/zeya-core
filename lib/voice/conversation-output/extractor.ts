@@ -19,6 +19,8 @@ sourceReference with turnIndexes, relevantElementKeys, confidence from 0 to 1, a
 Distinguish customer statements from agent statements. Never classify an agent statement as candidate_evidence.
 A customer objection is evidence of perception, not proof that its content is true.
 Possible contradictions remain pending review and must only reference authorized element keys.
+When transcriptTrustLevel is not provider_attested, never emit candidate_evidence.
+Use only element keys present in authorizedElementKeys and only turn indexes present in turns.
 Do not invent facts or include transcript text beyond the concise structured summary.`;
 
 export function sanitizeConversationCandidateSummary(value: string): string {
@@ -35,11 +37,59 @@ export function createOpenAIConversationExtractionModel(): ConversationExtractio
   return async (input) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("Conversation extraction is unavailable");
+    const allowedCandidateTypes = input.transcriptTrustLevel === "provider_attested"
+      ? candidateTypes
+      : candidateTypes.filter((candidateType) => candidateType !== "candidate_evidence");
+    const elementKeySchema = input.authorizedElementKeys.length > 0
+      ? { type: "string" as const, enum: input.authorizedElementKeys }
+      : { type: "string" as const, not: {} };
+    const turnIndexSchema = { type: "integer" as const, enum: input.transcript.map((_, index) => index) };
     const openai = new OpenAI({ apiKey });
     const response = await openai.chat.completions.create({
       model: process.env.VOICE_EXTRACTION_MODEL || "gpt-4.1-mini",
       temperature: 0,
-      response_format: { type: "json_object" },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "conversation_candidates",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              candidates: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    candidateType: { type: "string", enum: allowedCandidateTypes },
+                    content: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: { summary: { type: "string" } },
+                      required: ["summary"],
+                    },
+                    speakerRole: { type: "string", enum: ["customer", "founder", "staff", "zeya", "veya", "unknown"] },
+                    statementKind: { type: "string", enum: ["question", "assertion", "objection", "inference", "request", "commitment", "classification"] },
+                    sourceReference: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: { turnIndexes: { type: "array", items: turnIndexSchema } },
+                      required: ["turnIndexes"],
+                    },
+                    relevantElementKeys: { type: "array", items: elementKeySchema },
+                    confidence: { type: "number", minimum: 0, maximum: 1 },
+                    rationale: { type: "string" },
+                  },
+                  required: ["candidateType", "content", "speakerRole", "statementKind", "sourceReference", "relevantElementKeys", "confidence", "rationale"],
+                },
+              },
+            },
+            required: ["candidates"],
+          },
+        },
+      },
       messages: [
         { role: "system", content: `${systemPrompt}\nReturn an object with one property named candidates.` },
         { role: "user", content: JSON.stringify({

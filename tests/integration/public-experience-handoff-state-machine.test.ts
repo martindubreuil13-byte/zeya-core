@@ -7,7 +7,7 @@ import {
   submitPublicExperienceHandoff,
   type PublicExperienceHandoffStage,
 } from "../../lib/experience/public-handoff";
-import { capturePublicExperienceIdentity, normalizeCorrectedPublicExperienceName } from "../../lib/experience/public-identity";
+import { analyzePublicExperienceNameResponse, capturePublicExperienceIdentity, normalizeCorrectedPublicExperienceName, resolvePublicExperienceNameReply } from "../../lib/experience/public-identity";
 import type { VoiceTranscriptEntry } from "../../types/voice";
 
 const entry = (id: string, role: VoiceTranscriptEntry["role"], text: string): VoiceTranscriptEntry =>
@@ -75,6 +75,9 @@ const lowConfidence = capturePublicExperienceIdentity(transcriptEntries);
 assert.equal(lowConfidence.name, "Zephyria");
 assert.equal(lowConfidence.needsNameConfirmation, true, "unusual name asks for confirmation");
 assert.equal(normalizeCorrectedPublicExperienceName("  zefira lee "), "Zefira Lee");
+assert.deepEqual(analyzePublicExperienceNameResponse("My name is Zephyria"), { name: "Zephyria", needsConfirmation: true }, "unusual name pauses immediately after greeting");
+assert.deepEqual(analyzePublicExperienceNameResponse("My name is Martin"), { name: "Martin", needsConfirmation: false }, "high-confidence common name proceeds directly");
+assert.deepEqual(resolvePublicExperienceNameReply("No, my name is Zefira Lee", "Zephyria"), { resolvedName: "Zefira Lee", rejected: false });
 const correctedName = normalizeCorrectedPublicExperienceName("zefira lee");
 const dispatchedBody: Array<Record<string, unknown>> = [];
 await submitPublicExperienceHandoff({ ...input, name: correctedName }, async (url, init) => {
@@ -89,6 +92,12 @@ assert(page.includes('setPhase("handoff_error")'), "unrecoverable errors preserv
 assert(!page.includes('handoffError?.restartRequired) {'), "handoff errors do not automatically reset transcript state");
 assert(page.includes('event: "experience_reset"'), "explicit resets are observable");
 assert.equal((page.match(/current === \"voice_active\" \? \"collecting_phone\" : current/g) ?? []).length, 2, "delayed voice callbacks cannot roll handoff phases back to Confirm");
+const voiceUi = page.slice(page.indexOf('{phase === "voice_active"'), page.indexOf('{phase === "handoff"'));
+const phoneUi = page.slice(page.indexOf('{phase === "collecting_phone"'), page.indexOf('{(phase === "submitting_handoff"'));
+assert(voiceUi.includes("nameConfirmation.asking"), "identity confirmation is rendered during the live conversation");
+assert(!phoneUi.includes("nameConfirmation.asking"), "phone collection never renders identity confirmation");
+assert(page.indexOf("decision.needsConfirmation") < page.indexOf('controller.currentBeat === ExperienceBeat.PRODUCT'), "identity gate precedes the business beat");
+assert(page.includes("if (!identityResolvedRef.current || !identityRef.current?.name)"), "handoff rejects unresolved identity locally without opening confirmation");
 
 console.log("Public Experience handoff state machine — PASS");
 }

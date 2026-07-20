@@ -42,6 +42,10 @@ export class BeatController {
     return this.session.beatStartedAt;
   }
 
+  get currentBeat(): ExperienceBeat {
+    return this.session.currentBeat;
+  }
+
   /**
    * Start the current beat: speak the script and prepare for extraction
    */

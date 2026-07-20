@@ -8,6 +8,41 @@ export type PublicExperienceIdentity = {
   needsNameConfirmation: boolean;
 };
 
+export type PublicExperienceNameDecision = {
+  name: string | null;
+  needsConfirmation: boolean;
+};
+
+export function analyzePublicExperienceNameResponse(text: string): PublicExperienceNameDecision {
+  const transcript: VoiceTranscriptEntry[] = [{
+    id: "identity-response",
+    role: "user",
+    text: text.trim(),
+    isFinal: true,
+    createdAt: 0,
+  }];
+  const analysis = analyzeConversationInsights(transcript, text);
+  return {
+    name: analysis.extractedName || normalizeCorrectedPublicExperienceName(text),
+    needsConfirmation: analysis.nameConfidence !== "high",
+  };
+}
+
+export function resolvePublicExperienceNameReply(
+  reply: string,
+  proposedName: string,
+): { resolvedName: string | null; rejected: boolean } {
+  const spoken = reply.trim();
+  if (/^(yes|yeah|yep|correct|that'?s right)$/i.test(spoken)) {
+    return { resolvedName: proposedName, rejected: false };
+  }
+  if (/^(no|nope|incorrect)$/i.test(spoken)) {
+    return { resolvedName: null, rejected: true };
+  }
+  const correction = spoken.replace(/^(?:no[, ]+)?(?:my name is|it'?s|this is)\s+/i, "");
+  return { resolvedName: normalizeCorrectedPublicExperienceName(correction), rejected: false };
+}
+
 export function capturePublicExperienceIdentity(
   transcript: readonly VoiceTranscriptEntry[],
 ): PublicExperienceIdentity {

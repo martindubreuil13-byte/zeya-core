@@ -106,10 +106,11 @@ export async function POST(req: NextRequest) {
       console.error("[public-experience] Zeya conversation processing failed", {
         operation: "finalize_zeya",
         stage: error.stage,
+        code: error.code,
         errorName: error.cause instanceof Error ? error.cause.name : "UnknownError",
       });
       return NextResponse.json(
-        { error: error.stage === "extraction" ? "conversation_extraction_failed" : "candidate_storage_failed", message: "The conversation could not be processed. Please try again." },
+        { error: error.code, stage: error.stage, message: "The conversation could not be processed. Please try again." },
         { status: error.stage === "extraction" ? 502 : 500 },
       );
     }
