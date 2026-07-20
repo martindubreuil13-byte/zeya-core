@@ -48,6 +48,10 @@ function analyzeNameExtraction(messages: string[]): {
   }
 
   const firstMessage = messages[0];
+  const commonFirstNames = new Set([
+    "alex", "anna", "ben", "chris", "daniel", "david", "emma", "james", "jane", "john",
+    "jose", "maria", "martin", "michael", "sarah", "sophia", "thomas", "william",
+  ]);
 
   // Check for clear name indicators
   const namePatterns = [
@@ -69,7 +73,7 @@ function analyzeNameExtraction(messages: string[]): {
       if (words.length <= 3 && words.every((w) => w.length >= 2 && w.length <= 20)) {
         return {
           name: extractedName,
-          confidence: "high",
+          confidence: commonFirstNames.has(words[0]!.toLowerCase()) ? "high" : "medium",
         };
       }
     }

@@ -99,7 +99,7 @@ await assert.rejects(
 );
 assert.deepEqual(incompleteCalls, [], "invalid phone must not finalize the conversation");
 
-for (const status of [400, 404, 409, 413, 500]) {
+for (const status of [400, 404, 413, 500]) {
   const calls: string[] = [];
   await assert.rejects(
     submitPublicExperienceHandoff(baseHandoff, async (url) => {
@@ -128,7 +128,7 @@ const result = await submitPublicExperienceHandoff(mutableInput, async (url, ini
     JSON.stringify(String(url).includes("finalize-zeya") ? { status: "ready_for_phone" } : { success: true, status: "call_dispatched" }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
-}, () => lifecycle.push("finalized"));
+}, (stage) => lifecycle.push(stage));
 assert.equal(successfulCalls.length, 2, "exact replay success proceeds to one dispatch");
 assert.deepEqual(successfulCalls.map((call) => call.url), [
   "/api/experience/session/finalize-zeya",
@@ -137,7 +137,10 @@ assert.deepEqual(successfulCalls.map((call) => call.url), [
 assert.equal(successfulCalls[1]?.body.phone, "+15550001111", "dispatch uses stable phone snapshot");
 assert.equal(successfulCalls[0]?.body.phoneCaptured, true, "finalization proves separate phone capture without sending the phone");
 assert(!("phone" in successfulCalls[0]!.body), "phone is excluded from governed transcript finalization");
-assert.deepEqual(lifecycle, ["/api/experience/session/finalize-zeya", "finalized", "/api/experience/delegate-call"], "UI advances only after finalization succeeds");
+assert.deepEqual(lifecycle, [
+  "handoff_submit_started", "finalize_started", "/api/experience/session/finalize-zeya",
+  "finalize_succeeded", "dispatch_started", "/api/experience/delegate-call", "dispatch_succeeded",
+], "UI advances through the explicit handoff stages");
 assert(!JSON.stringify(result.snapshot.transcript).includes("Late mutation"), "transcript snapshot is stable");
 assert.equal(result.dispatchStatus, "call_dispatched");
 

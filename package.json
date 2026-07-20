@@ -28,6 +28,7 @@
     "test:public-experience-foundation": "npx tsx tests/integration/public-experience-foundation-static.test.ts && npx tsx tests/integration/public-experience-provisioning.test.ts",
     "test:public-experience-foundation-deployed": "npx tsx tests/integration/public-experience-foundation-deployed.test.ts",
     "test:public-experience-browser-contract": "npx tsx tests/integration/public-experience-browser-contract.test.ts",
+    "test:public-experience-handoff-state-machine": "npx tsx tests/integration/public-experience-handoff-state-machine.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",

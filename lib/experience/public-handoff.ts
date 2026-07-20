@@ -35,7 +35,17 @@ export class PublicExperienceHandoffError extends Error {
 }
 
 type Request = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type Finalized = () => void;
+export type PublicExperienceHandoffStage =
+  | "handoff_submit_started"
+  | "finalize_started"
+  | "finalize_succeeded"
+  | "finalize_conflict"
+  | "dispatch_started"
+  | "dispatch_succeeded"
+  | "dispatch_conflict"
+  | "handoff_recovered";
+
+type StageChanged = (stage: PublicExperienceHandoffStage) => void;
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
@@ -73,8 +83,8 @@ function finalizationError(status: number): PublicExperienceHandoffError {
   }
   if (status === 409) {
     return new PublicExperienceHandoffError(
-      "This conversation conflicts with the finalized Experience. Please restart.",
-      "finalization", status, true, false,
+      "The finalized Experience does not match this conversation.",
+      "finalization", status, false, false,
     );
   }
   if (status === 413) {
@@ -89,10 +99,41 @@ function finalizationError(status: number): PublicExperienceHandoffError {
   );
 }
 
+type ServerState =
+  | "zeya_active"
+  | "zeya_finalized"
+  | "call_requested"
+  | "call_correlation_pending"
+  | "dispatch_resolution_pending"
+  | "call_dispatched"
+  | "call_active"
+  | "reflection_ready"
+  | string;
+
+async function readServerState(
+  request: Request,
+  token: string,
+): Promise<ServerState | null> {
+  const response = await request("/api/experience/session/status", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) return null;
+  try {
+    const body = await response.json() as { status?: unknown };
+    return typeof body.status === "string" ? body.status : null;
+  } catch {
+    return null;
+  }
+}
+
+function dispatchedState(state: ServerState | null): boolean {
+  return state === "call_dispatched" || state === "call_active" || state === "reflection_ready";
+}
+
 export async function submitPublicExperienceHandoff(
   input: PublicExperienceHandoffInput,
   request: Request = fetch,
-  onFinalized?: Finalized,
+  onStage?: StageChanged,
 ): Promise<{ snapshot: PublicExperienceHandoffSnapshot; dispatchStatus: "call_dispatched" | "correlation_pending" | "dispatch_resolution_pending" }> {
   const normalizedPhone = normalizePublicExperiencePhone(input.phone);
   if (!normalizedPhone) {
@@ -130,14 +171,30 @@ export async function submitPublicExperienceHandoff(
     customer: input.customer,
   });
 
+  onStage?.("handoff_submit_started");
+  onStage?.("finalize_started");
   const finalized = await request("/api/experience/session/finalize-zeya", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: snapshot.experienceToken, transcript: snapshot.transcript, phoneCaptured: true }),
   });
-  if (!finalized.ok) throw finalizationError(finalized.status);
-  onFinalized?.();
+  if (!finalized.ok) {
+    if (finalized.status !== 409) throw finalizationError(finalized.status);
+    onStage?.("finalize_conflict");
+    const state = await readServerState(request, snapshot.experienceToken);
+    if (dispatchedState(state)) {
+      onStage?.("handoff_recovered");
+      return { snapshot, dispatchStatus: "call_dispatched" };
+    }
+    if (state !== "zeya_finalized" && state !== "call_requested" && state !== "call_correlation_pending" && state !== "dispatch_resolution_pending") {
+      throw finalizationError(finalized.status);
+    }
+    onStage?.("handoff_recovered");
+  } else {
+    onStage?.("finalize_succeeded");
+  }
 
+  onStage?.("dispatch_started");
   const dispatched = await request("/api/experience/delegate-call", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -160,10 +217,24 @@ export async function submitPublicExperienceHandoff(
     );
   }
   if (dispatched.status === 202 && result.status === "correlation_pending") {
+    onStage?.("dispatch_succeeded");
     return { snapshot, dispatchStatus: "correlation_pending" };
   }
   if (dispatched.status === 202 && result.status === "dispatch_resolution_pending") {
+    onStage?.("dispatch_succeeded");
     return { snapshot, dispatchStatus: "dispatch_resolution_pending" };
+  }
+  if (dispatched.status === 409) {
+    onStage?.("dispatch_conflict");
+    const state = await readServerState(request, snapshot.experienceToken);
+    if (dispatchedState(state)) {
+      onStage?.("handoff_recovered");
+      return { snapshot, dispatchStatus: "call_dispatched" };
+    }
+    if (state === "call_requested" || state === "call_correlation_pending" || state === "dispatch_resolution_pending") {
+      onStage?.("handoff_recovered");
+      return { snapshot, dispatchStatus: state === "call_correlation_pending" ? "correlation_pending" : "dispatch_resolution_pending" };
+    }
   }
   if (!dispatched.ok || result.success !== true || result.status !== "call_dispatched") {
     throw new PublicExperienceHandoffError(
@@ -172,5 +243,6 @@ export async function submitPublicExperienceHandoff(
     );
   }
 
+  onStage?.("dispatch_succeeded");
   return { snapshot, dispatchStatus: "call_dispatched" };
 }

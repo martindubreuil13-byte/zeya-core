@@ -6,7 +6,7 @@ import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { initializeSession } from "@/lib/experience/experience-state";
-import { analyzeConversationInsights } from "@/lib/experience/conversation-analyzer";
+import { capturePublicExperienceIdentity, normalizeCorrectedPublicExperienceName } from "@/lib/experience/public-identity";
 import { PublicExperienceReflection,type PublicExperienceReflectionData } from "@/components/experience/PublicExperienceReflection";
 import {
   acquirePublicExperienceAction,
@@ -18,7 +18,7 @@ import {
 import type { DispatchRecord } from "@/lib/dispatch/types";
 import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
 
-type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "waiting_for_call";
+type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "handoff_error";
 
 const PHONE_HANDOFF =
   "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
@@ -50,12 +50,15 @@ export default function ExperiencePage() {
     asking: false,
   });
   const [extractedName, setExtractedName] = useState<string | null>(null);
+  const [correctedName, setCorrectedName] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
   const startInFlightRef = useRef(false);
   const handoffInFlightRef = useRef(false);
   const handoffCompletedRef = useRef(false);
+  const identityRef = useRef<{ name: string | null; offer: string | null; buyer: string | null } | null>(null);
+  const nameConfirmationBaselineRef = useRef<string | null>(null);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
   const callRequested = delegationStatus === "call_requested"
@@ -199,6 +202,7 @@ export default function ExperiencePage() {
         onSessionFail: (session, reason) => {
           console.error("[BEAT] onSessionFail()", reason);
           stopConversation();
+          console.info("[public-experience]", { event: "experience_reset", stage: "voice_session_failed" });
           setPhase("initial");
         },
       });
@@ -228,7 +232,7 @@ export default function ExperiencePage() {
     // Auto-transition to phone collection when conversation ends
     setTimeout(() => {
       stopConversation();
-      setPhase("collecting_phone");
+      setPhase((current) => current === "voice_active" ? "collecting_phone" : current);
     }, 500);
   };
 
@@ -237,7 +241,7 @@ export default function ExperiencePage() {
     if (voiceState === "disconnected" && phase === "voice_active" && voiceTranscript.length > 0) {
       // Conversation has ended naturally, move to phone capture
       setTimeout(() => {
-        setPhase("collecting_phone");
+        setPhase((current) => current === "voice_active" ? "collecting_phone" : current);
       }, 800);
     }
   }, [voiceState, phase, voiceTranscript.length]);
@@ -257,6 +261,8 @@ export default function ExperiencePage() {
 
     setIsSubmittingPhone(true);
     setDelegationError(null);
+    setDelegationStatus("preparing_brief");
+    setPhase("submitting_handoff");
 
     const dispatchPayload = {
       id: `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
@@ -294,13 +300,18 @@ export default function ExperiencePage() {
         name: finalName,
         business: offer,
         customer: buyer,
-      }, fetch, () => {
-        setDelegationStatus("dispatching_call");
-        setPhase("waiting_for_call");
+      }, fetch, (stage) => {
+        console.info("[public-experience]", { event: stage, stage });
+        if (stage === "finalize_started") setPhase("finalizing");
+        if (stage === "dispatch_started") {
+          setDelegationStatus("dispatching_call");
+          setPhase("dispatching_call");
+        }
       });
       succeeded = true;
       handoffCompletedRef.current = true;
       setDelegationStatus(handoff.dispatchStatus === "call_dispatched" ? "call_requested" : handoff.dispatchStatus);
+      setPhase("waiting_for_call");
       setDispatchRecord((current) => current ? {
         ...current,
         status: "calling",
@@ -309,6 +320,7 @@ export default function ExperiencePage() {
     } catch (error) {
       const handoffError = error instanceof PublicExperienceHandoffError ? error : null;
       const message = handoffError?.message ?? "The call request failed. Please try again.";
+      console.info("[public-experience]", { event: "handoff_failed", stage: handoffError?.stage ?? "unknown" });
       setDelegationStatus("failed");
       setDelegationError(message);
       setDispatchRecord((current) => current ? {
@@ -316,12 +328,7 @@ export default function ExperiencePage() {
         status: "failed",
         updated_at: new Date().toISOString(),
       } : current);
-      if (handoffError?.restartRequired) {
-        resetConversation();
-        controllerRef.current = null;
-        setVoiceStartError(message);
-        setPhase("initial");
-      }
+      setPhase("handoff_error");
     } finally {
       if (!succeeded) releasePublicExperienceAction(handoffInFlightRef);
       setIsSubmittingPhone(false);
@@ -338,29 +345,27 @@ export default function ExperiencePage() {
       return;
     }
 
-    const userMessages = voiceTranscript.filter(
-      (entry) => entry.role === "user" && entry.isFinal && entry.text.trim(),
-    );
-    const name = userMessages[0]?.text.trim() || null;
-    const offer = userMessages[1]?.text.trim() || null;
-    const buyer = userMessages[2]?.text.trim() || null;
-    const analysis = analyzeConversationInsights(voiceTranscript, name || undefined);
-
-    if (analysis.nameConfidence === "low" && analysis.extractedName) {
-      setExtractedName(analysis.extractedName);
-      setNameConfirmation({ asking: true, name: analysis.extractedName });
+    const identity = capturePublicExperienceIdentity(voiceTranscript);
+    identityRef.current = { name: identity.name, offer: identity.offer, buyer: identity.buyer };
+    if (identity.needsNameConfirmation && identity.name) {
+      setExtractedName(identity.name);
+      setCorrectedName("");
+      nameConfirmationBaselineRef.current = voiceTranscript.filter((entry) => entry.role === "user" && entry.isFinal).at(-1)?.id ?? null;
+      setNameConfirmation({ asking: true, name: identity.name });
       return;
     }
 
-    void submitExperienceHandoff(name, offer, buyer);
+    void submitExperienceHandoff(identity.name, identity.offer, identity.buyer);
   };
 
   const handleCallRetry = () => {
+    if (handoffInFlightRef.current || handoffCompletedRef.current) return;
     setIsSubmittingPhone(false);
     setPhase("collecting_phone");
   };
 
   const handleReconnect = () => {
+    console.info("[public-experience]", { event: "experience_reset", stage: "visitor_reconnect" });
     resetConversation();
     controllerRef.current = null;
     handoffInFlightRef.current = false;
@@ -372,22 +377,76 @@ export default function ExperiencePage() {
 
   const handleNameConfirm = (confirmed: boolean) => {
     if (handoffInFlightRef.current || handoffCompletedRef.current) return;
-    if (confirmed && extractedName) {
+    const authoritativeName = confirmed
+      ? extractedName
+      : normalizeCorrectedPublicExperienceName(correctedName);
+    if (authoritativeName) {
       setNameConfirmation({ asking: false });
-      const userMessages = voiceTranscript.filter(
-        (entry) => entry.role === "user" && entry.isFinal && entry.text.trim(),
-      );
+      const identity = identityRef.current;
+      identityRef.current = identity ? { ...identity, name: authoritativeName } : { name: authoritativeName, offer: null, buyer: null };
       void submitExperienceHandoff(
-        extractedName,
-        userMessages[1]?.text.trim() || null,
-        userMessages[2]?.text.trim() || null,
+        authoritativeName,
+        identity?.offer ?? null,
+        identity?.buyer ?? null,
       );
     } else {
-      setNameConfirmation({ asking: false });
-      setExtractedName(null);
-      setPhase("collecting_phone");
+      setDelegationError("Enter the name you would like me to use.");
     }
   };
+
+  const startNameCorrectionVoice = () => {
+    type Recognition = {
+      lang: string;
+      interimResults: boolean;
+      maxAlternatives: number;
+      start: () => void;
+      onresult: ((event: { results: ArrayLike<{ 0?: { transcript?: string } }> }) => void) | null;
+      onerror: (() => void) | null;
+    };
+    const speechWindow = window as typeof window & {
+      SpeechRecognition?: new () => Recognition;
+      webkitSpeechRecognition?: new () => Recognition;
+    };
+    const RecognitionConstructor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!RecognitionConstructor) {
+      setDelegationError("Voice correction is not available in this browser. Type the correction instead.");
+      return;
+    }
+    const recognition = new RecognitionConstructor();
+    recognition.lang = navigator.language || "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const spoken = event.results[0]?.[0]?.transcript?.trim();
+      if (!spoken) return;
+      if (/^(yes|yeah|yep|correct|that'?s right)$/i.test(spoken)) handleNameConfirm(true);
+      else setCorrectedName(spoken.replace(/^(?:no[, ]+)?(?:my name is|it'?s|this is)\s+/i, ""));
+    };
+    recognition.onerror = () => setDelegationError("I could not hear that correction. Type it below instead.");
+    recognition.start();
+  };
+
+  // A late final voice event can confirm or correct the proposed name without
+  // adding any synthetic turn to the governed transcript.
+  useEffect(() => {
+    if (!nameConfirmation.asking) return;
+    const latest = voiceTranscript.filter((entry) => entry.role === "user" && entry.isFinal && entry.text.trim()).at(-1);
+    if (!latest || latest.id === nameConfirmationBaselineRef.current) return;
+    nameConfirmationBaselineRef.current = latest.id;
+    const spoken = latest.text.trim();
+    const timer = window.setTimeout(() => {
+      if (/^(yes|yeah|yep|correct|that'?s right)$/i.test(spoken)) {
+        handleNameConfirm(true);
+        return;
+      }
+      const correction = spoken.match(/^(?:no[, ]+)?(?:my name is|it'?s|this is)\s+(.+)$/i)?.[1]
+        ?? (/^(no|nope|incorrect)$/i.test(spoken) ? null : spoken);
+      if (correction) setCorrectedName(correction);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  // The transcript event is the trigger; the handler intentionally reads current render state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameConfirmation.asking, voiceTranscript]);
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-zeya-void flex flex-col">
@@ -509,20 +568,25 @@ export default function ExperiencePage() {
                   className="font-serif text-lg text-zeya-ivory font-light"
                   style={{ letterSpacing: "0.08em" }}
                 >
-                  I want to make sure I have your name right.
+                  I heard {nameConfirmation.name}. Is that right?
                 </p>
-                <p
-                  className="text-sm text-zeya-taupe font-light"
-                  style={{ letterSpacing: "0.02em", lineHeight: "1.6" }}
+                <p className="text-sm text-zeya-taupe font-light">You can confirm by voice, or type the correction below.</p>
+                <button
+                  type="button"
+                  onClick={startNameCorrectionVoice}
+                  className="w-full border border-zeya-taupe/30 px-4 py-2 text-sm text-zeya-ivory hover:border-zeya-champagne"
                 >
-                  I heard your name as:
-                </p>
-                <p
-                  className="font-serif text-2xl text-zeya-champagne font-light"
-                  style={{ letterSpacing: "0.06em" }}
-                >
-                  {nameConfirmation.name}
-                </p>
+                  Answer by voice
+                </button>
+                <input
+                  type="text"
+                  value={correctedName}
+                  onChange={(event) => setCorrectedName(event.target.value)}
+                  placeholder="Correct name"
+                  autoComplete="name"
+                  className="w-full bg-transparent border-b border-zeya-hush/30 text-zeya-ivory placeholder-zeya-hush/40 focus:outline-none focus:border-zeya-champagne py-3 text-base"
+                />
+                {delegationError && <p className="text-xs text-red-300/80" role="alert">{delegationError}</p>}
               </div>
 
               <div className="flex gap-3 flex-col sm:flex-row">
@@ -532,15 +596,15 @@ export default function ExperiencePage() {
                   className="flex-1 border border-zeya-champagne/60 text-zeya-champagne hover:bg-zeya-champagne/5 px-4 py-3 text-sm font-light transition-colors rounded"
                   style={{ letterSpacing: "0.08em" }}
                 >
-                  That's Correct
+                  That&apos;s Correct
                 </button>
                 <button
                   onClick={() => handleNameConfirm(false)}
-                  disabled={isSubmittingPhone}
+                  disabled={isSubmittingPhone || !correctedName.trim()}
                   className="flex-1 border border-zeya-taupe/30 text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne px-4 py-3 text-sm font-light transition-colors rounded"
                   style={{ letterSpacing: "0.08em" }}
                 >
-                  Spell It Out
+                  Use Corrected Name
                 </button>
               </div>
             </div>
@@ -586,6 +650,31 @@ export default function ExperiencePage() {
             </form>
             </div>
           )}
+        </div>
+      )}
+
+      {(phase === "submitting_handoff" || phase === "finalizing" || phase === "dispatching_call") && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <PresenceCore state="idle" />
+          <div className="mt-8 max-w-md space-y-3 text-center" role="status" aria-live="polite">
+            <p className="font-serif text-lg text-zeya-ivory">
+              {phase === "dispatching_call" ? "Connecting your call…" : "Confirming your handoff…"}
+            </p>
+            <p className="text-sm text-zeya-taupe">Keep this page open.</p>
+          </div>
+        </div>
+      )}
+
+      {phase === "handoff_error" && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <PresenceCore state="idle" />
+          <div className="mt-8 max-w-md space-y-5 text-center">
+            <p className="font-serif text-lg text-zeya-ivory">The handoff could not be completed.</p>
+            <p className="text-sm text-red-300/80" role="alert">{delegationError}</p>
+            <button type="button" onClick={handleCallRetry} className="border border-zeya-taupe/40 px-5 py-3 text-sm text-zeya-ivory">
+              Try the handoff again
+            </button>
+          </div>
         </div>
       )}
 
