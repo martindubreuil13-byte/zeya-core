@@ -61,9 +61,18 @@ export function capturePublicExperienceIdentity(
 }
 
 export function normalizeCorrectedPublicExperienceName(value: string): string | null {
-  const normalized = value.trim().replace(/\s+/g, " ");
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const letterParts = trimmed.split(/[.\-\s]+/).filter(Boolean);
+  const wasSpelled = letterParts.length >= 2 && letterParts.every((part) => /^[A-Za-z]$/.test(part));
+  const normalized = wasSpelled
+    ? letterParts.join("").toLocaleLowerCase()
+    : trimmed;
   if (!normalized || normalized.length > 100) return null;
   return normalized.split(" ").map((part) =>
     part ? part.charAt(0).toLocaleUpperCase() + part.slice(1) : part
   ).join(" ");
+}
+
+export function publicExperienceSpokenName(value: string | null): string | null {
+  return value ? normalizeCorrectedPublicExperienceName(value) : null;
 }

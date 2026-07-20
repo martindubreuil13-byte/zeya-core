@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { usePublicExperienceVoiceConversation } from "@/hooks/voice/usePublicExperienceVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
 import { BeatController } from "@/lib/experience/beat-controller";
 import { ExperienceBeat } from "@/lib/experience/experience-beats";
 import { initializeSession } from "@/lib/experience/experience-state";
+import { analyzeConversationInsights } from "@/lib/experience/conversation-analyzer";
 import { analyzePublicExperienceNameResponse, normalizeCorrectedPublicExperienceName, resolvePublicExperienceNameReply } from "@/lib/experience/public-identity";
-import { PublicExperienceReflection,type PublicExperienceReflectionData } from "@/components/experience/PublicExperienceReflection";
 import {
   acquirePublicExperienceAction,
   normalizePublicExperiencePhone,
@@ -18,8 +19,9 @@ import {
 } from "@/lib/experience/public-handoff";
 import type { DispatchRecord } from "@/lib/dispatch/types";
 import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
+import type { PublicExperienceCallOutcome } from "@/lib/experience/public-call-outcome";
 
-type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "handoff_error";
+type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "completed" | "handoff_error";
 
 const PHONE_HANDOFF =
   "Perfect. Keep this page open. One of my agents will call you shortly. I’ve already prepared a short brief from what we discussed. What’s the best number to reach you on?";
@@ -46,7 +48,7 @@ export default function ExperiencePage() {
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
   const [durableCallStatus,setDurableCallStatus]=useState<string|null>(null);
-  const [reflection,setReflection]=useState<PublicExperienceReflectionData|null>(null);
+  const [callOutcome,setCallOutcome]=useState<PublicExperienceCallOutcome|null>(null);
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
@@ -80,7 +82,7 @@ export default function ExperiencePage() {
       if(stopped||inFlight)return;
       inFlight=true;
       try{
-        const statusResponse=await fetch("/api/experience/session/status",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
+        const statusResponse=await fetch("/api/experience/session/reconcile",{method:"POST",headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
         if(stopped)return;
         if(statusResponse.status===404){setDurableCallStatus("expired");stopped=true;return;}
         if(statusResponse.ok){
@@ -89,13 +91,16 @@ export default function ExperiencePage() {
           if(body.status==="reflection_ready"){
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
             if(stopped)return;
-            if(reflectionResponse.ok){const data=await reflectionResponse.json() as {reflection:PublicExperienceReflectionData};setReflection(data.reflection);stopped=true;}
+            if(reflectionResponse.ok){
+              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome};
+              if(completed.outcome){setCallOutcome(completed.outcome);stopped=true;setPhase("completed");}
+            }
             return;
           }
           if(body.status==="call_failed"||body.status==="expired"){stopped=true;return;}
         }
       }catch{/* transient network errors are retried */}
-      finally{inFlight=false;if(!stopped)timer=window.setTimeout(poll,3000);}
+      finally{inFlight=false;if(!stopped)timer=window.setTimeout(poll,1500);}
     };
     void poll();
     return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
@@ -275,6 +280,11 @@ export default function ExperiencePage() {
         name: finalName,
         business: offer,
         customer: buyer,
+        conversationSummary: [offer && `The visitor is building or selling ${offer}.`, buyer && `The likely customer is ${buyer}.`].filter(Boolean).join(" ") || null,
+        relevantDetail: (() => {
+          const insights = analyzeConversationInsights(transcriptEntries).insights;
+          return insights.challenge ?? insights.opportunity ?? (insights.goal ? `their goal of improving ${insights.goal}` : null);
+        })(),
       }, fetch, (stage) => {
         console.info("[public-experience]", { event: stage, stage });
         if (stage === "finalize_started") setPhase("finalizing");
@@ -654,9 +664,7 @@ export default function ExperiencePage() {
 
       {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
-          {reflection ? (
-            <PublicExperienceReflection reflection={reflection}/>
-          ) : durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
+          {durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
             <div className="w-full max-w-md text-center space-y-4">
               <PresenceCore state="idle"/>
               <p className="font-serif text-lg text-zeya-ivory">{durableCallStatus === "expired" ? "This Experience has expired." : "The call could not be completed."}</p>
@@ -780,6 +788,27 @@ export default function ExperiencePage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {phase === "completed" && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="w-full max-w-lg space-y-7 text-center" role="status" aria-live="polite">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-zeya-champagne/60 text-xl text-zeya-champagne">✓</div>
+            <div className="space-y-4">
+              <p className="font-serif text-2xl text-zeya-ivory">Phone conversation completed.</p>
+              <p className="text-sm leading-7 text-zeya-taupe">You have just experienced Business Representation Intelligence.</p>
+              <p className="font-serif text-xl leading-8 text-zeya-champagne">One conversation became two.</p>
+              {callOutcome?.visitorInterest === "interested" && <p className="text-sm leading-7 text-zeya-ivory">It sounds like you&apos;d like to explore what comes next.</p>}
+              {callOutcome?.visitorInterest === "uncertain" && <p className="text-sm leading-7 text-zeya-ivory">You&apos;ve experienced how an informed conversation can continue naturally.</p>}
+              {callOutcome?.visitorInterest === "not_interested" && <p className="text-sm leading-7 text-zeya-ivory">Thank you for trying the experience.</p>}
+              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: “{callOutcome.relevantVisitorResponse}”</p>}
+              <p className="text-sm leading-7 text-zeya-taupe">Imagine what happens when that becomes hundreds.</p>
+            </div>
+            <Link href="/" className="inline-block border border-zeya-champagne/60 px-6 py-3 text-sm text-zeya-champagne transition-colors hover:bg-zeya-champagne/5">
+              Learn more
+            </Link>
+          </div>
         </div>
       )}
     </main>

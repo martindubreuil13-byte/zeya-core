@@ -5,6 +5,8 @@ import type { ProviderType } from "@/lib/providers";
 import type { VeyaDelegationResponse } from "@/lib/dispatch/veya-delegation-types";
 import { attachVoiceProviderIdentifiers } from "@/lib/voice/persistence/representation-lineage-repository";
 import { isNewPublicExperienceDispatchReservation } from "@/lib/experience/public-dispatch-reservation";
+import { publicExperienceSpokenName } from "@/lib/experience/public-identity";
+import { buildPublicExperienceVeyaObjective, selectPublicExperienceVeyaQuestion } from "@/lib/experience/public-veya-brief";
 import {
   createExperienceServiceClient,
   findExperienceSession,
@@ -14,11 +16,10 @@ import {
   type PublicExperienceSessionRow,
 } from "@/lib/experience/public-session-server";
 
-type RequestBody = { experienceToken?: unknown; phone?: unknown; name?: unknown; business?: unknown; customer?: unknown };
+type RequestBody = { experienceToken?: unknown; phone?: unknown; name?: unknown; business?: unknown; customer?: unknown; conversationSummary?: unknown; relevantDetail?: unknown };
 type DurableProviderIdentity = { voiceContextId: string; conversationId: string | null; providerCallId: string };
 const E164 = /^\+[1-9]\d{7,14}$/;
 const MAX_REQUEST_BYTES = 8_192;
-const VEYA_OPENING = "Hi, this is Veya. Zeya asked me to continue the conversation with you for a moment. She shared the context of what you discussed. I’d like to understand one thing better: if Zeya were representing your business, what kind of conversations would matter most to you?";
 
 function text(value: unknown, limit: number) {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : null;
@@ -169,25 +170,30 @@ export async function POST(req: NextRequest) {
       return response("failed", false, 500);
     }
 
-    const name = text(body.name, 100);
+    const name = publicExperienceSpokenName(text(body.name, 100));
     const business = text(body.business, 500);
     const customer = text(body.customer, 500);
+    const conversationSummary = text(body.conversationSummary, 700);
+    const relevantDetail = text(body.relevantDetail, 300);
+    const adaptiveInput = { name, conversationSummary, offer: business, customer, relevantDetail };
+    const veyaObjective = buildPublicExperienceVeyaObjective(adaptiveInput);
+    const primaryQuestion = selectPublicExperienceVeyaQuestion(adaptiveInput);
     const brief = buildWorkerBrief({
       missionId: dispatchId,
       workerType: "CALLER",
       companyContext: [business && `Business: ${business}.`, customer && `Customer: ${customer}.`].filter(Boolean).join(" ") || "Zeya completed an introductory experience with this visitor.",
       leadContext: name ? `Visitor name: ${name}.` : undefined,
-      objective: `Open with exactly: ${JSON.stringify(VEYA_OPENING)} Then continue briefly and naturally, using only the supplied context.`,
-      desiredOutcome: "The visitor experiences a clear, continuous handoff from Zeya to Veya.",
-      keyQuestions: ["Do you have two minutes?"],
-      objectionGuidance: ["If now is not a good time, end politely."],
-      escalationRules: ["Do not invent business details that were not supplied by Zeya."],
-      successCriteria: "The visitor recognizes that Veya received Zeya's brief.",
-      toneGuidance: "Warm, concise, and natural.",
+      objective: veyaObjective,
+      desiredOutcome: "The visitor experiences a natural contextual continuation and indicates interested, uncertain, or not interested.",
+      keyQuestions: [primaryQuestion],
+      objectionGuidance: ["Acknowledge the answer in one short response and connect it to consistent business representation."],
+      escalationRules: ["Ask no more than one primary question.", "Use no more than two short adaptive responses.", "Close and end within 60 seconds."],
+      successCriteria: "One contextual detail is referenced, one relevant question is answered, interest is understood, and the visitor is handed back to Zeya.",
+      toneGuidance: "Personable, warm, concise, and natural. Pronounce the visitor name normally; never spell it letter by letter.",
       dynamicVariables: {
         target: name, visitorName: name, business, customer,
         source: "zeya_experience", zeyaConversationOccurred: true,
-        hasTargetPhone: true, veyaOpening: VEYA_OPENING,
+        hasTargetPhone: true, conversationSummary, relevantDetail, primaryQuestion,
       },
     });
     const provider: ProviderType = process.env.PUBLIC_EXPERIENCE_PROVIDER === "MOCK" ? "MOCK" : "ELEVENLABS";

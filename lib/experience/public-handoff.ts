@@ -12,6 +12,8 @@ type PublicExperienceHandoffInput = {
   name: string | null;
   business: string | null;
   customer: string | null;
+  conversationSummary?: string | null;
+  relevantDetail?: string | null;
 };
 
 export type PublicExperienceHandoffSnapshot = Omit<
@@ -170,6 +172,8 @@ export async function submitPublicExperienceHandoff(
     name: input.name,
     business: input.business,
     customer: input.customer,
+    conversationSummary: input.conversationSummary,
+    relevantDetail: input.relevantDetail,
   });
 
   onStage?.("handoff_submit_started");
@@ -210,6 +214,8 @@ export async function submitPublicExperienceHandoff(
       name: snapshot.name,
       business: snapshot.business,
       customer: snapshot.customer,
+      conversationSummary: snapshot.conversationSummary,
+      relevantDetail: snapshot.relevantDetail,
     }),
   });
 

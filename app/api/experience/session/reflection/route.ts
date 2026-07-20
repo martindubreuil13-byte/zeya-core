@@ -1,5 +1,6 @@
 import { NextRequest,NextResponse } from "next/server";
 import { createExperienceServiceClient,findExperienceSession,isPlausibleExperienceToken } from "@/lib/experience/public-session-server";
+import { derivePublicExperienceCallOutcome } from "@/lib/experience/public-call-outcome";
 
 type Turn={role?:unknown;text?:unknown};
 function safeText(value:unknown,limit=240){
@@ -29,8 +30,10 @@ export async function GET(req:NextRequest){
       const content=row.content&&typeof row.content==="object"?row.content as Record<string,unknown>:{};
       return safeText(content.summary??content.statement??content.text);
     }).filter(Boolean).slice(0,2);
+    const outcome=derivePublicExperienceCallOutcome(turns,(value)=>safeText(value));
     return NextResponse.json({
       status:"reflection_ready",
+      outcome,
       reflection:{
         summary:"Zeya preserved the business context that was carried into Veya’s real call.",
         observations:noticed.length?noticed:observations,

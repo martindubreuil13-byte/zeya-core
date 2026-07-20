@@ -75,11 +75,12 @@ assert(processor.includes('transcriptTrustLevel:"provider_attested"')&&processor
 assert(migration.includes("o.provider_attested=true")&&migration.includes("o.transcript_status='finalized'"));
 for(const identity of ["o.business_id=s.business_id","o.business_representation_id=s.business_representation_id","o.canonical_version_id=s.canonical_version_id","l.mission_id=s.dispatch_id"])assert(migration.includes(identity));
 assert(migration.includes("call_completed_without_transcript")&&migration.includes("call_unanswered")&&migration.includes("call_rejected"));
-assert(page.includes('/api/experience/session/status')&&page.includes('window.setTimeout(poll,3000)'));
+assert(page.includes('/api/experience/session/reconcile')&&page.includes('window.setTimeout(poll,1500)'));
 assert(page.includes('if(stopped||inFlight)return')&&page.includes('return()=>{stopped=true'));
 assert(page.includes("new AbortController()")&&page.includes("controller.abort()"));
 assert(!page.includes("My Call Is Complete")&&!page.includes("handleCallComplete"));
 assert(reflection.includes('session.state!=="reflection_ready"')&&reflection.includes('provider_attested'));
+assert(reflection.includes("derivePublicExperienceCallOutcome")&&reflection.includes("outcome"));
 assert(!reflection.includes("canonical_version_id")&&!reflection.includes("provider_call_id")&&!reflection.includes("provider_conversation_id"));
 assert(reflection.includes("reviewed before becoming part of the business Representation"));
 assert(reflection.includes("[contact detail]")&&reflection.includes("[link]"));
