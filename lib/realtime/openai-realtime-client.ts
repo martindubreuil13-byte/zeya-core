@@ -4,6 +4,7 @@ import {
 } from "@/lib/realtime/realtime-events";
 import type { RealtimeSessionEvent } from "@/types/realtime";
 import type { VoiceState, VoiceTranscriptEntry } from "@/types/voice";
+import { EXPERIENCE_DEBUG_ENABLED, experienceDebugLog, experienceDebugTable, type ExperienceDebugStage } from "@/lib/experience/experience-debug";
 
 const REALTIME_DEBUG = process.env.NEXT_PUBLIC_REALTIME_DEBUG === "true";
 
@@ -60,6 +61,7 @@ export class OpenAIRealtimeClient {
   private firstAudioPlayedAt?: number;
   private responseCreatedTimeout?: ReturnType<typeof setTimeout>;
   private remoteAudioTrackReceived = false;
+  private experienceDebugStages: Partial<Record<ExperienceDebugStage, number>> = {};
 
   // Transport readiness tracking
   private connectionReadyPromise?: {
@@ -109,6 +111,7 @@ export class OpenAIRealtimeClient {
   }
 
   async connect(initialResponseInstructions?: string) {
+    this.markExperienceDebugStage("session_started");
     console.log("[INSTANCE] connect() called", {
       instanceId: this.instanceId,
       hasInitialInstructions: Boolean(initialResponseInstructions),
@@ -245,6 +248,7 @@ export class OpenAIRealtimeClient {
         timestamp: Math.round(performance.now()),
       });
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.markExperienceDebugStage("microphone_opened");
       console.log("[CONNECTION] Microphone access granted, adding audio tracks", {
         instanceId: this.instanceId,
         trackCount: this.localStream.getAudioTracks().length,
@@ -381,6 +385,8 @@ export class OpenAIRealtimeClient {
         : undefined,
     };
     devLog("response.create sent", { hasInstructions: Boolean(instructions) });
+    this.markExperienceDebugStage("transcript_sent_to_llm");
+    this.markExperienceDebugStage("tts_request_started");
     this.sendEvent(event);
   }
 
@@ -436,6 +442,8 @@ export class OpenAIRealtimeClient {
     };
 
     console.log("[VOICE] Sending response.create event (exact audio response)");
+    this.markExperienceDebugStage("transcript_sent_to_llm");
+    this.markExperienceDebugStage("tts_request_started");
     devLog("response.create (exact audio response)", { text: text.slice(0, 50) });
     this.sendEvent(responseEvent);
     console.log("[VOICE] response.create event sent");
@@ -625,6 +633,8 @@ export class OpenAIRealtimeClient {
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
         this.resetTurnTiming();
+        this.resetExperienceDebugTurn();
+        this.markExperienceDebugStage("user_speech_started");
         const wasInterruption = this.responseActive || this.audioOutputActive;
         devLog("user speech started:", {
           t: Math.round(performance.now()),
@@ -653,9 +663,11 @@ export class OpenAIRealtimeClient {
       }
       case "input_audio_buffer.speech_stopped":
         this.speechStoppedAt = performance.now();
+        this.markExperienceDebugStage("vad_speech_ended");
         devLog("user speech stopped:", { t: Math.round(performance.now()) });
         break;
       case "conversation.item.input_audio_transcription.completed": {
+        this.markExperienceDebugStage("transcript_finalized");
         const text = typeof event.transcript === "string" ? event.transcript : "";
         const inferredState = this.responseActive
           ? this.audioOutputActive ? "speaking" : "thinking"
@@ -673,6 +685,7 @@ export class OpenAIRealtimeClient {
         this.hasReceivedAudioForResponse = false;
         this.hasPlayedAudioForResponse = false;
         this.responseStartedAt = performance.now();
+        this.markExperienceDebugStage("llm_response_received");
         devLog("response lifecycle: response.created", { t: Math.round(performance.now()) });
         break;
       case "response.output_audio.delta":
@@ -690,6 +703,7 @@ export class OpenAIRealtimeClient {
         if (!this.hasReceivedAudioForResponse) {
           this.hasReceivedAudioForResponse = true;
           this.firstAudioReceivedAt = performance.now();
+          this.markExperienceDebugStage("first_audio_byte_received");
           if (this.audioElement && !this.audioElement.paused) {
             this.markFirstAudioPlayed("audio element already playing");
           }
@@ -710,6 +724,9 @@ export class OpenAIRealtimeClient {
         break;
       case "output_audio_buffer.stopped":
       case "output_audio_buffer.cleared":
+        this.markExperienceDebugStage("speech_playback_finished");
+        this.markExperienceDebugStage("next_listening_entered");
+        this.reportExperienceDebugTurn();
         this.responseActive = false;
         this.audioOutputActive = false;
         break;
@@ -730,6 +747,7 @@ export class OpenAIRealtimeClient {
       console.log("[VOICE][AUDIO] playing", this.audioElementState(audioElement));
       devLog("audio playing");
       this.markFirstAudioPlayed();
+      this.markExperienceDebugStage("speech_playback_started");
     };
     audioElement.onpause = () => {
       console.log("[VOICE][AUDIO] paused", this.audioElementState(audioElement));
@@ -789,5 +807,35 @@ export class OpenAIRealtimeClient {
     this.firstAudioPlayedAt = performance.now();
     devLog("first audio played", reason ? { reason } : {});
     this.reportTurnLatency();
+  }
+
+  private markExperienceDebugStage(stage: ExperienceDebugStage) {
+    if (!EXPERIENCE_DEBUG_ENABLED) return;
+    const now=performance.now();
+    this.experienceDebugStages[stage]=now;
+    experienceDebugLog(stage,{elapsedMs:Math.round(now-(this.experienceDebugStages.session_started??now))});
+  }
+
+  private resetExperienceDebugTurn() {
+    if (!EXPERIENCE_DEBUG_ENABLED) return;
+    const sessionStarted=this.experienceDebugStages.session_started;
+    const microphoneOpened=this.experienceDebugStages.microphone_opened;
+    this.experienceDebugStages={session_started:sessionStarted,microphone_opened:microphoneOpened};
+  }
+
+  private reportExperienceDebugTurn() {
+    if (!EXPERIENCE_DEBUG_ENABLED) return;
+    const stage=this.experienceDebugStages;
+    const duration=(start:ExperienceDebugStage,end:ExperienceDebugStage)=>stage[start]!==undefined&&stage[end]!==undefined?Math.round(stage[end]!-stage[start]!):"n/a";
+    experienceDebugTable({
+      "Microphone open":duration("session_started","microphone_opened"),
+      "VAD":duration("user_speech_started","vad_speech_ended"),
+      "Transcript":duration("vad_speech_ended","transcript_finalized"),
+      "LLM":duration("transcript_sent_to_llm","llm_response_received"),
+      "TTS generation":duration("tts_request_started","first_audio_byte_received"),
+      "Audio startup":duration("first_audio_byte_received","speech_playback_started"),
+      "Audio playback":duration("speech_playback_started","speech_playback_finished"),
+      "TOTAL":duration("user_speech_started","next_listening_entered"),
+    });
   }
 }

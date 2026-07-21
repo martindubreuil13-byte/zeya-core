@@ -10,6 +10,12 @@ export type RepresentationBriefResult=
   |{status:"valid";brief:RepresentationBrief;spokenBrief:string}
   |{status:"requires_clarification";message:string;clarificationQuestion:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation}
   |{status:"failed";message:string;internalReason:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation};
+export type RepresentationBriefDebugInspection={
+  conversationLength:number;visitorUtterances:number;zeyaUtterances:number;veyaUtterances:number;
+  evidenceItems:string[];substantiveEvidenceItems:number;substantiveWordCount:number;
+  contrastsFound:number;repeatedThemes:string[];
+};
+export type RepresentationBriefGenerationTiming={validationMs:number};
 
 const SUPPORTS=["what_i_heard","what_stood_out","what_that_may_mean","where_i_would_begin"] as const;
 function safeText(value:unknown,limit=500){return typeof value==="string"?value.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0,limit):""}
@@ -26,6 +32,23 @@ function words(value:string){return value.split(/\s+/).filter(Boolean)}
 function clarification(reason:string):RepresentationBriefResult{return{status:"requires_clarification",message:"I understand the outline, but I do not yet have enough evidence to offer a useful representation direction.",clarificationQuestion:"What is the most important result your business creates for the people it serves?",confidenceLevel:"requires_clarification",validation:{evidence:"fail",interpretation:"fail",governance:"pass",violations:[reason]}}}
 function evidenceRefs(items:ReturnType<typeof visitorEvidence>):RepresentationBriefEvidenceSource[]{return items.slice(0,3).map((item,index)=>({...item,supports:index===0?[...SUPPORTS]:index===1?["what_stood_out","what_that_may_mean","where_i_would_begin"]:["what_stood_out"]}))}
 function numbers(value:string){return value.match(/\b\d+(?:\.\d+)?%?\b/g)??[]}
+
+export function inspectRepresentationBriefInput(input:RepresentationBriefInput):RepresentationBriefDebugInspection{
+  const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
+  const tokens=substantive.map(item=>new Set(words(item.excerpt.toLowerCase()).filter(word=>word.length>5)));
+  const repeatedThemes=[...new Set(tokens.flatMap((current,index)=>index===0?[]:[...current].filter(word=>tokens.slice(0,index).some(previous=>previous.has(word)))))];
+  const contrastsFound=evidence.filter(item=>/\b(?:but|however|instead|actually|rather|although|yet)\b/i.test(item.excerpt)).length;
+  return{
+    conversationLength:input.zeyaTranscript.length+input.veyaTranscript.length,
+    visitorUtterances:evidence.length,
+    zeyaUtterances:input.zeyaTranscript.length,
+    veyaUtterances:input.veyaTranscript.length,
+    evidenceItems:evidence.map(item=>item.excerpt),
+    substantiveEvidenceItems:substantive.length,
+    substantiveWordCount:substantive.reduce((total,item)=>total+words(item.excerpt).length,0),
+    contrastsFound,repeatedThemes,
+  };
+}
 
 export function validateRepresentationBrief(brief:RepresentationBrief,visitorExcerpts:string[]):RepresentationBriefValidation{
   const violations:string[]=[];const publicText=[brief.whatIHeard,brief.whatStoodOut,brief.whatThatMayMean,brief.whereIWouldBegin].join(" ");
@@ -50,9 +73,9 @@ export function buildSpeechSafeRepresentationBrief(brief:RepresentationBrief){
   return words(speech).slice(0,130).join(" ");
 }
 
-export function generateRepresentationBrief(input:RepresentationBriefInput):RepresentationBriefResult{
+export function generateRepresentationBrief(input:RepresentationBriefInput,onTiming?:(timing:RepresentationBriefGenerationTiming)=>void):RepresentationBriefResult{
   const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
-  if(substantive.length<2||substantive.reduce((n,e)=>n+words(e.excerpt).length,0)<16)return clarification("insufficient_substantive_visitor_evidence");
+  if(substantive.length<2||substantive.reduce((n,e)=>n+words(e.excerpt).length,0)<16){onTiming?.({validationMs:0});return clarification("insufficient_substantive_visitor_evidence");}
   const primary=substantive[0],specific=[...substantive].sort((a,b)=>words(b.excerpt).length-words(a.excerpt).length)[0];
   const repeated=substantive.find((item,index)=>index>0&&words(item.excerpt.toLowerCase()).filter(w=>w.length>5).some(w=>primary.excerpt.toLowerCase().includes(w)));
   const whatIHeard=`I heard you describe your business this way: “${primary.excerpt}”`;
@@ -63,7 +86,9 @@ export function generateRepresentationBrief(input:RepresentationBriefInput):Repr
   const refs=evidenceRefs([primary,...(specific.sourceId===primary.sourceId?[]:[specific]),...(repeated&&repeated.sourceId!==specific.sourceId?[repeated]:[])]);
   const draft:RepresentationBrief={whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,alignmentQuestion:"Is that aligned with how you want your business understood?",confidenceLevel:repeated?"high":"medium",totalWordCount:0,evidenceSources:refs,validation:{evidence:"fail",interpretation:"fail",governance:"fail",violations:[]}};
   draft.totalWordCount=words([whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,draft.alignmentQuestion].join(" ")).length;
+  const validationStarted=performance.now();
   draft.validation=validateRepresentationBrief(draft,evidence.map(e=>e.excerpt));
+  onTiming?.({validationMs:Math.round((performance.now()-validationStarted)*1000)/1000});
   if(Object.values(draft.validation).includes("fail"))return{status:"failed",message:"The interpretation could not be validated safely.",internalReason:draft.validation.violations.join(","),confidenceLevel:"requires_clarification",validation:draft.validation};
   const spokenBrief=buildSpeechSafeRepresentationBrief(draft);
   if(words(spokenBrief).length<70||words(spokenBrief).length>130)return{status:"failed",message:"The interpretation could not be narrated safely.",internalReason:"speech_length_invalid",confidenceLevel:"requires_clarification",validation:draft.validation};

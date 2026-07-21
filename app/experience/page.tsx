@@ -21,6 +21,7 @@ import type { DispatchRecord } from "@/lib/dispatch/types";
 import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
 import type { PublicExperienceCallOutcome } from "@/lib/experience/public-call-outcome";
 import type { RepresentationBrief, RepresentationBriefResponseType } from "@/types/experience";
+import { EXPERIENCE_DEBUG_ENABLED, experienceDebugLog, experienceDebugTable } from "@/lib/experience/experience-debug";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "completed" | "handoff_error";
 
@@ -71,6 +72,7 @@ export default function ExperiencePage() {
   const briefResponseKeysRef=useRef<Record<string,string>>({});
   const identityRef = useRef<{ name: string | null; offer: string | null; buyer: string | null } | null>(null);
   const identityResolvedRef = useRef(false);
+  const reflectionDebugRef=useRef<{startedAt:number;responseAt?:number;serverTimings?:Record<string,number>;briefStatus?:string;validation?:unknown}|null>(null);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
   const callRequested = delegationStatus === "call_requested"
@@ -99,10 +101,12 @@ export default function ExperiencePage() {
           if(body.status)setDurableCallStatus(body.status);
           if(body.status==="reflection_ready"){
             console.info("[browser]", { reflection_ready: true });
-            const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
+            if(EXPERIENCE_DEBUG_ENABLED){reflectionDebugRef.current={startedAt:performance.now()};experienceDebugLog("reflection_started");}
+            const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`,...(EXPERIENCE_DEBUG_ENABLED?{"x-experience-debug":"1"}:{})},signal:controller.signal});
             if(stopped)return;
             if(reflectionResponse.ok){
-              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:RepresentationBrief;spokenBrief?:string;clarification?:{message:string;question:string}};
+              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:RepresentationBrief;spokenBrief?:string;clarification?:{message:string;question:string};experienceDebug?:{timings?:Record<string,number>;briefStatus?:string;validation?:unknown}};
+              if(EXPERIENCE_DEBUG_ENABLED&&reflectionDebugRef.current){reflectionDebugRef.current.responseAt=performance.now();reflectionDebugRef.current.serverTimings=completed.experienceDebug?.timings;reflectionDebugRef.current.briefStatus=completed.experienceDebug?.briefStatus;reflectionDebugRef.current.validation=completed.experienceDebug?.validation;experienceDebugLog("reflection_response_returned",{elapsedMs:Math.round(performance.now()-reflectionDebugRef.current.startedAt),briefStatus:completed.experienceDebug?.briefStatus,validation:completed.experienceDebug?.validation});}
               if(completed.outcome){setCallOutcome(completed.outcome);setRepresentationBrief(completed.brief??null);setSpokenBrief(completed.spokenBrief??null);setBriefClarification(completed.clarification??null);stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
             }
             return;
@@ -115,6 +119,18 @@ export default function ExperiencePage() {
     void poll();
     return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
   },[callRequested,experienceSession?.token,phase]);
+
+  useEffect(()=>{
+    if(!EXPERIENCE_DEBUG_ENABLED||phase!=="completed"||!reflectionDebugRef.current)return;
+    const debug=reflectionDebugRef.current,renderedAt=performance.now();
+    experienceDebugLog("ui_rendered",{elapsedMs:Math.round(renderedAt-debug.startedAt),briefStatus:debug.briefStatus,validation:debug.validation});
+    experienceDebugTable({
+      ...(debug.serverTimings??{}),
+      "Response returned":debug.responseAt?Math.round(debug.responseAt-debug.startedAt):"n/a",
+      "UI render":debug.responseAt?Math.round(renderedAt-debug.responseAt):"n/a",
+      "Reflection TOTAL":Math.round(renderedAt-debug.startedAt),
+    });
+  },[phase]);
 
   const recordBriefResponse=async(responseType:RepresentationBriefResponseType)=>{
     if(!representationBrief?.id||!experienceSession?.token||briefResponsePending)return;
