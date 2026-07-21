@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260712000000.
 -- Minimal patch for Canonical Representation State contradiction handling.
 -- Allows immutable audit events to record deterministic contradiction handling.
 

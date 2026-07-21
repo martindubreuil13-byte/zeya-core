@@ -1,3 +1,4 @@
+-- OPERATOR-INITIATED ROLLBACK — retained outside the forward migration path.
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- ZEYA CANONICAL REPRESENTATION STATE ROLLBACK
 -- Date: 2026-07-11

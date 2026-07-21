@@ -1,3 +1,4 @@
+-- SUPERSEDED LEGACY SCRIPT — retained for audit only; do not deploy as a migration.
 -- Zeya Learning Layer v1
 -- Stores post-assignment call feedback and derived mission learnings.
 

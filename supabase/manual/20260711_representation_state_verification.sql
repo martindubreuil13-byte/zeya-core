@@ -1,3 +1,4 @@
+-- READ-ONLY VERIFICATION SCRIPT — retained outside the forward migration path.
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- ZEYA CANONICAL REPRESENTATION STATE VERIFICATION
 -- Date: 2026-07-11

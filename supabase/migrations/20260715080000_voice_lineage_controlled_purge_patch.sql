@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260715080000.
 BEGIN;
 
 CREATE OR REPLACE FUNCTION public.zeya_purge_business_representation(p_business_representation_id uuid, p_expected_business_id uuid)

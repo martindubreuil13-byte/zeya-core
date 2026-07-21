@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260714000000.
 -- Confidence Assessments are immutable historical calculations.
 -- Controlled service-role fixture purge remains available through its
 -- transaction-local bypass and does not weaken ordinary authenticated access.

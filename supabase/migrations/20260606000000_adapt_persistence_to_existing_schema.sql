@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260606000000.
 -- Phase 12B Persistence Adaptation Migration
 -- Adapts Phase 12A repositories to existing production schema
 -- Date: 2026-06-06

@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260613000000.
 -- Dispatch table for outbound execution tracking
 -- Production-ready storage for dispatch records
 

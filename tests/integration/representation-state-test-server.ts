@@ -56,15 +56,14 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   const child = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--port', String(port)], {
     cwd: process.cwd(),
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
+    detached: false,
     env: { ...process.env, ...(options.envOverrides ?? {}), PORT: String(port) },
   });
   const parentPid = process.pid;
-  const processGroup = child.pid;
   const parentWatchdog = setInterval(() => {
-    if (child.exitCode !== null || !processGroup) return;
+    if (child.exitCode !== null) return;
     try { process.kill(parentPid, 0); } catch {
-      try { process.kill(-processGroup, 'SIGTERM'); } catch { /* already stopped */ }
+      try { child.kill('SIGTERM'); } catch { /* already stopped */ }
       clearInterval(parentWatchdog);
     }
   }, 1_000);
@@ -77,8 +76,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   child.stderr?.on('data', capture);
   const stopChild = async () => {
     clearInterval(parentWatchdog);
-    if (child.exitCode !== null) return;
-    try { if (processGroup) process.kill(-processGroup, 'SIGTERM'); else child.kill('SIGTERM'); } catch { child.kill('SIGTERM'); }
+    try { if (child.exitCode === null) child.kill('SIGTERM'); } catch { /* already stopped */ }
+    if (child.exitCode !== null) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return;
+    }
     await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, 5_000);
       child.once('exit', () => { clearTimeout(timer); resolve(); });

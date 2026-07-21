@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260714010000.
 BEGIN;
 
 CREATE UNIQUE INDEX IF NOT EXISTS businesses_id_user_idx

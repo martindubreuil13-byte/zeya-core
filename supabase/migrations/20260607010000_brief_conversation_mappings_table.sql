@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260607010000.
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Brief-Conversation Mapping Table
 -- Date: 2026-06-07

@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260613010000.
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Dispatch Lifecycle and Event Tracking
 -- Date: 2026-06-13

@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260608000000.
 -- Add provider_call_id column to brief_conversation_mappings for SIP call tracking
 -- This allows linking the ElevenLabs SIP call ID to the conversation mapping
 

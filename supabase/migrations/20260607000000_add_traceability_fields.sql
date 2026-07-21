@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260607000000.
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Add Traceability Fields for Call Reconstruction
 -- Date: 2026-06-07

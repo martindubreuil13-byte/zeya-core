@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260607020000.
 -- ═══════════════════════════════════════════════════════════════════════════
 -- WorkerBriefs Persistence Table
 -- Date: 2026-06-07

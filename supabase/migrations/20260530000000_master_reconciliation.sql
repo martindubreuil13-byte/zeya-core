@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260530000000.
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Zeya Database Master Reconciliation Migration
 -- Date: 2026-05-30

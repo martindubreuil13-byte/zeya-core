@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260529000000.
 -- Mission Leads table
 -- Stores prospect/lead records attached to a business and optionally a named mission.
 -- mission_key is the mission name string from current_mission_detail.name — no missions table yet.

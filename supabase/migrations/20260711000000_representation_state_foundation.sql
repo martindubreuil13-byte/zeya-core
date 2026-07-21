@@ -1,3 +1,4 @@
+-- Normalized migration version: 20260711000000.
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- ZEYA CANONICAL REPRESENTATION STATE FOUNDATION
 -- Date: 2026-07-11

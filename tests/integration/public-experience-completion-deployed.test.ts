@@ -167,12 +167,7 @@ async function signAndPost(baseUrl: string, payload: string, secret: string, tim
 }
 
 async function stopOwnedServer(server: TestServer | null) {
-  if (!server?.process || server.process.exitCode !== null) return;
-  server.process.kill("SIGTERM");
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, 5_000);
-    server.process!.once("exit", () => { clearTimeout(timeout); resolve(); });
-  });
+  if (server) await server.stop();
 }
 
 let currentTestServer: TestServer | null = null;
@@ -491,14 +486,63 @@ async function main() {
     assert(!expiryComplete.error && expiryComplete.data === "reflection_ready", "completion after expiry");
     assert((await admin.rpc("zeya_request_public_experience_call", { p_token_hash: hashExperienceToken(expiringToken), p_dispatch_id: `new_${crypto.randomUUID()}`, p_phone_hash: "a".repeat(64) })).error, "new dispatch after expiry accepted");
     assert.equal((await admin.from("public_experience_sessions").select("state").eq("id", expiringSessionId).single()).data?.state, "reflection_ready");
+    const expiredBrief = await admin.rpc("zeya_persist_public_experience_representation_brief", {
+      p_session_id: expiringSessionId, p_status: "requires_clarification", p_structured_brief: null, p_spoken_brief: null,
+      p_confidence_level: "requires_clarification", p_evidence_references: [], p_validation_outcome: { evidence: "fail" },
+      p_generator_version: "expiry-test", p_provider: "deterministic", p_model: "test", p_internal_failure_reason: "fixture",
+    });
+    assert(expiredBrief.error, "expired session persisted a Representation Brief");
     console.log("Completion after expiry ................. PASS");
 
-    const reflection = await json(server.baseUrl, "/api/experience/session/reflection", { headers: { Authorization: `Bearer ${success.token}` } });
-    assert.equal(reflection.status, 200, "reflection unavailable");
+    const reflectionServer = requireValue(server, "reflection server unavailable");
+    const concurrentReflections = await Promise.all(Array.from({ length: 5 }, () =>
+      json(reflectionServer.baseUrl, "/api/experience/session/reflection", { headers: { Authorization: `Bearer ${success.token}` } })));
+    assert(concurrentReflections.every(item => item.status === 200), "concurrent reflection unavailable");
+    const reflection = concurrentReflections[0];
+    const brief = reflection.body.brief as Record<string, unknown>;
+    const briefId = String(brief?.id ?? "");
+    assert(briefId, "persisted Representation Brief ID missing");
+    assert(concurrentReflections.every(item => String((item.body.brief as Record<string, unknown>)?.id ?? "") === briefId), "concurrent reflection produced divergent briefs");
+    const persistedBriefs = await admin.from("public_experience_representation_briefs").select("*").eq("public_experience_session_id", success.id);
+    assert(!persistedBriefs.error && persistedBriefs.data.length === 1, "session did not persist exactly one brief");
+    const storedBrief = persistedBriefs.data[0];
+    const exactBriefReplay = await admin.rpc("zeya_persist_public_experience_representation_brief", {
+      p_session_id: success.id, p_status: storedBrief.status, p_structured_brief: storedBrief.structured_brief,
+      p_spoken_brief: storedBrief.spoken_brief, p_confidence_level: storedBrief.confidence_level,
+      p_evidence_references: storedBrief.evidence_references, p_validation_outcome: storedBrief.validation_outcome,
+      p_generator_version: storedBrief.generator_version, p_provider: storedBrief.provider, p_model: storedBrief.model,
+      p_internal_failure_reason: storedBrief.internal_failure_reason,
+    });
+    assert(!exactBriefReplay.error && exactBriefReplay.data === briefId, "exact brief replay was not idempotent");
+    const conflictingBriefReplay = await admin.rpc("zeya_persist_public_experience_representation_brief", {
+      p_session_id: success.id, p_status: storedBrief.status, p_structured_brief: storedBrief.structured_brief,
+      p_spoken_brief: `${storedBrief.spoken_brief ?? ""} changed`, p_confidence_level: storedBrief.confidence_level,
+      p_evidence_references: storedBrief.evidence_references, p_validation_outcome: storedBrief.validation_outcome,
+      p_generator_version: storedBrief.generator_version, p_provider: storedBrief.provider, p_model: storedBrief.model,
+      p_internal_failure_reason: storedBrief.internal_failure_reason,
+    });
+    assert(conflictingBriefReplay.error?.code === "23505", "conflicting brief replay did not fail");
+    assert((await admin.from("public_experience_representation_briefs").update({ spoken_brief: "mutable" }).eq("id", briefId)).error, "brief update bypassed immutability");
+    for (const [responseType, responseText] of [["confirm", ""], ["refine", "Please focus on reliable follow-up."], ["redirect", "Focus on clinic owners."], ["continue", ""]] as const) {
+      const requestKey = crypto.randomUUID();
+      const body = { briefId, requestKey, responseType, responseText };
+      const recorded = await json(server.baseUrl, "/api/experience/session/reflection/response", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${success.token}` }, body: JSON.stringify(body) });
+      assert.equal(recorded.status, 200, `${responseType} response failed`);
+      const replay = await json(server.baseUrl, "/api/experience/session/reflection/response", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${success.token}` }, body: JSON.stringify(body) });
+      assert.equal(replay.status, 200, `${responseType} response replay failed`);
+      assert.equal(replay.body.responseId, recorded.body.responseId, `${responseType} replay duplicated`);
+      const conflict = await json(server.baseUrl, "/api/experience/session/reflection/response", { method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${success.token}` }, body: JSON.stringify({ ...body, responseType: responseType === "continue" ? "confirm" : "continue", responseText: "" }) });
+      assert.notEqual(conflict.status, 200, `${responseType} conflicting request key succeeded`);
+    }
+    const responseRows = await admin.from("public_experience_brief_responses").select("representation_brief_id,public_experience_session_id").eq("public_experience_session_id", success.id);
+    assert(!responseRows.error && responseRows.data.length === 4 && responseRows.data.every(row => row.representation_brief_id === briefId), "brief response idempotency or relationship failed");
+    assert((await admin.rpc("zeya_record_public_experience_brief_response", { p_token_hash: hashExperienceToken(success.token), p_brief_id: crypto.randomUUID(), p_request_key: crypto.randomUUID(), p_response_type: "confirm", p_response_text: "" })).error, "cross-brief response accepted");
     assert.equal((await json(server.baseUrl, "/api/experience/session/reflection", { headers: { Authorization: "Bearer invalid" } })).status, 404);
     const reflectionRaw = reflection.raw.toLowerCase();
     assert(reflectionRaw.includes("reviewed before becoming part") && !reflectionRaw.includes("person@example.com") && !reflectionRaw.includes("555 000 7777") && !reflectionRaw.includes("https://example.com") && !reflectionRaw.includes(success.id) && !reflectionRaw.includes(success.callId), "reflection safety");
     console.log("Provider-derived reflection ............ PASS");
+    console.log("Representation Brief persistence ....... PASS");
+    console.log("Representation Brief responses ......... PASS");
 
     for (const [outcome, expected] of [["failed", "call_failed"], ["unanswered", "call_unanswered"], ["rejected", "call_rejected"], ["completed_without_transcript", "call_completed_without_transcript"], ["completion_processing_failed", "completion_processing_failed"]] as const) {
       const fixture = await providerFixture(admin, registry, server, tenantA, "call_correlation_pending");
@@ -553,7 +597,8 @@ async function main() {
   console.log("Fixture cleanup ......................... PASS");
 }
 
+const keepAlive = setInterval(() => undefined, 1000);
 main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : "Public Experience completion deployed matrix failed");
   process.exitCode = 1;
-});
+}).finally(() => clearInterval(keepAlive));
