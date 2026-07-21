@@ -30,6 +30,7 @@
     "test:public-experience-browser-contract": "npx tsx tests/integration/public-experience-browser-contract.test.ts",
     "test:public-experience-handoff-state-machine": "npx tsx tests/integration/public-experience-handoff-state-machine.test.ts",
     "test:public-experience-quality": "npx tsx tests/integration/public-experience-quality.test.ts",
+    "test:representation-brief": "npx tsx tests/integration/representation-brief-v1.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",

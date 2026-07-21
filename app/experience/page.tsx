@@ -20,6 +20,7 @@ import {
 import type { DispatchRecord } from "@/lib/dispatch/types";
 import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types";
 import type { PublicExperienceCallOutcome } from "@/lib/experience/public-call-outcome";
+import type { RepresentationBrief, RepresentationBriefResponseType } from "@/types/experience";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "completed" | "handoff_error";
 
@@ -49,8 +50,13 @@ export default function ExperiencePage() {
   const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
   const [durableCallStatus,setDurableCallStatus]=useState<string|null>(null);
   const [callOutcome,setCallOutcome]=useState<PublicExperienceCallOutcome|null>(null);
-  const [representationBrief,setRepresentationBrief]=useState<any|null>(null);
+  const [representationBrief,setRepresentationBrief]=useState<RepresentationBrief|null>(null);
+  const [spokenBrief,setSpokenBrief]=useState<string|null>(null);
+  const [briefClarification,setBriefClarification]=useState<{message:string;question:string}|null>(null);
   const [briefResponse,setBriefResponse]=useState<string|null>(null);
+  const [briefResponseText,setBriefResponseText]=useState("");
+  const [briefResponseError,setBriefResponseError]=useState<string|null>(null);
+  const [briefResponsePending,setBriefResponsePending]=useState(false);
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
@@ -62,6 +68,7 @@ export default function ExperiencePage() {
   const startInFlightRef = useRef(false);
   const handoffInFlightRef = useRef(false);
   const handoffCompletedRef = useRef(false);
+  const briefResponseKeysRef=useRef<Record<string,string>>({});
   const identityRef = useRef<{ name: string | null; offer: string | null; buyer: string | null } | null>(null);
   const identityResolvedRef = useRef(false);
 
@@ -95,8 +102,8 @@ export default function ExperiencePage() {
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
             if(stopped)return;
             if(reflectionResponse.ok){
-              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:any};
-              if(completed.outcome){setCallOutcome(completed.outcome);if(completed.brief){setRepresentationBrief(completed.brief);}stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
+              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:RepresentationBrief;spokenBrief?:string;clarification?:{message:string;question:string}};
+              if(completed.outcome){setCallOutcome(completed.outcome);setRepresentationBrief(completed.brief??null);setSpokenBrief(completed.spokenBrief??null);setBriefClarification(completed.clarification??null);stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
             }
             return;
           }
@@ -108,6 +115,25 @@ export default function ExperiencePage() {
     void poll();
     return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
   },[callRequested,experienceSession?.token,phase]);
+
+  const recordBriefResponse=async(responseType:RepresentationBriefResponseType)=>{
+    if(!representationBrief?.id||!experienceSession?.token||briefResponsePending)return;
+    if((responseType==="refine"||responseType==="redirect")&&!briefResponseText.trim()){setBriefResponse(responseType);return;}
+    setBriefResponsePending(true);setBriefResponseError(null);
+    try{
+      const operationKey=`${responseType}:${briefResponseText.trim()}`;
+      const requestKey=briefResponseKeysRef.current[operationKey]??crypto.randomUUID();briefResponseKeysRef.current[operationKey]=requestKey;
+      const response=await fetch("/api/experience/session/reflection/response",{method:"POST",headers:{Authorization:`Bearer ${experienceSession.token}`,"Content-Type":"application/json"},body:JSON.stringify({briefId:representationBrief.id,requestKey,responseType,responseText:briefResponseText})});
+      if(!response.ok)throw new Error("response_failed");
+      setBriefResponse(responseType);setBriefResponseText("");
+    }catch{setBriefResponseError("Your response could not be saved. Please try again.");}
+    finally{setBriefResponsePending(false);}
+  };
+
+  const narrateBrief=async()=>{
+    if(!spokenBrief)return;
+    try{const response=await fetch("/api/elevenlabs/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:spokenBrief})});if(!response.ok)return;const audio=new Audio(URL.createObjectURL(await response.blob()));void audio.play();}catch{/* displayed brief remains available */}
+  };
 
   // Keep the voice session alive until the handoff has actually been spoken,
   // then stop microphone capture before revealing phone collection.
@@ -846,7 +872,8 @@ export default function ExperiencePage() {
 
                 <div className="space-y-2">
                   <button
-                    onClick={() => setBriefResponse("confirmed")}
+                    onClick={() => void recordBriefResponse("confirm")}
+                    disabled={briefResponsePending}
                     className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors"
                   >
                     Yes, that&apos;s right.
@@ -863,6 +890,13 @@ export default function ExperiencePage() {
                   >
                     No, that&apos;s not the right direction.
                   </button>
+                  {(briefResponse==="refine"||briefResponse==="redirect")&&(
+                    <form className="space-y-2" onSubmit={(event)=>{event.preventDefault();void recordBriefResponse(briefResponse);}}>
+                      <textarea value={briefResponseText} onChange={event=>setBriefResponseText(event.target.value)} maxLength={1200} autoFocus placeholder={briefResponse==="refine"?"What would you adjust?":"What should Zeya prioritize instead?"} className="min-h-24 w-full border border-zeya-taupe/30 bg-transparent p-3 text-sm text-zeya-ivory" />
+                      <button disabled={briefResponsePending} className="w-full border border-zeya-champagne/40 px-4 py-3 text-sm text-zeya-champagne">Save response</button>
+                    </form>
+                  )}
+                  {briefResponseError&&<p className="text-xs text-red-300" role="alert">{briefResponseError}</p>}
                 </div>
               </div>
 
@@ -872,20 +906,24 @@ export default function ExperiencePage() {
                     ? "I&apos;m confident about this interpretation."
                     : "I&apos;m still refining my understanding."}
                 </p>
+                {spokenBrief&&<button type="button" onClick={()=>void narrateBrief()} className="text-xs text-zeya-champagne underline underline-offset-4">Listen to Zeya’s interpretation</button>}
               </div>
             </div>
 
             <div className="border-t border-zeya-taupe/10 pt-6 space-y-3">
               <button
-                onClick={() => setBriefResponse("continue")}
+                onClick={() => void recordBriefResponse("continue")}
                 className="w-full border border-zeya-taupe/30 px-6 py-3 text-sm font-light text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors"
                 style={{letterSpacing:"0.08em"}}
               >
                 Show me what comes next
               </button>
+              {briefResponse==="continue"&&<div className="space-y-2 text-center"><p className="font-serif text-xl text-zeya-champagne">What this could become</p><p className="text-sm leading-7 text-zeya-taupe">A representation that becomes more accurate through evidence, correction, and your approval.</p></div>}
             </div>
           </div>
         </div>
+      ) : phase === "completed" && briefClarification ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6"><div className="w-full max-w-lg space-y-5 text-center" role="status"><p className="font-serif text-2xl text-zeya-ivory">{briefClarification.message}</p><p className="text-sm leading-7 text-zeya-champagne">{briefClarification.question}</p><p className="text-xs text-zeya-taupe">Nothing has been inferred beyond what you shared.</p></div></div>
       ) : phase === "completed" ? (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           <div className="w-full max-w-lg space-y-7 text-center" role="status" aria-live="polite">
@@ -897,7 +935,7 @@ export default function ExperiencePage() {
               {callOutcome?.visitorInterest === "interested" && <p className="text-sm leading-7 text-zeya-ivory">It sounds like you&apos;d like to explore what comes next.</p>}
               {callOutcome?.visitorInterest === "uncertain" && <p className="text-sm leading-7 text-zeya-ivory">You&apos;ve experienced how an informed conversation can continue naturally.</p>}
               {callOutcome?.visitorInterest === "not_interested" && <p className="text-sm leading-7 text-zeya-ivory">Thank you for trying the experience.</p>}
-              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: "{callOutcome.relevantVisitorResponse}"</p>}
+              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: &ldquo;{callOutcome.relevantVisitorResponse}&rdquo;</p>}
               <p className="text-sm leading-7 text-zeya-taupe">Imagine what happens when that becomes hundreds.</p>
             </div>
             <Link href="/" className="inline-block border border-zeya-champagne/60 px-6 py-3 text-sm text-zeya-champagne transition-colors hover:bg-zeya-champagne/5">

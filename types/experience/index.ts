@@ -77,6 +77,7 @@ export interface RepresentationBriefValidation {
 }
 
 export interface RepresentationBrief {
+  id?: string;
   whatIHeard: string;
   whatStoodOut: string;
   whatThatMayMean: string;
@@ -87,3 +88,5 @@ export interface RepresentationBrief {
   evidenceSources: RepresentationBriefEvidenceSource[];
   validation: RepresentationBriefValidation;
 }
+
+export type RepresentationBriefResponseType="confirm"|"refine"|"redirect"|"continue";

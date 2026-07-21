@@ -85,8 +85,8 @@ curl -H "xi-api-key: {key}" https://api.elevenlabs.io/v1/convai/agents/agent_940
 
 ### Environment Variables (Verified)
 ```bash
-ELEVENLABS_API_KEY=sk_ffb34f1b179933b86173a9ef507fb7a38ccf10d0122f859c ✅
-ELEVENLABS_WEBHOOK_SECRET=wsec_ee1e4c2f40b68f08b76e35dbdaaf960c8af6013de8269430b999da4586f0063a ✅
+ELEVENLABS_API_KEY=[redacted] ✅
+ELEVENLABS_WEBHOOK_SECRET=[redacted] ✅
 NEXT_PUBLIC_ELEVENLABS_AGENT_ID=agent_9401ks7h7k14ev9a7t9rtsgbwkm3 ✅
 ```
 

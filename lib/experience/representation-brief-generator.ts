@@ -1,361 +1,71 @@
-import type {
-  RepresentationBrief,
-  RepresentationBriefEvidenceSource,
-  RepresentationBriefValidation,
-} from "@/types/experience";
+import type { RepresentationBrief,RepresentationBriefEvidenceSource,RepresentationBriefValidation } from "@/types/experience";
 
-export interface RepresentationBriefInput {
-  visitorName: string | null;
-  businessOffer: string | null;
-  targetCustomer: string | null;
-  zeyaTranscript: Array<{ role: string; text: string; id?: string }>;
-  veyaTranscript: Array<{ role: string; text: string; id?: string }>;
+export const REPRESENTATION_BRIEF_GENERATOR_VERSION="representation_brief_v1.1";
+export type BriefTurn={role:string;text:string;id?:string};
+export interface RepresentationBriefInput{
+  visitorName:string|null;businessOffer:string|null;targetCustomer:string|null;
+  zeyaTranscript:BriefTurn[];veyaTranscript:BriefTurn[];
+}
+export type RepresentationBriefResult=
+  |{status:"valid";brief:RepresentationBrief;spokenBrief:string}
+  |{status:"requires_clarification";message:string;clarificationQuestion:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation}
+  |{status:"failed";message:string;internalReason:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation};
+
+const SUPPORTS=["what_i_heard","what_stood_out","what_that_may_mean","where_i_would_begin"] as const;
+function safeText(value:unknown,limit=500){return typeof value==="string"?value.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0,limit):""}
+function visitorEvidence(input:RepresentationBriefInput){
+  const collect=(turns:BriefTurn[],sourceType:"zeya_conversation"|"veya_call")=>turns.flatMap((turn,index)=>{
+    if(turn.role!=="user"&&turn.role!=="customer")return [];
+    const excerpt=safeText(turn.text);if(!excerpt)return [];
+    return [{sourceType,sourceId:turn.id?.trim()||`${sourceType}_visitor_${index}`,speaker:"visitor" as const,excerpt}];
+  });
+  return [...collect(input.zeyaTranscript,"zeya_conversation"),...collect(input.veyaTranscript,"veya_call")];
+}
+const trivial=/^(yes|no|yeah|nope|okay|ok|sure|maybe|i don'?t know)[.!]?$/i;
+function words(value:string){return value.split(/\s+/).filter(Boolean)}
+function clarification(reason:string):RepresentationBriefResult{return{status:"requires_clarification",message:"I understand the outline, but I do not yet have enough evidence to offer a useful representation direction.",clarificationQuestion:"What is the most important result your business creates for the people it serves?",confidenceLevel:"requires_clarification",validation:{evidence:"fail",interpretation:"fail",governance:"pass",violations:[reason]}}}
+function evidenceRefs(items:ReturnType<typeof visitorEvidence>):RepresentationBriefEvidenceSource[]{return items.slice(0,3).map((item,index)=>({...item,supports:index===0?[...SUPPORTS]:index===1?["what_stood_out","what_that_may_mean","where_i_would_begin"]:["what_stood_out"]}))}
+function numbers(value:string){return value.match(/\b\d+(?:\.\d+)?%?\b/g)??[]}
+
+export function validateRepresentationBrief(brief:RepresentationBrief,visitorExcerpts:string[]):RepresentationBriefValidation{
+  const violations:string[]=[];const publicText=[brief.whatIHeard,brief.whatStoodOut,brief.whatThatMayMean,brief.whereIWouldBegin].join(" ");
+  const normalized=visitorExcerpts.map(x=>safeText(x));
+  for(const source of brief.evidenceSources){if(source.speaker!=="visitor"||!normalized.includes(safeText(source.excerpt)))violations.push("non_visitor_or_missing_evidence");}
+  for(const section of SUPPORTS){if(!brief.evidenceSources.some(s=>s.supports.includes(section)))violations.push(`missing_evidence:${section}`);}
+  const evidenceNumbers=new Set(normalized.flatMap(numbers));for(const number of numbers(publicText)){if(!evidenceNumbers.has(number))violations.push("invented_number");}
+  if(/industry average|market benchmark|competitors? (?:always|typically|usually)|prospects? (?:always|typically|usually)/i.test(publicText))violations.push("unsupported_market_claim");
+  if(/you (?:are|seem|feel|became) (?:anxious|afraid|energized|excited|hesitant|confident)|deep down|subconscious/i.test(publicText))violations.push("psychological_claim");
+  if(/because of this,? your|this is why your|causes? your/i.test(publicText))violations.push("unsupported_causal_claim");
+  const evidencePass=!violations.some(v=>v.startsWith("missing_evidence")||["non_visitor_or_missing_evidence","invented_number","unsupported_market_claim","psychological_claim","unsupported_causal_claim"].includes(v));
+  const interpretationPass=brief.whatThatMayMean.length>=20&&brief.whereIWouldBegin.length>=20&&!/improve your messaging|optimize your messaging|enhance your messaging/i.test(publicText)&&brief.whatThatMayMean!==brief.whatIHeard;
+  if(!interpretationPass)violations.push("interpretation_is_recap_or_generic");
+  const governancePass=!/(?:^|[.!?]\s*)(?:you need to|you must|you should|the solution is|i will represent you as)/i.test(publicText)&&/\?$/.test(brief.alignmentQuestion)&&/(aligned|right|correct)/i.test(brief.alignmentQuestion);
+  if(!governancePass)violations.push("governance_or_alignment_failed");
+  return{evidence:evidencePass?"pass":"fail",interpretation:interpretationPass?"pass":"fail",governance:governancePass?"pass":"fail",violations:[...new Set(violations)]};
 }
 
-interface ExtractedEvidence {
-  businessDescription: string | null;
-  emphasisPattern: { topic: string; strength: "clear" | "moderate" | "weak" } | null;
-  contradiction: { statement1: string; statement2: string } | null;
-  underemphasisedStrength: string | null;
-  observations: string[];
+export function buildSpeechSafeRepresentationBrief(brief:RepresentationBrief){
+  let speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} ${brief.whereIWouldBegin} ${brief.alignmentQuestion}`.replace(/\s+/g," ").trim();
+  if(words(speech).length<70)speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} This is a starting interpretation, not a decision about your business. ${brief.whereIWouldBegin} I would keep that direction grounded in what you have actually shared and refine it with you. ${brief.alignmentQuestion}`;
+  return words(speech).slice(0,130).join(" ");
 }
 
-function safeText(value: unknown, limit = 240): string {
-  if (typeof value !== "string") return "";
-  return value
-    .replace(/https?:\/\/\S+/gi, "[link]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
-    .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, "[phone]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, limit);
-}
-
-function getVisitorTurns(
-  transcript: Array<{ role: string; text: string; id?: string }>,
-): Array<{ text: string; id?: string }> {
-  return transcript
-    .filter((turn) => turn.role === "user" || turn.role === "customer")
-    .map((turn) => ({ text: safeText(turn.text, 300), id: turn.id }))
-    .filter((turn) => turn.text.length > 0);
-}
-
-function extractEvidence(input: RepresentationBriefInput): ExtractedEvidence {
-  const zeyaTurns = getVisitorTurns(input.zeyaTranscript);
-  const veyaTurns = getVisitorTurns(input.veyaTranscript);
-  const allTurns = [...zeyaTurns, ...veyaTurns];
-
-  if (allTurns.length === 0) {
-    return {
-      businessDescription: null,
-      emphasisPattern: null,
-      contradiction: null,
-      underemphasisedStrength: null,
-      observations: [],
-    };
-  }
-
-  // Build business description from extracted fields
-  const businessDescription = [
-    input.businessOffer && `sells ${input.businessOffer}`,
-    input.targetCustomer && `serves ${input.targetCustomer}`,
-  ]
-    .filter(Boolean)
-    .join(" and ");
-
-  // Detect emphasis patterns: look for repeated topics or strong conviction language
-  const emphasisWords = ["definitely", "really", "important", "key", "always"];
-  const weakWords = ["maybe", "might", "could", "possibly"];
-
-  let emphasisTopic: string | null = null;
-  let emphasisStrength: "clear" | "moderate" | "weak" = "weak";
-
-  for (const turn of allTurns) {
-    const hasEmphasis = emphasisWords.some((w) => turn.text.toLowerCase().includes(w));
-    const hasWeak = weakWords.some((w) => turn.text.toLowerCase().includes(w));
-
-    if (hasEmphasis && !hasWeak) {
-      emphasisTopic = turn.text.substring(0, 100);
-      emphasisStrength = "clear";
-      break;
-    } else if (hasEmphasis) {
-      emphasisTopic = turn.text.substring(0, 100);
-      emphasisStrength = "moderate";
-    }
-  }
-
-  // Look for contradictions: comparing what's stated vs. outcomes
-  let contradiction: { statement1: string; statement2: string } | null = null;
-  if (allTurns.length >= 2) {
-    const first = allTurns[0].text.toLowerCase();
-    const last = allTurns[allTurns.length - 1].text.toLowerCase();
-
-    // Simple contradiction detection: if tone/confidence changes significantly
-    const firstHasChallenge = /challenge|difficult|hard|struggle|problem/.test(first);
-    const lastHasOutcome = /outcome|result|success|achieved|learned/.test(last);
-
-    if (firstHasChallenge && lastHasOutcome) {
-      contradiction = {
-        statement1: allTurns[0].text,
-        statement2: allTurns[allTurns.length - 1].text,
-      };
-    }
-  }
-
-  // Look for underemphasized strengths: things mentioned passively that are actually valuable
-  let underemphasisedStrength: string | null = null;
-  const strengthKeywords = ["worked", "successfully", "repeat", "clients stay", "referred"];
-
-  for (const turn of allTurns) {
-    const lowerText = turn.text.toLowerCase();
-    if (strengthKeywords.some((k) => lowerText.includes(k)) && !turn.text.includes("!")) {
-      underemphasisedStrength = turn.text.substring(0, 120);
-      break;
-    }
-  }
-
-  return {
-    businessDescription: businessDescription || null,
-    emphasisPattern: emphasisTopic
-      ? {
-          topic: emphasisTopic,
-          strength: emphasisStrength,
-        }
-      : null,
-    contradiction,
-    underemphasisedStrength,
-    observations: allTurns.map((t) => t.text).slice(0, 3),
-  };
-}
-
-function generateWhatIHeard(evidence: ExtractedEvidence): string {
-  if (!evidence.businessDescription) {
-    return "I heard enough about your business to begin understanding it.";
-  }
-  return `You ${evidence.businessDescription}.`;
-}
-
-function generateWhatStoodOut(
-  evidence: ExtractedEvidence,
-  input: RepresentationBriefInput,
-): { text: string; sourceId?: string } | null {
-  // Priority 1: underemphasized strength
-  if (evidence.underemphasisedStrength) {
-    return {
-      text: `You mentioned that ${evidence.underemphasisedStrength}, but you did not lead with it.`,
-    };
-  }
-
-  // Priority 2: emphasis pattern
-  if (evidence.emphasisPattern && evidence.emphasisPattern.strength === "clear") {
-    return {
-      text: `You spoke with particular conviction about ${evidence.emphasisPattern.topic}.`,
-    };
-  }
-
-  // Priority 3: contradiction
-  if (evidence.contradiction) {
-    return {
-      text: `There is a contrast between what you described as the challenge and what you revealed as the actual outcome. That contrast is significant.`,
-    };
-  }
-
-  return null;
-}
-
-function generateWhatThatMayMean(
-  evidence: ExtractedEvidence,
-  observation: { text: string } | null,
-): string | null {
-  if (!observation) return null;
-
-  if (evidence.underemphasisedStrength) {
-    return `That suggests your strongest position may not be what you currently lead with. It may be what you mentioned in passing.`;
-  }
-
-  if (evidence.emphasisPattern?.strength === "clear") {
-    return `That suggests the way you talk about that topic may be how prospects actually want to understand your business.`;
-  }
-
-  if (evidence.contradiction) {
-    return `That suggests the real value may be different from what you initially described as the challenge.`;
-  }
-
-  return null;
-}
-
-function generateWhereIWouldBegin(
-  evidence: ExtractedEvidence,
-  input: RepresentationBriefInput,
-  observation: { text: string } | null,
-): string {
-  if (evidence.underemphasisedStrength) {
-    return `I would begin by representing that strength more clearly. You understand it. I would help prospects understand it too.`;
-  }
-
-  if (evidence.emphasisPattern) {
-    return `I would begin by leading with the thing you spoke about with the most conviction. That is what I would represent.`;
-  }
-
-  if (evidence.businessDescription) {
-    return `I would begin by representing you with clarity: ${evidence.businessDescription}.`;
-  }
-
-  return `I would begin by clarifying how you want to be understood. That is the first representation I would want us to refine.`;
-}
-
-function generateAlignmentQuestion(): string {
-  return "Is that aligned with how you want your business understood?";
-}
-
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).length;
-}
-
-function validateEvidence(
-  evidence: ExtractedEvidence,
-  whatIHeard: string,
-  whatStoodOut: string | null,
-  whatThatMayMean: string | null,
-): boolean {
-  if (!whatIHeard || whatIHeard.length < 10) return false;
-  if (!whatStoodOut) return false;
-  if (!whatThatMayMean) return false;
-
-  // No invented statistics allowed
-  if (/\b\d+%\b/.test(whatIHeard + whatStoodOut + whatThatMayMean)) return false;
-
-  return true;
-}
-
-function validateInterpretation(
-  whatStoodOut: string | null,
-  whatThatMayMean: string | null,
-  whereIWouldBegin: string,
-): boolean {
-  if (!whatStoodOut) return false;
-  if (!whatThatMayMean) return false;
-
-  // Must not be purely generic
-  const genericPhrases = ["improve", "optimize", "enhance"];
-  const isGeneric = genericPhrases.every((p) => !whereIWouldBegin.includes(p));
-
-  return isGeneric;
-}
-
-function validateGovernance(
-  whatThatMayMean: string | null,
-  whereIWouldBegin: string,
-  alignmentQuestion: string,
-): boolean {
-  if (!whatThatMayMean) return false;
-
-  // Must not use directive language
-  const forbiddenPhrases = ["you must", "you need to", "you should"];
-  const hasDirective = forbiddenPhrases.some((p) =>
-    (whatThatMayMean + whereIWouldBegin).includes(p),
-  );
-
-  if (hasDirective) return false;
-
-  // Must have alignment question
-  if (!alignmentQuestion.includes("?")) return false;
-
-  return true;
-}
-
-export function generateRepresentationBrief(
-  input: RepresentationBriefInput,
-): RepresentationBrief | { error: string; type: "insufficient_evidence" | "validation_failed" } {
-  // Basic evidence check
-  if (input.zeyaTranscript.length === 0 && input.veyaTranscript.length === 0) {
-    return {
-      error: "No conversation transcript available.",
-      type: "insufficient_evidence",
-    };
-  }
-
-  const evidence = extractEvidence(input);
-
-  if (evidence.observations.length === 0) {
-    return {
-      error: "I heard enough to understand the outline of your business, but not enough to offer a useful interpretation yet.",
-      type: "insufficient_evidence",
-    };
-  }
-
-  // Generate sections
-  const whatIHeard = generateWhatIHeard(evidence);
-  const observation = generateWhatStoodOut(evidence, input);
-  const whatStoodOut = observation?.text || null;
-  const whatThatMayMean = generateWhatThatMayMean(evidence, observation);
-  const whereIWouldBegin = generateWhereIWouldBegin(evidence, input, observation);
-  const alignmentQuestion = generateAlignmentQuestion();
-
-  // Validate
-  const evidencePass = validateEvidence(evidence, whatIHeard, whatStoodOut, whatThatMayMean);
-  const interpretationPass = validateInterpretation(whatStoodOut, whatThatMayMean, whereIWouldBegin);
-  const governancePass = validateGovernance(whatThatMayMean, whereIWouldBegin, alignmentQuestion);
-
-  const validation: RepresentationBriefValidation = {
-    evidence: evidencePass ? "pass" : "fail",
-    interpretation: interpretationPass ? "pass" : "fail",
-    governance: governancePass ? "pass" : "fail",
-    violations: [
-      !evidencePass && "Evidence validation failed",
-      !interpretationPass && "Interpretation validation failed",
-      !governancePass && "Governance validation failed",
-    ].filter(Boolean) as string[],
-  };
-
-  if (!evidencePass || !interpretationPass || !governancePass) {
-    return {
-      error: `The brief does not meet production standards: ${validation.violations.join("; ")}`,
-      type: "validation_failed",
-    };
-  }
-
-  const fullText = [whatIHeard, whatStoodOut, whatThatMayMean, whereIWouldBegin, alignmentQuestion]
-    .filter(Boolean)
-    .join(" ");
-
-  const wordCount = countWords(fullText);
-  const isValidLength = wordCount >= 150 && wordCount <= 320;
-
-  if (!isValidLength) {
-    return {
-      error: `The brief is ${wordCount} words; target is 150–250.`,
-      type: "validation_failed",
-    };
-  }
-
-  const evidenceSources: RepresentationBriefEvidenceSource[] = [];
-
-  // Build evidence sources from observations
-  if (input.zeyaTranscript.length > 0) {
-    const relevantTurn = input.zeyaTranscript.find(
-      (t) => t.role === "user" && t.text?.includes(evidence.observations[0]?.substring(0, 20)),
-    );
-    if (relevantTurn) {
-      evidenceSources.push({
-        sourceType: "zeya_conversation",
-        sourceId: relevantTurn.id || "zeya_turn_0",
-        speaker: "visitor",
-        excerpt: evidence.observations[0],
-        supports: ["what_i_heard", "what_stood_out"],
-      });
-    }
-  }
-
-  return {
-    whatIHeard,
-    whatStoodOut: whatStoodOut || "",
-    whatThatMayMean: whatThatMayMean || "",
-    whereIWouldBegin,
-    alignmentQuestion,
-    confidenceLevel: evidence.emphasisPattern ? "high" : "medium",
-    totalWordCount: wordCount,
-    evidenceSources,
-    validation,
-  };
+export function generateRepresentationBrief(input:RepresentationBriefInput):RepresentationBriefResult{
+  const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
+  if(substantive.length<2||substantive.reduce((n,e)=>n+words(e.excerpt).length,0)<16)return clarification("insufficient_substantive_visitor_evidence");
+  const primary=substantive[0],specific=[...substantive].sort((a,b)=>words(b.excerpt).length-words(a.excerpt).length)[0];
+  const repeated=substantive.find((item,index)=>index>0&&words(item.excerpt.toLowerCase()).filter(w=>w.length>5).some(w=>primary.excerpt.toLowerCase().includes(w)));
+  const whatIHeard=`I heard you describe your business this way: “${primary.excerpt}”`;
+  const whatStoodOut=repeated?`You returned to the idea expressed here: “${repeated.excerpt}”`:`The most specific detail you gave was: “${specific.excerpt}”`;
+  const whatThatMayMean=repeated?"That suggests this recurring point may be central to how the business should be understood.":"That suggests the specific result or audience you described may offer a clearer starting point than a broad description of the business.";
+  const anchor=repeated?.excerpt??specific.excerpt;
+  const whereIWouldBegin=`I would begin by making this idea easy to understand in the business representation: “${anchor}”`;
+  const refs=evidenceRefs([primary,...(specific.sourceId===primary.sourceId?[]:[specific]),...(repeated&&repeated.sourceId!==specific.sourceId?[repeated]:[])]);
+  const draft:RepresentationBrief={whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,alignmentQuestion:"Is that aligned with how you want your business understood?",confidenceLevel:repeated?"high":"medium",totalWordCount:0,evidenceSources:refs,validation:{evidence:"fail",interpretation:"fail",governance:"fail",violations:[]}};
+  draft.totalWordCount=words([whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,draft.alignmentQuestion].join(" ")).length;
+  draft.validation=validateRepresentationBrief(draft,evidence.map(e=>e.excerpt));
+  if(Object.values(draft.validation).includes("fail"))return{status:"failed",message:"The interpretation could not be validated safely.",internalReason:draft.validation.violations.join(","),confidenceLevel:"requires_clarification",validation:draft.validation};
+  const spokenBrief=buildSpeechSafeRepresentationBrief(draft);
+  if(words(spokenBrief).length<70||words(spokenBrief).length>130)return{status:"failed",message:"The interpretation could not be narrated safely.",internalReason:"speech_length_invalid",confidenceLevel:"requires_clarification",validation:draft.validation};
+  return{status:"valid",brief:draft,spokenBrief};
 }
