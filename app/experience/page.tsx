@@ -49,6 +49,8 @@ export default function ExperiencePage() {
   const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
   const [durableCallStatus,setDurableCallStatus]=useState<string|null>(null);
   const [callOutcome,setCallOutcome]=useState<PublicExperienceCallOutcome|null>(null);
+  const [representationBrief,setRepresentationBrief]=useState<any|null>(null);
+  const [briefResponse,setBriefResponse]=useState<string|null>(null);
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
@@ -93,8 +95,8 @@ export default function ExperiencePage() {
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});
             if(stopped)return;
             if(reflectionResponse.ok){
-              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome};
-              if(completed.outcome){setCallOutcome(completed.outcome);stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
+              const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:any};
+              if(completed.outcome){setCallOutcome(completed.outcome);if(completed.brief){setRepresentationBrief(completed.brief);}stopped=true;setPhase("completed");console.info("[browser]", { transition: "completed" });}
             }
             return;
           }
@@ -792,7 +794,99 @@ export default function ExperiencePage() {
         </div>
       )}
 
-      {phase === "completed" && (
+      {phase === "completed" && representationBrief ? (
+        <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
+          <div className="w-full max-w-lg space-y-8" role="status" aria-live="polite">
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <p className="font-serif text-lg text-zeya-ivory font-light" style={{letterSpacing:"0.08em"}}>
+                  Here is how I currently understand your business:
+                </p>
+              </div>
+
+              <div className="space-y-4 rounded border border-zeya-taupe/20 px-5 py-4 text-left">
+                <div className="space-y-2">
+                  <p className="text-sm text-zeya-ivory leading-relaxed">
+                    {representationBrief.whatIHeard}
+                  </p>
+                </div>
+
+                <div className="h-px bg-zeya-taupe/10" />
+
+                <div className="space-y-2">
+                  <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">What stood out</p>
+                  <p className="text-sm text-zeya-ivory leading-relaxed">
+                    {representationBrief.whatStoodOut}
+                  </p>
+                </div>
+
+                <div className="h-px bg-zeya-taupe/10" />
+
+                <div className="space-y-2">
+                  <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">What that may mean</p>
+                  <p className="text-sm text-zeya-ivory leading-relaxed">
+                    {representationBrief.whatThatMayMean}
+                  </p>
+                </div>
+
+                <div className="h-px bg-zeya-taupe/10" />
+
+                <div className="space-y-2">
+                  <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">Where I would begin</p>
+                  <p className="text-sm text-zeya-ivory leading-relaxed">
+                    {representationBrief.whereIWouldBegin}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <p className="text-sm text-zeya-ivory text-center italic">
+                  {representationBrief.alignmentQuestion}
+                </p>
+
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setBriefResponse("confirmed")}
+                    className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors"
+                  >
+                    Yes, that&apos;s right.
+                  </button>
+                  <button
+                    onClick={() => setBriefResponse("refine")}
+                    className="w-full border border-zeya-taupe/30 px-4 py-3 text-sm text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors"
+                  >
+                    Close, but I&apos;d adjust something.
+                  </button>
+                  <button
+                    onClick={() => setBriefResponse("redirect")}
+                    className="w-full border border-zeya-taupe/20 px-4 py-3 text-sm text-zeya-taupe hover:border-zeya-champagne hover:text-zeya-champagne transition-colors"
+                  >
+                    No, that&apos;s not the right direction.
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-4">
+                <p className="text-xs text-zeya-taupe/60 text-center">
+                  {representationBrief.confidenceLevel === "high"
+                    ? "I&apos;m confident about this interpretation."
+                    : "I&apos;m still refining my understanding."}
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-zeya-taupe/10 pt-6 space-y-3">
+              <button
+                onClick={() => setBriefResponse("continue")}
+                className="w-full border border-zeya-taupe/30 px-6 py-3 text-sm font-light text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors"
+                style={{letterSpacing:"0.08em"}}
+              >
+                Show me what comes next
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : phase === "completed" ? (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           <div className="w-full max-w-lg space-y-7 text-center" role="status" aria-live="polite">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-zeya-champagne/60 text-xl text-zeya-champagne">✓</div>
@@ -803,7 +897,7 @@ export default function ExperiencePage() {
               {callOutcome?.visitorInterest === "interested" && <p className="text-sm leading-7 text-zeya-ivory">It sounds like you&apos;d like to explore what comes next.</p>}
               {callOutcome?.visitorInterest === "uncertain" && <p className="text-sm leading-7 text-zeya-ivory">You&apos;ve experienced how an informed conversation can continue naturally.</p>}
               {callOutcome?.visitorInterest === "not_interested" && <p className="text-sm leading-7 text-zeya-ivory">Thank you for trying the experience.</p>}
-              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: “{callOutcome.relevantVisitorResponse}”</p>}
+              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: "{callOutcome.relevantVisitorResponse}"</p>}
               <p className="text-sm leading-7 text-zeya-taupe">Imagine what happens when that becomes hundreds.</p>
             </div>
             <Link href="/" className="inline-block border border-zeya-champagne/60 px-6 py-3 text-sm text-zeya-champagne transition-colors hover:bg-zeya-champagne/5">
@@ -811,7 +905,7 @@ export default function ExperiencePage() {
             </Link>
           </div>
         </div>
-      )}
+      ) : null}
     </main>
   );
 }

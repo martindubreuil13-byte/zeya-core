@@ -51,3 +51,39 @@ export interface FollowUpLead {
   representationFit: RepresentationFit;
   capturedAt: string;
 }
+
+export type RepresentationBriefEvidenceSourceType =
+  | "zeya_conversation"
+  | "veya_call";
+
+export interface RepresentationBriefEvidenceSource {
+  sourceType: RepresentationBriefEvidenceSourceType;
+  sourceId: string;
+  speaker: "visitor" | "zeya" | "veya";
+  excerpt: string;
+  supports: Array<
+    | "what_i_heard"
+    | "what_stood_out"
+    | "what_that_may_mean"
+    | "where_i_would_begin"
+  >;
+}
+
+export interface RepresentationBriefValidation {
+  evidence: "pass" | "fail";
+  interpretation: "pass" | "fail";
+  governance: "pass" | "fail";
+  violations: string[];
+}
+
+export interface RepresentationBrief {
+  whatIHeard: string;
+  whatStoodOut: string;
+  whatThatMayMean: string;
+  whereIWouldBegin: string;
+  alignmentQuestion: string;
+  confidenceLevel: "high" | "medium" | "requires_clarification";
+  totalWordCount: number;
+  evidenceSources: RepresentationBriefEvidenceSource[];
+  validation: RepresentationBriefValidation;
+}
