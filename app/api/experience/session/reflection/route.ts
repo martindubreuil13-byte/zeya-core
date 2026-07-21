@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
   try {
     const db = createExperienceServiceClient(), session = await findExperienceSession(db, token);
     if (!session || isExpired(session)) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
-    if (session.state!=="reflection_ready" || !session.veya_conversation_output_id) return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
+    if (session.state!=="reflection_ready" || !session.veya_conversation_output_id || !session.zeya_conversation_output_id) return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
     const veyaOutput = await db.from("voice_conversation_outputs").select("transcript,provider_attested,transcript_status").eq("id", session.veya_conversation_output_id).eq("voice_context_id", session.veya_voice_context_id).single();
     mark("loadVeyaConversationMs");
     if (veyaOutput.error || !veyaOutput.data?.provider_attested || veyaOutput.data.transcript_status !== "finalized") return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
@@ -100,16 +100,50 @@ export async function GET(req: NextRequest) {
     let debugBriefDiagnostics: ReturnType<typeof briefDiagnostics> | undefined;
     if (!stored) {
       let zeyaTurns: Turn[] = [];
+      if (debug) console.info("[Experience Debug][Transcript Loading] zeya_conversation_output_id:", session.zeya_conversation_output_id);
       if (session.zeya_conversation_output_id) {
-        const output = await db.from("voice_conversation_outputs").select("transcript").eq("id", session.zeya_conversation_output_id).eq("voice_context_id", session.zeya_voice_context_id).single();
+        const output = await db.from("voice_conversation_outputs").select("transcript,transcript_status,provider_attested").eq("id", session.zeya_conversation_output_id).eq("voice_context_id", session.zeya_voice_context_id).single();
+        if (debug) console.info("[Experience Debug][Transcript Loading] zeya_output_result:", { error: output.error, hasTranscript: !!output.data?.transcript, transcriptLength: Array.isArray(output.data?.transcript) ? output.data.transcript.length : 0, status: output.data?.transcript_status, attested: output.data?.provider_attested });
         if (!output.error && Array.isArray(output.data?.transcript)) zeyaTurns = output.data.transcript as Turn[];
       }
       mark("loadZeyaConversationMs");
-      const map = (turns: Turn[]) => turns.map((turn, index) => ({ role: String(turn.role ?? ""), text: String(turn.text ?? ""), id: typeof turn.id === "string" ? turn.id : `turn_${index}` }));
-      const briefInput: RepresentationBriefInput = { visitorName: null, businessOffer: null, targetCustomer: null, zeyaTranscript: map(zeyaTurns), veyaTranscript: map(veyaTurns) };
+      if (debug) console.info("[Experience Debug][Transcript Loading] veya_conversation_output_id:", session.veya_conversation_output_id, "veya_turns_count:", veyaTurns.length);
+      const map = (turns: Turn[]) => turns.map((turn, index) => {
+        const mapped = { role: String(turn.role ?? ""), text: String(turn.text ?? ""), id: typeof turn.id === "string" ? turn.id : `turn_${index}` };
+        if (debug && index < 2) console.info("[Experience Debug][Role Mapping] input_role:", turn.role, "mapped_role:", mapped.role, "text_length:", mapped.text.length);
+        return mapped;
+      });
+      const zeyaMapped = map(zeyaTurns);
+      const veyaMapped = map(veyaTurns);
+      if (debug) console.info("[Experience Debug][Mapped Transcripts]", { zeyaCount: zeyaMapped.length, veyaCount: veyaMapped.length, zeyaRoles: zeyaMapped.map(t => t.role).slice(0, 3), veyaRoles: veyaMapped.map(t => t.role).slice(0, 3) });
+      const briefInput: RepresentationBriefInput = { visitorName: null, businessOffer: null, targetCustomer: null, zeyaTranscript: zeyaMapped, veyaTranscript: veyaMapped };
       const extractionStarted = performance.now();
       const inspection = inspectRepresentationBriefInput(briefInput);
       timings.evidenceExtractionMs = Math.round(performance.now() - extractionStarted);
+
+      // Explicit state check: if Zeya transcript is missing entirely, flag it
+      const zeyaTranscriptMissing = !session.zeya_conversation_output_id || zeyaTurns.length === 0;
+      const veyaTranscriptReady = veyaTurns.length > 0;
+      if (debug) {
+        console.info("[Experience Debug][Transcript State]", {
+          zeyaTranscriptMissing,
+          zeyaTurnsCount: zeyaTurns.length,
+          veyaTurnsCount: veyaTurns.length,
+          veyaTranscriptReady,
+          totalVisitorEvidence: inspection.visitorUtterances,
+          substantiveEvidence: inspection.substantiveEvidenceItems,
+        });
+      }
+
+      // If Zeya transcript is missing but Veya is ready, log this condition
+      if (zeyaTranscriptMissing && veyaTranscriptReady && debug) {
+        console.info("[Experience Debug][State Machine]", {
+          condition: "ZEYA_TRANSCRIPT_MISSING_VEYA_READY",
+          action: "PROCEEDING_WITH_VEYA_ONLY",
+          risk: "BRIEF_MAY_LACK_SUBSTANTIVE_EVIDENCE",
+        });
+      }
+
       const generationStarted = performance.now();
       const generated=generateRepresentationBrief(briefInput, (timing) => { timings.validationMs = timing.validationMs; });
       timings.briefGenerationMs = Math.round(performance.now() - generationStarted);
