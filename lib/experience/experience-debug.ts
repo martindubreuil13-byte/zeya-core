@@ -1,6 +1,5 @@
 export const EXPERIENCE_DEBUG_ENABLED =
-  process.env.NODE_ENV === "development"
-  && process.env.NEXT_PUBLIC_EXPERIENCE_DEBUG === "true";
+  process.env.NEXT_PUBLIC_EXPERIENCE_DEBUG_ACTIVE === "true";
 
 export type ExperienceDebugStage =
   | "session_started"

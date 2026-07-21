@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { inspectRepresentationBriefInput } from "../../lib/experience/representation-brief-generator";
+import { isExperienceDebugEnabled } from "../../lib/experience/experience-debug-guard";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const debug = read("lib/experience/experience-debug.ts");
@@ -9,7 +10,12 @@ const realtime = read("lib/realtime/openai-realtime-client.ts");
 const reflection = read("app/api/experience/session/reflection/route.ts");
 const page = read("app/experience/page.tsx");
 
-assert(debug.includes('process.env.NODE_ENV === "development"') && debug.includes('process.env.NEXT_PUBLIC_EXPERIENCE_DEBUG === "true"'), "debug mode is not development-only and flag-gated");
+assert.equal(isExperienceDebugEnabled({ publicFlag: "true", vercelEnv: "preview", nodeEnv: "production" }), true, "Preview + flag must enable diagnostics");
+assert.equal(isExperienceDebugEnabled({ publicFlag: "false", vercelEnv: "preview", nodeEnv: "production" }), false, "Preview without flag must disable diagnostics");
+assert.equal(isExperienceDebugEnabled({ publicFlag: "true", vercelEnv: "production", nodeEnv: "development" }), false, "Production must always disable diagnostics");
+assert.equal(isExperienceDebugEnabled({ publicFlag: "true", nodeEnv: "development" }), true, "flagged local development must remain supported");
+assert.equal(isExperienceDebugEnabled({ publicFlag: "true", nodeEnv: "production" }), false, "non-Vercel production must remain disabled");
+assert(debug.includes('NEXT_PUBLIC_EXPERIENCE_DEBUG_ACTIVE === "true"'), "browser debug mode does not use the derived build-time guard");
 for (const stage of ["session_started", "microphone_opened", "user_speech_started", "vad_speech_ended", "transcript_finalized", "transcript_sent_to_llm", "llm_response_received", "tts_request_started", "first_audio_byte_received", "speech_playback_started", "speech_playback_finished", "next_listening_entered"]) {
   assert(realtime.includes(`"${stage}"`), `missing realtime debug stage ${stage}`);
 }
@@ -19,7 +25,8 @@ for (const stage of ["loadVeyaConversationMs", "loadZeyaConversationMs", "eviden
 for (const diagnostic of ["visitorUtterances", "zeyaUtterances", "veyaUtterances", "contrastsFound", "repeatedThemes", "generatorConfidence", "minimumEvidenceItems", "minimumEvidenceWords", "persistenceFailed", "generatorReturnedNull", "fallbackPath"]) {
   assert(reflection.includes(diagnostic), `missing brief diagnostic ${diagnostic}`);
 }
-assert(reflection.includes("[Experience Debug][Visitor Evidence]") && !reflection.includes("systemPrompt") && !reflection.includes("privateContext"), "evidence diagnostics are unsafe");
+assert(!reflection.includes("console.table(inspection.evidenceItems") && !reflection.includes("systemPrompt") && !reflection.includes("privateContext"), "server evidence diagnostics are unsafe");
+assert(page.includes("[Experience Debug][Visitor Evidence]") && page.includes("console.table(evidenceItems"), "visitor evidence is not limited to the authorized browser console");
 assert(page.includes('...(EXPERIENCE_DEBUG_ENABLED?{"x-experience-debug":"1"}:{})'), "browser sends debug header when disabled");
 assert(page.includes('phase!=="completed"') && page.includes('"UI render"'), "UI-render timing is missing");
 

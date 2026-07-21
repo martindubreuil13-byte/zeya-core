@@ -9,12 +9,17 @@ import {
   type RepresentationBriefResult,
 } from "@/lib/experience/representation-brief-generator";
 import type { RepresentationBrief, RepresentationBriefValidation } from "@/types/experience";
+import { isExperienceDebugEnabled } from "@/lib/experience/experience-debug-guard";
 
 type Turn = { role?: unknown; text?: unknown; id?: unknown };
 type StoredBrief = { id: string; status: "valid" | "requires_clarification" | "failed"; structured_brief: RepresentationBrief | null; spoken_brief: string | null; confidence_level: string; evidence_references: unknown; validation_outcome: unknown; generator_version: string; provider: string; model: string; created_at: string };
 type DebugTimings = Record<string, number>;
 
-const DEBUG_ENABLED = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_EXPERIENCE_DEBUG === "true";
+const DEBUG_ENABLED = isExperienceDebugEnabled({
+  publicFlag: process.env.NEXT_PUBLIC_EXPERIENCE_DEBUG,
+  vercelEnv: process.env.VERCEL_ENV,
+  nodeEnv: process.env.NODE_ENV,
+});
 
 function safeText(value: unknown, limit = 240) {
   return typeof value === "string" ? value.replace(/https?:\/\/\S+/gi, "[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, "[contact detail]").replace(/\s+/g, " ").trim().slice(0, limit) : "";
@@ -34,11 +39,10 @@ function validationReason(gate: keyof Omit<RepresentationBriefValidation, "viola
   return relevant.join(", ") || validation.violations.join(", ") || "Gate returned fail without a violation code.";
 }
 
-function logBriefDiagnostics(input: RepresentationBriefInput, result: RepresentationBriefResult) {
-  if (!DEBUG_ENABLED) return;
+function briefDiagnostics(input: RepresentationBriefInput, result: RepresentationBriefResult) {
   const inspection = inspectRepresentationBriefInput(input);
   const validation = result.status === "valid" ? result.brief.validation : result.validation;
-  console.info("[Experience Debug][Representation Brief]", {
+  const diagnostics = {
     conversationLength: inspection.conversationLength,
     visitorUtterances: inspection.visitorUtterances,
     zeyaUtterances: inspection.zeyaUtterances,
@@ -50,9 +54,8 @@ function logBriefDiagnostics(input: RepresentationBriefInput, result: Representa
     repeatedThemes: inspection.repeatedThemes,
     generatorConfidence: result.status === "valid" ? result.brief.confidenceLevel : result.confidenceLevel,
     validationResult: validation,
-  });
-  console.info("[Experience Debug][Visitor Evidence]");
-  console.table(inspection.evidenceItems.map((evidence, index) => ({ evidence: index + 1, visitorStatement: evidence })));
+  };
+  console.info("[Experience Debug][Representation Brief]", diagnostics);
   for (const gate of ["evidence", "interpretation", "governance"] as const) {
     console.info(`[Experience Debug][Validation] ${gate.toUpperCase()} Gate ${validation[gate].toUpperCase()}`, { reason: validationReason(gate, validation) });
   }
@@ -70,6 +73,7 @@ function logBriefDiagnostics(input: RepresentationBriefInput, result: Representa
       minimumEvidenceWords: 16,
     });
   }
+  return { ...diagnostics, evidenceItems: inspection.evidenceItems };
 }
 
 export async function GET(req: NextRequest) {
@@ -93,6 +97,7 @@ export async function GET(req: NextRequest) {
     let stored=(await db.from("public_experience_representation_briefs").select("id,status,structured_brief,spoken_brief,confidence_level,evidence_references,validation_outcome,generator_version,provider,model,created_at").eq("public_experience_session_id", session.id).maybeSingle()).data as StoredBrief | null;
     let debugStatus = stored?.status ?? "not_generated";
     let debugValidation = stored?.validation_outcome ?? null;
+    let debugBriefDiagnostics: ReturnType<typeof briefDiagnostics> | undefined;
     if (!stored) {
       let zeyaTurns: Turn[] = [];
       if (session.zeya_conversation_output_id) {
@@ -108,7 +113,7 @@ export async function GET(req: NextRequest) {
       const generationStarted = performance.now();
       const generated=generateRepresentationBrief(briefInput, (timing) => { timings.validationMs = timing.validationMs; });
       timings.briefGenerationMs = Math.round(performance.now() - generationStarted);
-      if (debug) logBriefDiagnostics(briefInput, generated);
+      if (debug) debugBriefDiagnostics = briefDiagnostics(briefInput, generated);
       const valid = generated.status === "valid";
       const status = generated.status === "valid" ? "valid" : generated.status;
       const confidence = valid ? generated.brief.confidenceLevel : "requires_clarification";
@@ -136,7 +141,7 @@ export async function GET(req: NextRequest) {
       console.table(timings);
       console.info("--------------------------------------------------------------------------");
     }
-    return NextResponse.json({ status: "reflection_ready", outcome, reflection: { summary: "Zeya preserved the business context that was carried into Veya’s real call.", observations, reviewNotice: "Anything learned here would be reviewed before becoming part of the business Representation. Nothing is approved automatically." }, ...publicBrief(stored), ...(debug ? { experienceDebug: { timings, briefStatus: debugStatus, validation: debugValidation } } : {}) });
+    return NextResponse.json({ status: "reflection_ready", outcome, reflection: { summary: "Zeya preserved the business context that was carried into Veya’s real call.", observations, reviewNotice: "Anything learned here would be reviewed before becoming part of the business Representation. Nothing is approved automatically." }, ...publicBrief(stored), ...(debug ? { experienceDebug: { timings, briefStatus: debugStatus, validation: debugValidation, briefDiagnostics: debugBriefDiagnostics } } : {}) });
   } catch {
     return NextResponse.json({ error: "The reflection is unavailable." }, { status: 503 });
   }
