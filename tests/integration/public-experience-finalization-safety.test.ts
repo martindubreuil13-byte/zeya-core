@@ -22,7 +22,7 @@ assert(service.includes('ConversationOutputProcessingError("candidate_storage"')
 for (const code of ["extraction_schema_invalid", "extraction_element_key_unauthorized", "extraction_source_turn_invalid", "extraction_evidence_not_authorized", "candidate_storage_failed"]) {
   assert(service.includes(code), `missing safe finalization substage ${code}`);
 }
-assert(service.includes('existing.data?.transcript_status === "finalized"') && service.includes("conversationOutputId = existing.data.id"), "failed extraction retry does not recapture a finalized output");
+assert(service.includes('existing.data?.transcript_status === "finalized"') && service.includes("conversationOutputId = await captureConversationOutput(input.db, input.capture)"), "finalized-output retry bypasses the RPC identity guard");
 assert(extractor.includes('type: "json_schema"') && extractor.includes("strict: true"), "OpenAI extraction is not schema constrained");
 assert(extractor.includes('candidateType !== "candidate_evidence"'), "unattested extraction schema permits candidate Evidence");
 assert(extractor.includes("enum: input.authorizedElementKeys") && extractor.includes("enum: input.transcript.map"), "schema does not constrain element keys and source turns");

@@ -46,10 +46,10 @@ export async function captureAndExtractConversationOutput(input: {
   if (existing.error) throw new Error("Conversation output lookup failed");
   let conversationOutputId: string;
   if (existing.data?.transcript_status === "finalized") {
-    if (JSON.stringify(existing.data.transcript) !== JSON.stringify(input.capture.transcript)) {
-      throw new Error("Finalized conversation transcript conflict");
-    }
-    conversationOutputId = existing.data.id;
+    // The capture RPC owns the complete immutable identity comparison. Calling it
+    // again distinguishes an exact replay from conflicts in completion metadata,
+    // provenance, extraction version, or safe metadata as well as transcript data.
+    conversationOutputId = await captureConversationOutput(input.db, input.capture);
   } else if (existing.data && input.capture.transcript.length > 0) {
     conversationOutputId = await finalizeConversationTranscript(input.db, input.capture);
   } else {

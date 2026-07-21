@@ -305,6 +305,15 @@ async function main(): Promise<void> {
     assert(zeyaReplay.status === 201 && zeyaReplay.body.conversationOutputId === zeyaCapture.body.conversationOutputId, "Zeya identical completion replay");
     const zeyaConflict = await invokeZeya({ ...zeyaBody, completionReason: "different" });
     assert(zeyaConflict.status === 409, `Zeya conflicting completion maps to 409 (${zeyaConflict.status})`);
+    const zeyaAfterConflict = await service.from("voice_conversation_outputs")
+      .select("id,completion_reason").eq("voice_context_id", zeyaBody.voiceContextId);
+    assert(
+      !zeyaAfterConflict.error
+        && zeyaAfterConflict.data.length === 1
+        && zeyaAfterConflict.data[0].id === zeyaCapture.body.conversationOutputId
+        && zeyaAfterConflict.data[0].completion_reason === zeyaBody.completionReason,
+      "Zeya conflict preserves the single immutable original completion",
+    );
     assert((await invokeZeya({ ...zeyaBody, voiceContextId: crypto.randomUUID(), transcript: [{ role: "system", text: "invalid" }] })).status === 400, "Zeya transcript role validation");
     assert((await invokeZeya({ ...zeyaBody, voiceContextId: crypto.randomUUID(), transcript: Array.from({ length: 501 }, () => ({ role: "customer", text: "bounded" })) })).status === 400, "Zeya transcript turn limit");
     assert((await invokeZeya({ ...zeyaBody, voiceContextId: crypto.randomUUID(), transcript: [{ role: "customer", text: "x".repeat(20_001) }] })).status === 400, "Zeya transcript size limit");
