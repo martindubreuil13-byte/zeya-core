@@ -104,6 +104,7 @@ export default function ExperiencePage() {
           const body=await statusResponse.json() as {status?:string};
           if(body.status)setDurableCallStatus(body.status);
           if(body.status==="reflection_ready"){
+            setDurableCallStatus("reviewing_what_was_learned");
             console.info("[browser]", { reflection_ready: true });
             if(EXPERIENCE_DEBUG_ENABLED){reflectionDebugRef.current={startedAt:performance.now()};experienceDebugLog("reflection_started");}
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`,...(EXPERIENCE_DEBUG_ENABLED?{"x-experience-debug":"1"}:{})},signal:controller.signal});
@@ -112,6 +113,9 @@ export default function ExperiencePage() {
               const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:RepresentationBrief;spokenBrief?:string;clarification?:{message:string;question:string};experienceDebug?:{timings?:Record<string,number>;briefStatus?:string;validation?:unknown;briefDiagnostics?:{evidenceItems?:string[];[key:string]:unknown}}};
               if(EXPERIENCE_DEBUG_ENABLED&&reflectionDebugRef.current){reflectionDebugRef.current.responseAt=performance.now();reflectionDebugRef.current.serverTimings=completed.experienceDebug?.timings;reflectionDebugRef.current.briefStatus=completed.experienceDebug?.briefStatus;reflectionDebugRef.current.validation=completed.experienceDebug?.validation;experienceDebugLog("reflection_response_returned",{elapsedMs:Math.round(performance.now()-reflectionDebugRef.current.startedAt),briefStatus:completed.experienceDebug?.briefStatus,validation:completed.experienceDebug?.validation});const diagnostics=completed.experienceDebug?.briefDiagnostics;if(diagnostics){const{evidenceItems=[],...safeDiagnostics}=diagnostics;console.info("[Experience Debug][Representation Brief]",safeDiagnostics);console.info("[Experience Debug][Visitor Evidence]");console.table(evidenceItems.map((visitorStatement,index)=>({evidence:index+1,visitorStatement})));}}
               if(completed.outcome){setCallOutcome(completed.outcome);setRepresentationBrief(completed.brief??null);setSpokenBrief(completed.spokenBrief??null);setBriefClarification(completed.clarification??null);stopped=true;setPhase("brief_review");console.info("[browser]", { transition: "brief_review" });}
+            }else if(reflectionResponse.status!==409){
+              setDurableCallStatus("recoverable_reflection_failure");
+              stopped=true;
             }
             return;
           }
@@ -438,6 +442,13 @@ export default function ExperiencePage() {
     recognition.start();
   };
 
+  const recordBriefResponse = async (responseType: RepresentationBriefResponseType, responseText = "") => {
+    const token=experienceSession?.token,briefId=representationBrief?.id;if(!token||!briefId)return false;
+    const key=briefResponseKeysRef.current[`${responseType}:${responseText}`]??crypto.randomUUID();
+    briefResponseKeysRef.current[`${responseType}:${responseText}`]=key;setBriefResponsePending(true);setBriefResponseError(null);
+    try{const response=await fetch("/api/experience/session/reflection/response",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({briefId,requestKey:key,responseType,responseText})});if(!response.ok)throw new Error("response_not_recorded");setBriefResponse(responseType);return true;}catch{setBriefResponseError("I couldn’t save that adjustment yet. Your conversation is still preserved.");return false;}finally{setBriefResponsePending(false);}
+  };
+
   // Process each final visitor turn exactly once. The greeting beat pauses here
   // when identity needs confirmation; only resolution advances to PRODUCT.
   useEffect(() => {
@@ -695,7 +706,21 @@ export default function ExperiencePage() {
 
       {phase === "waiting_for_call" && (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
-          {durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
+          {durableCallStatus === "reviewing_what_was_learned" ? (
+            <div className="w-full max-w-md space-y-4 text-center" role="status" aria-live="polite">
+              <PresenceCore state="idle" />
+              <p className="font-serif text-xl text-zeya-ivory">Welcome back.</p>
+              <p className="text-sm text-zeya-taupe">Veya has returned the conversation to me.</p>
+              <p className="text-sm text-zeya-taupe animate-pulse">I’m organizing what we learned…</p>
+            </div>
+          ) : durableCallStatus === "recoverable_reflection_failure" ? (
+            <div className="w-full max-w-md space-y-5 text-center">
+              <PresenceCore state="idle" />
+              <p className="font-serif text-lg text-zeya-ivory">I couldn’t finish preparing the initial Representation.</p>
+              <p className="text-sm text-zeya-taupe">Your completed browser conversation is still preserved. You can retry without repeating it.</p>
+              <button type="button" onClick={()=>{setPhase("dispatching_call");window.setTimeout(()=>setPhase("waiting_for_call"),0);}} className="border border-zeya-taupe/40 px-5 py-3 text-sm text-zeya-ivory">Try preparing it again</button>
+            </div>
+          ) : durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
             <div className="w-full max-w-md text-center space-y-4">
               <PresenceCore state="idle"/>
               <p className="font-serif text-lg text-zeya-ivory">{durableCallStatus === "expired" ? "This Experience has expired." : "The call could not be completed."}</p>
@@ -861,7 +886,7 @@ export default function ExperiencePage() {
 
                 <div className="space-y-2">
                   <button
-                    onClick={() => setPhase("hiring_decision")}
+                    onClick={() => {void recordBriefResponse("confirm");setPhase("hiring_decision");}}
                     className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors"
                   >
                     Yes, that&apos;s right.
@@ -893,7 +918,7 @@ export default function ExperiencePage() {
               <p className="text-sm text-zeya-taupe">Tell me what I missed or what matters more than I understood.</p>
             </div>
 
-            <form onSubmit={(e) => {e.preventDefault(); setPhase("hiring_decision");}} className="space-y-4">
+            <form onSubmit={(e) => {e.preventDefault();void (async()=>{if(await recordBriefResponse("refine",calibrationText.trim()))setPhase("hiring_decision");})();}} className="space-y-4">
               <textarea
                 value={calibrationText}
                 onChange={(e) => setCalibrationText(e.target.value)}
@@ -909,6 +934,7 @@ export default function ExperiencePage() {
               >
                 I understand. Continue.
               </button>
+              {briefResponseError&&<p className="text-xs text-red-300/80" role="alert">{briefResponseError}</p>}
             </form>
           </div>
         </div>
@@ -917,8 +943,9 @@ export default function ExperiencePage() {
           <div className="w-full max-w-lg space-y-8">
             <div className="space-y-3">
               <p className="font-serif text-2xl text-zeya-ivory font-light" style={{letterSpacing:"0.08em"}}>
-                Would you like me to represent your business?
+                What this could become
               </p>
+              <p className="text-sm text-zeya-taupe leading-relaxed">Based on this first brief, Zeya could help open and maintain informed conversations with suitable prospects, while keeping your expertise central. Would you like to explore what hiring Zeya would look like?</p>
             </div>
 
             <div className="space-y-3">
@@ -927,7 +954,7 @@ export default function ExperiencePage() {
                 className="w-full border border-zeya-champagne/60 px-6 py-4 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors font-light"
                 style={{letterSpacing:"0.06em"}}
               >
-                Yes. I want Zeya to represent my business.
+                Explore what hiring Zeya looks like
               </button>
               <button
                 onClick={() => setPhase("initial")}
@@ -1034,13 +1061,7 @@ export default function ExperiencePage() {
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">Confidence</p>
-                <div className="flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${representationBrief.confidenceLevel === "high" ? "bg-zeya-champagne" : "bg-zeya-taupe/40"}`} />
-                  <p className="text-sm text-zeya-ivory">
-                    {representationBrief.confidenceLevel === "high" ? "High confidence in this direction" : "Still refining my understanding"}
-                  </p>
-                </div>
+                <p className="text-sm text-zeya-ivory">Still refining my understanding</p>
               </div>
             </div>
 
@@ -1064,7 +1085,7 @@ export default function ExperiencePage() {
           <div className="w-full max-w-lg space-y-8">
             <div className="space-y-4">
               <p className="font-serif text-2xl text-zeya-ivory font-light" style={{letterSpacing:"0.08em"}}>
-                {businessName} is now being represented.
+                Your initial Representation is ready.
               </p>
               <p className="text-sm text-zeya-taupe leading-relaxed">
                 Here is my current understanding:

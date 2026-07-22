@@ -1,104 +1,61 @@
 import type { RepresentationBrief,RepresentationBriefEvidenceSource,RepresentationBriefValidation } from "@/types/experience";
 
-export const REPRESENTATION_BRIEF_GENERATOR_VERSION="representation_brief_v1.1";
+export const REPRESENTATION_BRIEF_GENERATOR_VERSION="representation_brief_v2.0_semantic";
 export type BriefTurn={role:string;text:string;id?:string};
-export interface RepresentationBriefInput{
-  visitorName:string|null;businessOffer:string|null;targetCustomer:string|null;
-  zeyaTranscript:BriefTurn[];veyaTranscript:BriefTurn[];
-}
-export type RepresentationBriefResult=
-  |{status:"valid";brief:RepresentationBrief;spokenBrief:string}
-  |{status:"requires_clarification";message:string;clarificationQuestion:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation}
-  |{status:"failed";message:string;internalReason:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation};
-export type RepresentationBriefDebugInspection={
-  conversationLength:number;visitorUtterances:number;zeyaUtterances:number;veyaUtterances:number;
-  evidenceItems:string[];substantiveEvidenceItems:number;substantiveWordCount:number;
-  contrastsFound:number;repeatedThemes:string[];
-};
+export type EvidenceCategory="business_identity"|"offer_or_service"|"target_customer"|"customer_problem"|"customer_outcome"|"acquisition_channel"|"sales_activity"|"commercial_constraint"|"desired_benefit"|"concern_or_objection"|"personal_reaction"|"conversational_filler"|"unusable_or_ambiguous";
+export type ClassifiedEvidence={sourceType:"zeya_conversation"|"veya_call"|"provider_summary";sourceId:string;excerpt:string;categories:EvidenceCategory[];rank:number};
+export interface RepresentationBriefInput{visitorName:string|null;businessOffer:string|null;targetCustomer:string|null;zeyaTranscript:BriefTurn[];veyaTranscript:BriefTurn[];providerSummary?:string|null}
+export type RepresentationBriefResult=|{status:"valid";brief:RepresentationBrief;spokenBrief:string}|{status:"requires_clarification";message:string;clarificationQuestion:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation}|{status:"failed";message:string;internalReason:string;confidenceLevel:"requires_clarification";validation:RepresentationBriefValidation};
+export type RepresentationBriefDebugInspection={conversationLength:number;visitorUtterances:number;zeyaUtterances:number;veyaUtterances:number;evidenceItems:string[];classifiedEvidence:ClassifiedEvidence[];substantiveEvidenceItems:number;substantiveWordCount:number;contrastsFound:number;repeatedThemes:string[];providerSummaryAvailable:boolean};
 export type RepresentationBriefGenerationTiming={validationMs:number};
 
 const SUPPORTS=["what_i_heard","what_stood_out","what_that_may_mean","where_i_would_begin"] as const;
-function safeText(value:unknown,limit=500){return typeof value==="string"?value.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0,limit):""}
-function visitorEvidence(input:RepresentationBriefInput){
-  const collect=(turns:BriefTurn[],sourceType:"zeya_conversation"|"veya_call")=>turns.flatMap((turn,index)=>{
-    if(turn.role!=="user"&&turn.role!=="customer")return [];
-    const excerpt=safeText(turn.text);if(!excerpt)return [];
-    return [{sourceType,sourceId:turn.id?.trim()||`${sourceType}_visitor_${index}`,speaker:"visitor" as const,excerpt}];
-  });
-  return [...collect(input.zeyaTranscript,"zeya_conversation"),...collect(input.veyaTranscript,"veya_call")];
-}
-const trivial=/^(yes|no|yeah|nope|okay|ok|sure|maybe|i don'?t know)[.!]?$/i;
+const trivial=/^(yes|no|yeah|nope|okay|ok|sure|maybe|i don'?t know|um+|uh+)[.!]?$/i;
+function safeText(value:unknown,limit=700){return typeof value==="string"?value.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0,limit):""}
 function words(value:string){return value.split(/\s+/).filter(Boolean)}
+function has(text:string,re:RegExp){return re.test(text)}
+export function classifyEvidenceStatement(text:string):EvidenceCategory[]{
+  const value=safeText(text).toLowerCase();if(!value||trivial.test(value))return["conversational_filler"];
+  const out=new Set<EvidenceCategory>();
+  if(has(value,/\b(?:we|i) (?:run|own|operate|am|work as)|\bour (?:business|company)\b/))out.add("business_identity");
+  if(has(value,/\b(?:coach|coaching|consult|consulting|service|software|product|platform|agency|training|implementation|bookkeep|design|build|provide|help)\w*\b/))out.add("offer_or_service");
+  if(has(value,/\b(?:small businesses?|startups?|founders?|owners?|customers?|clients?|teams?|companies|consultants?|retailers?|restaurants?|clinics?|professionals?)\b/))out.add("target_customer");
+  if(has(value,/\b(?:struggl|problem|pain|difficult|challenge|missed|waste|manual|guesswork|need help)\w*\b/))out.add("customer_problem");
+  if(has(value,/\b(?:result|improv|reduce|fewer|clearer|grow|growth|contribute sooner|save money|increase)\w*\b/))out.add("customer_outcome");
+  if(has(value,/\b(?:social media|direct contact|direct relationships?|referrals?|word of mouth|inbound|content|seo|network|recommendations?)\b/))out.add("acquisition_channel");
+  if(has(value,/\b(?:cold outreach|cold call|outbound|prospecting|reach out|follow[ -]?up|sales conversations?)\b/))out.add("sales_activity");
+  if(has(value,/\b(?:don'?t have (?:enough )?time|no time|too busy|consume[sd]? my time|capacity|can'?t|cannot|constraint|limited)\b/))out.add("commercial_constraint");
+  if(has(value,/\b(?:would|could) (?:save|give|help|allow|reduce)|\bsave (?:me|us) time\b|\bmore conversations?\b/))out.add("desired_benefit");
+  if(has(value,/\b(?:concern|worried|not sure|uncertain|object|risk)\w*\b/))out.add("concern_or_objection");
+  if(has(value,/\b(?:embarrass|shame|awkward|uncomfortable|feel|felt)\w*\b/))out.add("personal_reaction");
+  if(!out.size)out.add(words(value).length<4?"conversational_filler":"unusable_or_ambiguous");return[...out];
+}
+function rawEvidence(input:RepresentationBriefInput):ClassifiedEvidence[]{
+  const collect=(turns:BriefTurn[],sourceType:"zeya_conversation"|"veya_call")=>turns.flatMap((turn,index)=>{if(turn.role!=="user"&&turn.role!=="customer"&&turn.role!=="visitor")return[];const excerpt=safeText(turn.text);if(!excerpt)return[];const categories=classifyEvidenceStatement(excerpt);return[{sourceType,sourceId:turn.id?.trim()||`${sourceType}_${index}`,excerpt,categories,rank:rank(categories,sourceType)}]});
+  const evidence:ClassifiedEvidence[]=[...collect(input.zeyaTranscript,"zeya_conversation"),...collect(input.veyaTranscript,"veya_call")];
+  const summary=safeText(input.providerSummary);if(summary)evidence.push({sourceType:"provider_summary",sourceId:"provider_summary",excerpt:summary,categories:classifyEvidenceStatement(summary),rank:1});
+  return evidence;
+}
+function rank(categories:EvidenceCategory[],source:ClassifiedEvidence["sourceType"]){const commercial=categories.filter(c=>!["personal_reaction","conversational_filler","unusable_or_ambiguous"].includes(c)).length;return commercial*10+(source==="veya_call"?2:source==="zeya_conversation"?1:0)-(categories.includes("personal_reaction")?8:0)}
+function best(items:ClassifiedEvidence[],category:EvidenceCategory){return items.filter(x=>x.sourceType!=="provider_summary"&&x.categories.includes(category)).sort((a,b)=>b.rank-a.rank)[0]}
+function cleanPhrase(value:string){return value.replace(/^(?:well,?\s*|so,?\s*|i (?:think|guess)\s+|we (?:currently )?|i (?:currently )?)/i,"").replace(/[.!?]+$/,"").trim()}
+function offerPhrase(value:string){const clean=cleanPhrase(value);const provided=clean.match(/(?:(?:i|we) )?(?:provide|offer|run|sell|build|design)\s+(.+?)(?:\s+(?:for|to|that|which)\s+|$)/i);if(provided)return provided[1].trim();const help=clean.match(/(?:(?:i|we) )?help\s+.+?\s+(?:with|by)\s+(.+)$/i);return help?.[1].trim()||clean}
+function audiencePhrase(value:string){const clean=cleanPhrase(value);const match=clean.match(/(?:for|serve|serving|help|to)\s+((?:small businesses?|startups?|founders?|owners?|customers?|clients?|teams?|companies|consultants?|retailers?|restaurants?|clinics?|professionals?)(?:\s+(?:and|or)\s+(?:small businesses?|startups?|founders?|owners?|customers?|clients?|teams?|companies|consultants?|retailers?|restaurants?|clinics?|professionals?))?)/i);return match?.[1]||clean}
+function refs(items:ClassifiedEvidence[]):RepresentationBriefEvidenceSource[]{return items.filter((x):x is ClassifiedEvidence&{sourceType:"zeya_conversation"|"veya_call"}=>x.sourceType!=="provider_summary").filter((x,i,a)=>a.findIndex(y=>y.sourceId===x.sourceId&&y.sourceType===x.sourceType)===i).slice(0,6).map((x,index)=>({sourceType:x.sourceType,sourceId:x.sourceId,speaker:"visitor",excerpt:x.excerpt,supports:index<2?[...SUPPORTS]:["what_stood_out","what_that_may_mean","where_i_would_begin"]}))}
 function clarification(reason:string):RepresentationBriefResult{return{status:"requires_clarification",message:"I understand the outline, but I do not yet have enough evidence to offer a useful representation direction.",clarificationQuestion:"What is the most important result your business creates for the people it serves?",confidenceLevel:"requires_clarification",validation:{evidence:"fail",interpretation:"fail",governance:"pass",violations:[reason]}}}
-function evidenceRefs(items:ReturnType<typeof visitorEvidence>):RepresentationBriefEvidenceSource[]{return items.slice(0,3).map((item,index)=>({...item,supports:index===0?[...SUPPORTS]:index===1?["what_stood_out","what_that_may_mean","where_i_would_begin"]:["what_stood_out"]}))}
 function numbers(value:string){return value.match(/\b\d+(?:\.\d+)?%?\b/g)??[]}
 
-export function inspectRepresentationBriefInput(input:RepresentationBriefInput):RepresentationBriefDebugInspection{
-  const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
-  const tokens=substantive.map(item=>new Set(words(item.excerpt.toLowerCase()).filter(word=>word.length>5)));
-  const repeatedThemes=[...new Set(tokens.flatMap((current,index)=>index===0?[]:[...current].filter(word=>tokens.slice(0,index).some(previous=>previous.has(word)))))];
-  const contrastsFound=evidence.filter(item=>/\b(?:but|however|instead|actually|rather|although|yet)\b/i.test(item.excerpt)).length;
-  return{
-    conversationLength:input.zeyaTranscript.length+input.veyaTranscript.length,
-    visitorUtterances:evidence.length,
-    zeyaUtterances:input.zeyaTranscript.length,
-    veyaUtterances:input.veyaTranscript.length,
-    evidenceItems:evidence.map(item=>item.excerpt),
-    substantiveEvidenceItems:substantive.length,
-    substantiveWordCount:substantive.reduce((total,item)=>total+words(item.excerpt).length,0),
-    contrastsFound,repeatedThemes,
-  };
-}
-
-export function validateRepresentationBrief(brief:RepresentationBrief,visitorExcerpts:string[]):RepresentationBriefValidation{
-  const violations:string[]=[];const publicText=[brief.whatIHeard,brief.whatStoodOut,brief.whatThatMayMean,brief.whereIWouldBegin].join(" ");
-  const normalized=visitorExcerpts.map(x=>safeText(x));
-  for(const source of brief.evidenceSources){if(source.speaker!=="visitor"||!normalized.includes(safeText(source.excerpt)))violations.push("non_visitor_or_missing_evidence");}
-  // Relaxed: only require evidence for the primary sections (not all four)
-  const primarySections:typeof SUPPORTS[number][]=["what_i_heard","what_that_may_mean","where_i_would_begin"];
-  for(const section of primarySections){if(!brief.evidenceSources.some(s=>s.supports.includes(section)))violations.push(`missing_evidence:${section}`);}
-  const evidenceNumbers=new Set(normalized.flatMap(numbers));for(const number of numbers(publicText)){if(!evidenceNumbers.has(number))violations.push("invented_number");}
-  if(/industry average|market benchmark|competitors? (?:always|typically|usually)|prospects? (?:always|typically|usually)/i.test(publicText))violations.push("unsupported_market_claim");
-  if(/you (?:are|seem|feel|became) (?:anxious|afraid|energized|excited|hesitant|confident)|deep down|subconscious/i.test(publicText))violations.push("psychological_claim");
-  if(/because of this,? your|this is why your|causes? your/i.test(publicText))violations.push("unsupported_causal_claim");
-  const evidencePass=!violations.some(v=>v.startsWith("missing_evidence")||["non_visitor_or_missing_evidence","invented_number","unsupported_market_claim","psychological_claim","unsupported_causal_claim"].includes(v));
-  // Relaxed: require 12+ characters instead of 20; sections must be distinct and not generic
-  const interpretationPass=brief.whatThatMayMean.length>=12&&brief.whereIWouldBegin.length>=12&&!/improve your messaging|optimize your messaging|enhance your messaging/i.test(publicText)&&brief.whatThatMayMean!==brief.whatIHeard;
-  if(!interpretationPass)violations.push("interpretation_is_recap_or_generic");
-  const governancePass=!/(?:^|[.!?]\s*)(?:you need to|you must|you should|the solution is|i will represent you as)/i.test(publicText)&&/\?$/.test(brief.alignmentQuestion)&&/(aligned|right|correct)/i.test(brief.alignmentQuestion);
-  if(!governancePass)violations.push("governance_or_alignment_failed");
-  return{evidence:evidencePass?"pass":"fail",interpretation:interpretationPass?"pass":"fail",governance:governancePass?"pass":"fail",violations:[...new Set(violations)]};
-}
-
-export function buildSpeechSafeRepresentationBrief(brief:RepresentationBrief){
-  let speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} ${brief.whereIWouldBegin} ${brief.alignmentQuestion}`.replace(/\s+/g," ").trim();
-  // Relaxed: only add expansion if significantly under 50 words (was 70)
-  if(words(speech).length<50)speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} This is a starting interpretation, not a decision about your business. ${brief.whereIWouldBegin} I would keep that direction grounded in what you have actually shared and refine it with you. ${brief.alignmentQuestion}`;
-  // Relaxed: allow 50-140 word range (was 70-130)
-  return words(speech).slice(0,140).join(" ");
-}
-
+export function inspectRepresentationBriefInput(input:RepresentationBriefInput):RepresentationBriefDebugInspection{const evidence=rawEvidence(input),visitor=evidence.filter(x=>x.sourceType!=="provider_summary"),substantive=visitor.filter(x=>!x.categories.every(c=>["personal_reaction","conversational_filler","unusable_or_ambiguous"].includes(c)));return{conversationLength:input.zeyaTranscript.length+input.veyaTranscript.length,visitorUtterances:visitor.length,zeyaUtterances:input.zeyaTranscript.length,veyaUtterances:input.veyaTranscript.length,evidenceItems:visitor.map(x=>x.excerpt),classifiedEvidence:evidence,substantiveEvidenceItems:substantive.length,substantiveWordCount:substantive.reduce((n,x)=>n+words(x.excerpt).length,0),contrastsFound:visitor.filter(x=>/\b(?:but|however|instead|actually|rather|although|yet)\b/i.test(x.excerpt)).length,repeatedThemes:[],providerSummaryAvailable:!!safeText(input.providerSummary)}}
+export function validateRepresentationBrief(brief:RepresentationBrief,visitorExcerpts:string[]):RepresentationBriefValidation{const violations:string[]=[];const sections=[brief.whatIHeard,brief.whatStoodOut,brief.whatThatMayMean,brief.whereIWouldBegin];const publicText=sections.join(" ");const normalized=visitorExcerpts.map(x=>safeText(x));for(const source of brief.evidenceSources)if(source.speaker!=="visitor"||!normalized.includes(safeText(source.excerpt)))violations.push("non_visitor_or_missing_evidence");for(const section of ["what_i_heard","what_that_may_mean","where_i_would_begin"] as const)if(!brief.evidenceSources.some(s=>s.supports.includes(section)))violations.push(`missing_evidence:${section}`);const evidenceNumbers=new Set(normalized.flatMap(numbers));for(const number of numbers(publicText))if(!evidenceNumbers.has(number))violations.push("invented_number");if(/industry average|market benchmark|competitors? (?:always|typically|usually)|prospects? (?:always|typically|usually)/i.test(publicText))violations.push("unsupported_market_claim");if(/you (?:are|seem|feel|became) (?:anxious|afraid|energized|excited|hesitant|confident)|deep down|subconscious/i.test(publicText))violations.push("psychological_claim");if(/because of this,? your|this is why your|causes? your/i.test(publicText))violations.push("unsupported_causal_claim");if(new Set(sections.map(s=>s.toLowerCase())).size!==sections.length)violations.push("repeated_section");const evidencePass=!violations.some(v=>v!=="repeated_section");const interpretationPass=brief.whatThatMayMean.length>=20&&brief.whereIWouldBegin.length>=20&&!violations.includes("repeated_section")&&!/improve your messaging|optimize your messaging/i.test(publicText);if(!interpretationPass)violations.push("interpretation_is_recap_or_generic");const governancePass=/\?$/.test(brief.alignmentQuestion)&&/(aligned|right|accurate|resonate)/i.test(brief.alignmentQuestion)&&!/(you need to|you must|the solution is|i will represent you as)/i.test(publicText);if(!governancePass)violations.push("governance_or_alignment_failed");return{evidence:evidencePass?"pass":"fail",interpretation:interpretationPass?"pass":"fail",governance:governancePass?"pass":"fail",violations:[...new Set(violations)]}}
+export function buildSpeechSafeRepresentationBrief(brief:RepresentationBrief){return `${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} ${brief.whereIWouldBegin} ${brief.alignmentQuestion}`.replace(/\s+/g," ").trim().split(/\s+/).slice(0,140).join(" ")}
 export function generateRepresentationBrief(input:RepresentationBriefInput,onTiming?:(timing:RepresentationBriefGenerationTiming)=>void):RepresentationBriefResult{
-  const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
-  // Require at least 1 substantive evidence item with 8+ words OR 2 items with 4+ words each.
-  // This allows generating a brief from sparse but meaningful evidence.
-  const sufficientEvidence=substantive.length>=1&&(substantive[0].excerpt.split(/\s+/).length>=8||substantive.length>=2);
-  if(!sufficientEvidence){onTiming?.({validationMs:0});return clarification("insufficient_substantive_visitor_evidence");}
-  const primary=substantive[0],specific=[...substantive].sort((a,b)=>words(b.excerpt).length-words(a.excerpt).length)[0];
-  const repeated=substantive.find((item,index)=>index>0&&words(item.excerpt.toLowerCase()).filter(w=>w.length>5).some(w=>primary.excerpt.toLowerCase().includes(w)));
-  const whatIHeard=`I heard you describe your business this way: “${primary.excerpt}”`;
-  const whatStoodOut=repeated?`You returned to the idea expressed here: “${repeated.excerpt}”`:`The most specific detail you gave was: “${specific.excerpt}”`;
-  const whatThatMayMean=repeated?"That suggests this recurring point may be central to how the business should be understood.":"That suggests the specific result or audience you described may offer a clearer starting point than a broad description of the business.";
-  const anchor=repeated?.excerpt??specific.excerpt;
-  const whereIWouldBegin=`I would begin by making this idea easy to understand in the business representation: “${anchor}”`;
-  const refs=evidenceRefs([primary,...(specific.sourceId===primary.sourceId?[]:[specific]),...(repeated&&repeated.sourceId!==specific.sourceId?[repeated]:[])]);
-  const draft:RepresentationBrief={whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,alignmentQuestion:"Is that aligned with how you want your business understood?",confidenceLevel:repeated?"high":"medium",totalWordCount:0,evidenceSources:refs,validation:{evidence:"fail",interpretation:"fail",governance:"fail",violations:[]}};
-  draft.totalWordCount=words([whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,draft.alignmentQuestion].join(" ")).length;
-  const validationStarted=performance.now();
-  draft.validation=validateRepresentationBrief(draft,evidence.map(e=>e.excerpt));
-  onTiming?.({validationMs:Math.round((performance.now()-validationStarted)*1000)/1000});
-  if(Object.values(draft.validation).includes("fail"))return{status:"failed",message:"The interpretation could not be validated safely.",internalReason:draft.validation.violations.join(","),confidenceLevel:"requires_clarification",validation:draft.validation};
-  const spokenBrief=buildSpeechSafeRepresentationBrief(draft);
-  if(words(spokenBrief).length<70||words(spokenBrief).length>130)return{status:"failed",message:"The interpretation could not be narrated safely.",internalReason:"speech_length_invalid",confidenceLevel:"requires_clarification",validation:draft.validation};
-  return{status:"valid",brief:draft,spokenBrief};
+  const evidence=rawEvidence(input),usable=evidence.filter(x=>x.sourceType!=="provider_summary"&&!x.categories.every(c=>["personal_reaction","conversational_filler","unusable_or_ambiguous"].includes(c)));if(!usable.length||usable.reduce((n,x)=>n+words(x.excerpt).length,0)<8)return clarification("insufficient_semantic_visitor_evidence");
+  const offer=best(evidence,"offer_or_service"),audience=evidence.filter(x=>x.sourceType!=="provider_summary"&&x.categories.includes("target_customer")).sort((a,b)=>(/small business|startup|founder|owner|retailer|restaurant|clinic|consultant|professional/i.test(b.excerpt)?20:0)-(/small business|startup|founder|owner|retailer|restaurant|clinic|consultant|professional/i.test(a.excerpt)?20:0)+b.rank-a.rank)[0],channel=best(evidence,"acquisition_channel"),activity=best(evidence,"sales_activity"),constraint=best(evidence,"commercial_constraint"),outcome=best(evidence,"customer_outcome"),benefit=best(evidence,"desired_benefit"),problem=best(evidence,"customer_problem");
+  const explicitOffer=safeText(input.businessOffer);const explicitAudience=safeText(input.targetCustomer);if(!offer&&!explicitOffer&&usable.length<2)return clarification("business_offer_not_identified");
+  const offerText=explicitOffer||offerPhrase(offer?.excerpt||"the service you described");const audienceText=explicitAudience||audiencePhrase(audience?.excerpt||"");
+  const whatIHeard=audienceText?`You provide ${offerText.replace(/^we /i,"")} for ${audienceText.replace(/^(?:for|to) /i,"")}.`:`You provide ${offerText.replace(/^we /i,"")}.`;
+  const commercial=[] as string[];if(channel)commercial.push(`Current opportunities appear to come through ${cleanPhrase(channel.excerpt)}`);if(activity)commercial.push(/don'?t|do not|no cold/i.test(activity.excerpt)?"You are not currently doing consistent cold outreach":`You described active prospect outreach: ${cleanPhrase(activity.excerpt)}`);if(constraint)commercial.push(`A stated constraint is ${cleanPhrase(constraint.excerpt)}`);const whatStoodOut=commercial.length?`${commercial.join(". ")}.`:(outcome||problem)?`The clearest commercial signal was ${cleanPhrase((outcome||problem)!.excerpt)}.`:"The commercial route to new customer conversations is still unclear.";
+  const whatThatMayMean=constraint?"One possible constraint is not the value of the offer, but the number of qualified conversations you can personally initiate and maintain.":outcome?`A reasonable hypothesis is that clearer, more consistent prospect conversations could extend the outcome you described: ${cleanPhrase(outcome.excerpt)}.`:"One hypothesis is that the business may benefit from a more consistent way to begin and maintain qualified customer conversations.";
+  const directionBenefit=benefit?` This may also support the benefit you named: ${cleanPhrase(benefit.excerpt)}.`:"";const whereIWouldBegin=`I would begin by helping open and manage informed conversations with suitable prospects, while preserving your expertise and personal involvement for the moments where trust and judgment matter most.${directionBenefit}`;
+  const sourceRefs=refs([offer,audience,channel,activity,constraint,outcome,benefit,problem].filter(Boolean) as ClassifiedEvidence[]);if(!sourceRefs.length)return clarification("no_traceable_evidence");const draft:RepresentationBrief={whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,alignmentQuestion:"Does this resonate, and is it aligned with how you want the business understood?",confidenceLevel:usable.length>=4?"high":"medium",totalWordCount:0,evidenceSources:sourceRefs,validation:{evidence:"fail",interpretation:"fail",governance:"fail",violations:[]}};draft.totalWordCount=words([whatIHeard,whatStoodOut,whatThatMayMean,whereIWouldBegin,draft.alignmentQuestion].join(" ")).length;const started=performance.now();draft.validation=validateRepresentationBrief(draft,evidence.filter(x=>x.sourceType!=="provider_summary").map(x=>x.excerpt));onTiming?.({validationMs:Math.round((performance.now()-started)*1000)/1000});if(draft.validation.evidence==="fail"||draft.validation.interpretation==="fail"||draft.validation.governance==="fail")return{status:"failed",message:"The interpretation could not be validated safely.",internalReason:draft.validation.violations.join(","),confidenceLevel:"requires_clarification",validation:draft.validation};return{status:"valid",brief:draft,spokenBrief:buildSpeechSafeRepresentationBrief(draft)};
 }

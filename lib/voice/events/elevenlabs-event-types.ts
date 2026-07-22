@@ -21,6 +21,7 @@ export interface NormalizedElevenLabsEvent {
   outcome: NormalizedElevenLabsOutcome;
   transcript: ElevenLabsTranscriptSegment[];
   durationSeconds: number | null;
+  providerSummary?: string | null;
   eventKey: string;
 }
 

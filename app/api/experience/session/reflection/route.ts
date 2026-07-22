@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
     const db = createExperienceServiceClient(), session = await findExperienceSession(db, token);
     if (!session || isExpired(session)) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
     if (session.state!=="reflection_ready" || !session.veya_conversation_output_id || !session.zeya_conversation_output_id) return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
-    const veyaOutput = await db.from("voice_conversation_outputs").select("transcript,provider_attested,transcript_status").eq("id", session.veya_conversation_output_id).eq("voice_context_id", session.veya_voice_context_id).single();
+    const veyaOutput = await db.from("voice_conversation_outputs").select("transcript,provider_attested,transcript_status,safe_metadata").eq("id", session.veya_conversation_output_id).eq("voice_context_id", session.veya_voice_context_id).single();
     mark("loadVeyaConversationMs");
     if (veyaOutput.error || !veyaOutput.data?.provider_attested || veyaOutput.data.transcript_status !== "finalized") return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
     const veyaTurns = Array.isArray(veyaOutput.data.transcript) ? veyaOutput.data.transcript as Turn[] : [];
@@ -132,10 +132,20 @@ export async function GET(req: NextRequest) {
       const zeyaMapped = map(zeyaTurns);
       const veyaMapped = map(veyaTurns);
       if (debug) console.info("[Experience Debug][Mapped Transcripts]", { zeyaCount: zeyaMapped.length, veyaCount: veyaMapped.length, zeyaRoles: zeyaMapped.map(t => t.role).slice(0, 3), veyaRoles: veyaMapped.map(t => t.role).slice(0, 3) });
-      const briefInput: RepresentationBriefInput = { visitorName: null, businessOffer: null, targetCustomer: null, zeyaTranscript: zeyaMapped, veyaTranscript: veyaMapped };
+      const safeMetadata=veyaOutput.data.safe_metadata&&typeof veyaOutput.data.safe_metadata==="object"?veyaOutput.data.safe_metadata as Record<string,unknown>:{};
+      const providerSummary=typeof safeMetadata.providerSummary==="string"?safeText(safeMetadata.providerSummary,700):null;
+      const briefInput: RepresentationBriefInput = {
+        visitorName: null,
+        businessOffer: null,
+        targetCustomer: null,
+        zeyaTranscript: zeyaMapped,
+        veyaTranscript: veyaMapped,
+        providerSummary,
+      };
       const extractionStarted = performance.now();
       const inspection = inspectRepresentationBriefInput(briefInput);
       timings.evidenceExtractionMs = Math.round(performance.now() - extractionStarted);
+      if(debug)console.info("[Experience Debug][Brief Data Path]",{browserTranscriptTurns:zeyaMapped.length,veyaTranscriptTurns:veyaMapped.length,providerSummaryAvailable:!!providerSummary,classifiedEvidence:inspection.classifiedEvidence.map(item=>({source:item.sourceType,categories:item.categories,rank:item.rank})),commercialContext,briefGeneratorInput:{businessOffer:briefInput.businessOffer,targetCustomer:briefInput.targetCustomer,evidenceCount:zeyaMapped.length+veyaMapped.length,providerSummaryAvailable:!!providerSummary}});
 
       // Explicit state check: if Zeya transcript is missing entirely, flag it
       const zeyaTranscriptMissing = !session.zeya_conversation_output_id || zeyaTurns.length === 0;

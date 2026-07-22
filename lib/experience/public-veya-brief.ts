@@ -42,7 +42,7 @@ export function generateCoreCoreQuestionsForVeya(input: PublicExperienceVeyaBrie
   return questions;
 }
 
-function selectPublicExperienceVeyaQuestion(input: PublicExperienceVeyaBriefInput): string {
+export function selectPublicExperienceVeyaQuestion(input: PublicExperienceVeyaBriefInput): string {
   const coreQuestions = generateCoreCoreQuestionsForVeya(input);
   return coreQuestions[0] || "How do customers currently find or decide to work with you?";
 }

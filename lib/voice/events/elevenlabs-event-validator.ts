@@ -8,6 +8,8 @@ function string(value: unknown): string | null {
   return typeof value === "string" && value.trim() && ID.test(value.trim()) ? value.trim() : null;
 }
 
+function providerSummary(value:unknown):string|null{return typeof value==="string"&&value.trim()?value.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0,2_000):null}
+
 function callId(data: Record<string, unknown>): string | null {
   const direct = string(data.call_id) ?? string(data.provider_call_id) ?? string(data.sip_call_id);
   if (direct) return direct;
@@ -69,6 +71,7 @@ export function normalizeElevenLabsWebhook(event: unknown): NormalizedElevenLabs
     provider: "elevenlabs", providerEventType: type, eventTimestamp: timestamp,
     conversationId, providerCallId, agentId, outcome, transcript: turns,
     durationSeconds: typeof duration === "number" ? duration : null,
+    providerSummary: providerSummary(payload.summary),
     eventKey: `${type}:${conversationId}:${timestamp}`,
   };
 }
