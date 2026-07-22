@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import {generateCommercialBridge} from "../../lib/experience/commercial-bridge-generator";
+import type {RepresentationBrief} from "../../types/experience";
+const brief=(evidence:string[],meaning="One possible constraint is the number of qualified conversations the owner can personally maintain."):RepresentationBrief=>({whatIHeard:"You provide a useful service.",whatStoodOut:"A commercial pattern emerged.",whatThatMayMean:meaning,whereIWouldBegin:"I would begin with informed prospect conversations while preserving the owner’s expertise.",alignmentQuestion:"Is this aligned?",confidenceLevel:"medium",totalWordCount:30,evidenceSources:evidence.map((excerpt,index)=>({sourceType:"veya_call",sourceId:`e${index}`,speaker:"visitor",excerpt,supports:["what_i_heard","what_stood_out","what_that_may_mean","where_i_would_begin"]})),validation:{evidence:"pass",interpretation:"pass",governance:"pass",violations:[]}});
+const coaching=generateCommercialBridge(brief(["I provide business coaching to small businesses.","I do not have enough time to call prospects.","That would save me time."]));assert.match(coaching.constraint,/time/);assert.match(coaching.roleExplanation,/informed conversations/);
+const product=generateCommercialBridge(brief(["We build inventory software for retailers.","Most customers find us through referrals and our reach is limited."]));assert.match(product.constraint,/reaching the right people|narrow/);
+const trust=generateCommercialBridge(brief(["We advise clinics and trust is the main concern before they engage."]));assert.match(trust.constraint,/trust/);
+const corrected=generateCommercialBridge(brief(["We provide training."]),"Implementation support matters more than training");assert.match(corrected.recognition,/Implementation support/);
+assert.deepEqual(coaching.boundaryPhrases,["Accurate","Approved","Under your control"]);assert.equal(coaching.onboardingSteps.length,4);assert.match(coaching.boundaries,/not pretend|not invent/);assert.match(coaching.hiringInvitation,/hiring me/);
+console.log("Commercial Bridge V1 generation — PASS");

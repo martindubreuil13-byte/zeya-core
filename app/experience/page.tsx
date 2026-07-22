@@ -22,8 +22,10 @@ import type { VeyaDelegationStatus } from "@/lib/dispatch/veya-delegation-types"
 import type { PublicExperienceCallOutcome } from "@/lib/experience/public-call-outcome";
 import type { RepresentationBrief, RepresentationBriefResponseType } from "@/types/experience";
 import { EXPERIENCE_DEBUG_ENABLED, experienceDebugLog, experienceDebugTable } from "@/lib/experience/experience-debug";
+import {generateCommercialBridge,type CommercialBridge} from "@/lib/experience/commercial-bridge-generator";
+import {speakText,stopSpeaking} from "@/lib/voice/text-to-speech";
 
-type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "brief_review" | "calibration" | "hiring_decision" | "identity_confirmation" | "living_representation" | "completed" | "handoff_error";
+type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "brief_review" | "calibration" | "bridge_preparing" | "bridge_error" | "bridge_recognition" | "bridge_role" | "bridge_boundaries" | "hiring_decision" | "onboarding_preview" | "identity_confirmation" | "living_representation" | "completed" | "handoff_error";
 
 const PHONE_HANDOFF =
   "I’d like to try something with you. In a moment, my colleague Veya will call you. I’ve already told her everything we discussed, so she won’t be starting from scratch. She’ll ask a few questions that help us understand how we could represent your business. Please keep this page open—I’ll be waiting for you when you’re back. What’s the best number to reach you on?";
@@ -62,6 +64,13 @@ export default function ExperiencePage() {
   const [businessEmail,setBusinessEmail]=useState("");
   const [calibrationText,setCalibrationText]=useState("");
   const [calibrationPending,setCalibrationPending]=useState(false);
+  const [commercialBridge,setCommercialBridge]=useState<CommercialBridge|null>(null);
+  const [bridgeTranscriptOpen,setBridgeTranscriptOpen]=useState(false);
+  const [bridgeVoiceFailed,setBridgeVoiceFailed]=useState(false);
+  const [bridgePhraseIndex,setBridgePhraseIndex]=useState(0);
+  const [bridgeReplayNonce,setBridgeReplayNonce]=useState(0);
+  const [representationSectionIndex,setRepresentationSectionIndex]=useState(0);
+  const [fullRepresentationOpen,setFullRepresentationOpen]=useState(false);
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
@@ -77,11 +86,29 @@ export default function ExperiencePage() {
   const identityRef = useRef<{ name: string | null; offer: string | null; buyer: string | null } | null>(null);
   const identityResolvedRef = useRef(false);
   const reflectionDebugRef=useRef<{startedAt:number;responseAt?:number;serverTimings?:Record<string,number>;briefStatus?:string;validation?:unknown}|null>(null);
+  const spokenBridgePhaseRef=useRef<string|null>(null);
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
   const callRequested = delegationStatus === "call_requested"
     || delegationStatus === "correlation_pending"
     || delegationStatus === "dispatch_resolution_pending";
+
+  useEffect(()=>{const saved=sessionStorage.getItem("zeyaCommercialBridgeResume");if(!saved)return;try{const state=JSON.parse(saved) as {phase?:Phase;brief?:RepresentationBrief;name?:string|null;businessName?:string};if(state.phase==="identity_confirmation"&&state.brief){setRepresentationBrief(state.brief);setCommercialBridge(generateCommercialBridge(state.brief));setExtractedName(state.name??null);setBusinessName(state.businessName??"");setPhase("identity_confirmation");}}catch{sessionStorage.removeItem("zeyaCommercialBridgeResume");}},[]);
+
+  useEffect(()=>{
+    if(!commercialBridge||!["bridge_recognition","bridge_role","bridge_boundaries","onboarding_preview"].includes(phase)||spokenBridgePhaseRef.current===phase)return;
+    spokenBridgePhaseRef.current=phase;setBridgeVoiceFailed(false);setBridgePhraseIndex(0);
+    const copy=phase==="bridge_recognition"?commercialBridge.recognition:phase==="bridge_role"?commercialBridge.roleExplanation:phase==="bridge_boundaries"?`${commercialBridge.boundaries} ${commercialBridge.hiringInvitation}`:`${commercialBridge.onboardingIntroduction} ${commercialBridge.onboardingSteps.join(". ")}. ${commercialBridge.onboardingClose}`;
+    const next=phase==="bridge_recognition"?"bridge_role":phase==="bridge_role"?"bridge_boundaries":phase==="bridge_boundaries"?"hiring_decision":"identity_confirmation";
+    void speakText(copy).then(()=>{if(next==="identity_confirmation")sessionStorage.setItem("zeyaCommercialBridgeResume",JSON.stringify({phase:next,brief:representationBrief,name:extractedName,businessName}));setPhase(next as Phase);}).catch(()=>setBridgeVoiceFailed(true));
+    const phrases=phase==="bridge_role"?commercialBridge.rolePhrases:phase==="bridge_boundaries"?commercialBridge.boundaryPhrases:phase==="onboarding_preview"?commercialBridge.onboardingSteps:[];const interval=phrases.length?window.setInterval(()=>setBridgePhraseIndex(index=>Math.min(index+1,phrases.length-1)),Math.max(1800,copy.length*45/phrases.length)):undefined;
+    return()=>{if(interval)window.clearInterval(interval);stopSpeaking();};
+  },[bridgeReplayNonce,businessName,commercialBridge,extractedName,phase,representationBrief]);
+
+  const replayBridge=()=>{spokenBridgePhaseRef.current=null;setBridgeVoiceFailed(false);setBridgeReplayNonce(value=>value+1);};
+  const startCommercialBridge=(brief:RepresentationBrief,correction?:string)=>{setPhase("bridge_preparing");window.setTimeout(()=>{try{setCommercialBridge(generateCommercialBridge(brief,correction));setPhase("bridge_recognition");}catch{setPhase("bridge_error");}},120);};
+  useEffect(()=>{if(["bridge_recognition","bridge_role","bridge_boundaries","hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase))sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase,hiringExplanationViewed:["hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase),continued:["onboarding_preview","identity_confirmation","living_representation"].includes(phase),businessName}));},[businessName,phase]);
+  useEffect(()=>{if(phase!=="living_representation"||!representationBrief)return;setRepresentationSectionIndex(0);const copy=`Your initial Representation is ready. This is the first version of how I understand your business. It is not finished. The next step would be for us to deepen it together before I use it in real conversations.`;void speakText(copy).catch(()=>setBridgeVoiceFailed(true));const interval=window.setInterval(()=>setRepresentationSectionIndex(index=>Math.min(index+1,3)),2400);return()=>{window.clearInterval(interval);stopSpeaking();};},[phase,representationBrief]);
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
@@ -886,7 +913,7 @@ export default function ExperiencePage() {
 
                 <div className="space-y-2">
                   <button
-                    onClick={() => {void recordBriefResponse("confirm");setPhase("hiring_decision");}}
+                    onClick={() => {void recordBriefResponse("confirm");startCommercialBridge(representationBrief);}}
                     className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors"
                   >
                     Yes, that&apos;s right.
@@ -918,7 +945,7 @@ export default function ExperiencePage() {
               <p className="text-sm text-zeya-taupe">Tell me what I missed or what matters more than I understood.</p>
             </div>
 
-            <form onSubmit={(e) => {e.preventDefault();void (async()=>{if(await recordBriefResponse("refine",calibrationText.trim()))setPhase("hiring_decision");})();}} className="space-y-4">
+            <form onSubmit={(e) => {e.preventDefault();void (async()=>{if(await recordBriefResponse("refine",calibrationText.trim()))startCommercialBridge(representationBrief,calibrationText.trim());})();}} className="space-y-4">
               <textarea
                 value={calibrationText}
                 onChange={(e) => setCalibrationText(e.target.value)}
@@ -938,6 +965,24 @@ export default function ExperiencePage() {
             </form>
           </div>
         </div>
+      ) : phase==="bridge_preparing" ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6"><PresenceCore state="thinking"/><p className="mt-10 font-serif text-lg text-zeya-ivory">I’m connecting what we learned to the role I could play.</p></div>
+      ) : phase==="bridge_error" && representationBrief ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6"><PresenceCore state="idle"/><div className="mt-10 space-y-6 text-center"><p className="font-serif text-lg text-zeya-ivory">I wasn’t able to finish that thought.</p><div className="flex justify-center gap-5"><button type="button" onClick={()=>startCommercialBridge(representationBrief,calibrationText)} className="text-sm text-zeya-champagne">Try again</button><button type="button" onClick={()=>setPhase("brief_review")} className="text-sm text-zeya-ivory">Continue with the brief</button></div></div></div>
+      ) : (["bridge_recognition","bridge_role","bridge_boundaries"].includes(phase) && commercialBridge) ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+          <PresenceCore state={bridgeVoiceFailed?"idle":"speaking"} />
+          <div className="mt-10 w-full max-w-lg space-y-8 text-center" role="status" aria-live="polite">
+            <p className="font-serif text-2xl text-zeya-ivory font-light" style={{letterSpacing:"0.08em"}}>
+              {phase==="bridge_recognition"?commercialBridge.recognitionPhrase:phase==="bridge_role"?commercialBridge.rolePhrases[bridgePhraseIndex]:commercialBridge.boundaryPhrases[bridgePhraseIndex]}
+            </p>
+            <button type="button" onClick={()=>setBridgeTranscriptOpen(open=>!open)} className="text-xs text-zeya-taupe hover:text-zeya-champagne transition-colors">
+              {bridgeTranscriptOpen?"Hide transcript":"Read along"}
+            </button>
+            {bridgeTranscriptOpen&&<p className="mx-auto max-w-md text-sm leading-7 text-zeya-taupe">{phase==="bridge_recognition"?commercialBridge.recognition:phase==="bridge_role"?commercialBridge.roleExplanation:`${commercialBridge.boundaries} ${commercialBridge.hiringInvitation}`}</p>}
+            {bridgeVoiceFailed&&<div className="space-y-3"><p className="text-sm text-zeya-taupe">I wasn’t able to finish that thought. You can read it here or continue.</p><div className="flex justify-center gap-5"><button type="button" onClick={replayBridge} className="text-sm text-zeya-champagne">Try again</button><button type="button" onClick={()=>setPhase(phase==="bridge_recognition"?"bridge_role":phase==="bridge_role"?"bridge_boundaries":"hiring_decision")} className="text-sm text-zeya-ivory">Continue with the brief</button></div></div>}
+          </div>
+        </div>
       ) : phase === "hiring_decision" ? (
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
           <div className="w-full max-w-lg space-y-8">
@@ -950,14 +995,14 @@ export default function ExperiencePage() {
 
             <div className="space-y-3">
               <button
-                onClick={() => setPhase("identity_confirmation")}
+                onClick={() => {setBriefResponse("continue");setPhase("onboarding_preview");}}
                 className="w-full border border-zeya-champagne/60 px-6 py-4 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors font-light"
                 style={{letterSpacing:"0.06em"}}
               >
-                Explore what hiring Zeya looks like
+                Show me how it works
               </button>
               <button
-                onClick={() => setPhase("initial")}
+                onClick={() => {sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase:"declined",hiringExplanationViewed:true,continued:false}));setPhase("initial");}}
                 className="w-full border border-zeya-taupe/20 px-6 py-4 text-sm text-zeya-taupe hover:border-zeya-champagne hover:text-zeya-champagne transition-colors font-light"
                 style={{letterSpacing:"0.06em"}}
               >
@@ -966,17 +1011,28 @@ export default function ExperiencePage() {
             </div>
           </div>
         </div>
+      ) : phase === "onboarding_preview" && commercialBridge ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+          <PresenceCore state={bridgeVoiceFailed?"idle":"speaking"}/>
+          <div className="mt-10 w-full max-w-lg space-y-8 text-center" role="status" aria-live="polite">
+            <div className="flex justify-center gap-2" aria-label={`Step ${bridgePhraseIndex+1} of 4`}>{commercialBridge.onboardingSteps.map((_,index)=><span key={index} className={`h-1 w-1 rounded-full ${index===bridgePhraseIndex?"bg-zeya-champagne":"bg-zeya-taupe/30"}`}/>)}</div>
+            <p className="font-serif text-2xl text-zeya-ivory font-light">{commercialBridge.onboardingSteps[bridgePhraseIndex]}</p>
+            <button type="button" onClick={()=>setBridgeTranscriptOpen(open=>!open)} className="text-xs text-zeya-taupe hover:text-zeya-champagne">{bridgeTranscriptOpen?"Hide transcript":"Read along"}</button>
+            {bridgeTranscriptOpen&&<p className="mx-auto max-w-md text-sm leading-7 text-zeya-taupe">{commercialBridge.onboardingIntroduction} {commercialBridge.onboardingSteps.join(". ")}. {commercialBridge.onboardingClose}</p>}
+            {bridgeVoiceFailed&&<div className="flex justify-center gap-5"><button type="button" onClick={replayBridge} className="text-sm text-zeya-champagne">Try again</button><button type="button" onClick={()=>setPhase("identity_confirmation")} className="text-sm text-zeya-ivory">Continue</button></div>}
+          </div>
+        </div>
       ) : phase === "identity_confirmation" ? (
         <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-6 py-8">
           <div className="w-full max-w-lg space-y-6">
             <div className="space-y-2">
               <p className="font-serif text-lg text-zeya-ivory font-light" style={{letterSpacing:"0.08em"}}>
-                Who am I representing?
+                Preserve what we learned
               </p>
-              <p className="text-sm text-zeya-taupe">Just the basics for the record.</p>
+              <p className="text-sm text-zeya-taupe">I already know your name. I just need the business name and the best email to reach you.</p>
             </div>
 
-            <form onSubmit={(e) => {e.preventDefault(); if(extractedName && businessName && businessEmail) setPhase("living_representation");}} className="space-y-4">
+            <form onSubmit={(e) => {e.preventDefault(); if(extractedName && businessName && businessEmail){sessionStorage.setItem("zeyaCommercialBridgeIdentity",JSON.stringify({visitorName:extractedName,businessName,email:businessEmail,initialRepresentationState:"ready_for_deeper_onboarding"}));setPhase("living_representation");}}} className="space-y-4">
               <div className="space-y-2">
                 <label className="block text-xs text-zeya-taupe/70 uppercase tracking-wider">Your name</label>
                 <input
@@ -1011,14 +1067,14 @@ export default function ExperiencePage() {
                 />
               </div>
 
-              <p className="text-xs text-zeya-taupe/50 pt-2">This won’t be public. It’s just for our records.</p>
+              <p className="text-xs text-zeya-taupe/50 pt-2">This is only to preserve your initial Representation.</p>
 
               <button
                 type="submit"
                 disabled={!businessName.trim() || !businessEmail.trim()}
                 className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors disabled:opacity-50 mt-4"
               >
-                Confirm and continue
+                Continue
               </button>
             </form>
           </div>
@@ -1033,31 +1089,14 @@ export default function ExperiencePage() {
               <p className="text-xs text-zeya-taupe/70">This is the foundation. We’ll refine it together.</p>
             </div>
 
-            <div className="space-y-4 rounded border border-zeya-taupe/20 px-5 py-4">
-              <div className="space-y-2">
-                <p className="text-sm text-zeya-ivory leading-relaxed">
-                  {representationBrief.whatIHeard}
-                </p>
-              </div>
-
-              <div className="h-px bg-zeya-taupe/10" />
-
-              <div className="space-y-2">
-                <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">What stood out</p>
-                <p className="text-sm text-zeya-ivory leading-relaxed">
-                  {representationBrief.whatStoodOut}
-                </p>
-              </div>
-
-              <div className="h-px bg-zeya-taupe/10" />
-
-              <div className="space-y-2">
-                <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">Where I would begin</p>
-                <p className="text-sm text-zeya-ivory leading-relaxed">
-                  {representationBrief.whereIWouldBegin}
-                </p>
+            <div className="min-h-36 flex items-center">
+              <div className="space-y-3">
+                <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">{["What the business does","Who it helps","Current commercial constraint","Initial direction"][representationSectionIndex]}</p>
+                <p className="font-serif text-xl text-zeya-ivory leading-relaxed">{[representationBrief.whatIHeard,representationBrief.evidenceSources.find(source=>/customer|client|business|startup|owner|team/i.test(source.excerpt))?.excerpt??representationBrief.whatStoodOut,representationBrief.whatThatMayMean,representationBrief.whereIWouldBegin][representationSectionIndex]}</p>
               </div>
             </div>
+            <button type="button" onClick={()=>setFullRepresentationOpen(open=>!open)} className="text-xs text-zeya-taupe hover:text-zeya-champagne">{fullRepresentationOpen?"Close complete Representation":"Read complete Representation"}</button>
+            {fullRepresentationOpen&&<div className="space-y-4 text-sm leading-7 text-zeya-taupe"><p>{representationBrief.whatIHeard}</p><p>{representationBrief.whatStoodOut}</p><p>{representationBrief.whatThatMayMean}</p><p>{representationBrief.whereIWouldBegin}</p></div>}
 
             <div className="space-y-4">
               <div className="space-y-2">
@@ -1067,9 +1106,7 @@ export default function ExperiencePage() {
 
             <div className="border-t border-zeya-taupe/10 pt-6 space-y-3">
               <p className="text-xs text-zeya-taupe/70 uppercase tracking-wider">What’s next</p>
-              <p className="text-sm text-zeya-ivory leading-relaxed">
-                I’ll learn from every conversation. You’ll see every proposal I want to make. Nothing changes without your approval.
-              </p>
+              <p className="text-sm text-zeya-ivory leading-relaxed">The next step would be to deepen this together before I use it in real conversations.</p>
               <button
                 onClick={() => setPhase("completed")}
                 className="w-full border border-zeya-champagne/60 px-6 py-4 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors font-light mt-4"
