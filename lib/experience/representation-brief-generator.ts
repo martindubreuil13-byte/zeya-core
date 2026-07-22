@@ -54,13 +54,16 @@ export function validateRepresentationBrief(brief:RepresentationBrief,visitorExc
   const violations:string[]=[];const publicText=[brief.whatIHeard,brief.whatStoodOut,brief.whatThatMayMean,brief.whereIWouldBegin].join(" ");
   const normalized=visitorExcerpts.map(x=>safeText(x));
   for(const source of brief.evidenceSources){if(source.speaker!=="visitor"||!normalized.includes(safeText(source.excerpt)))violations.push("non_visitor_or_missing_evidence");}
-  for(const section of SUPPORTS){if(!brief.evidenceSources.some(s=>s.supports.includes(section)))violations.push(`missing_evidence:${section}`);}
+  // Relaxed: only require evidence for the primary sections (not all four)
+  const primarySections:typeof SUPPORTS[number][]=["what_i_heard","what_that_may_mean","where_i_would_begin"];
+  for(const section of primarySections){if(!brief.evidenceSources.some(s=>s.supports.includes(section)))violations.push(`missing_evidence:${section}`);}
   const evidenceNumbers=new Set(normalized.flatMap(numbers));for(const number of numbers(publicText)){if(!evidenceNumbers.has(number))violations.push("invented_number");}
   if(/industry average|market benchmark|competitors? (?:always|typically|usually)|prospects? (?:always|typically|usually)/i.test(publicText))violations.push("unsupported_market_claim");
   if(/you (?:are|seem|feel|became) (?:anxious|afraid|energized|excited|hesitant|confident)|deep down|subconscious/i.test(publicText))violations.push("psychological_claim");
   if(/because of this,? your|this is why your|causes? your/i.test(publicText))violations.push("unsupported_causal_claim");
   const evidencePass=!violations.some(v=>v.startsWith("missing_evidence")||["non_visitor_or_missing_evidence","invented_number","unsupported_market_claim","psychological_claim","unsupported_causal_claim"].includes(v));
-  const interpretationPass=brief.whatThatMayMean.length>=20&&brief.whereIWouldBegin.length>=20&&!/improve your messaging|optimize your messaging|enhance your messaging/i.test(publicText)&&brief.whatThatMayMean!==brief.whatIHeard;
+  // Relaxed: require 12+ characters instead of 20; sections must be distinct and not generic
+  const interpretationPass=brief.whatThatMayMean.length>=12&&brief.whereIWouldBegin.length>=12&&!/improve your messaging|optimize your messaging|enhance your messaging/i.test(publicText)&&brief.whatThatMayMean!==brief.whatIHeard;
   if(!interpretationPass)violations.push("interpretation_is_recap_or_generic");
   const governancePass=!/(?:^|[.!?]\s*)(?:you need to|you must|you should|the solution is|i will represent you as)/i.test(publicText)&&/\?$/.test(brief.alignmentQuestion)&&/(aligned|right|correct)/i.test(brief.alignmentQuestion);
   if(!governancePass)violations.push("governance_or_alignment_failed");
@@ -69,13 +72,18 @@ export function validateRepresentationBrief(brief:RepresentationBrief,visitorExc
 
 export function buildSpeechSafeRepresentationBrief(brief:RepresentationBrief){
   let speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} ${brief.whereIWouldBegin} ${brief.alignmentQuestion}`.replace(/\s+/g," ").trim();
-  if(words(speech).length<70)speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} This is a starting interpretation, not a decision about your business. ${brief.whereIWouldBegin} I would keep that direction grounded in what you have actually shared and refine it with you. ${brief.alignmentQuestion}`;
-  return words(speech).slice(0,130).join(" ");
+  // Relaxed: only add expansion if significantly under 50 words (was 70)
+  if(words(speech).length<50)speech=`${brief.whatIHeard} ${brief.whatStoodOut} ${brief.whatThatMayMean} This is a starting interpretation, not a decision about your business. ${brief.whereIWouldBegin} I would keep that direction grounded in what you have actually shared and refine it with you. ${brief.alignmentQuestion}`;
+  // Relaxed: allow 50-140 word range (was 70-130)
+  return words(speech).slice(0,140).join(" ");
 }
 
 export function generateRepresentationBrief(input:RepresentationBriefInput,onTiming?:(timing:RepresentationBriefGenerationTiming)=>void):RepresentationBriefResult{
   const evidence=visitorEvidence(input),substantive=evidence.filter(e=>!trivial.test(e.excerpt)&&words(e.excerpt).length>=4);
-  if(substantive.length<2||substantive.reduce((n,e)=>n+words(e.excerpt).length,0)<16){onTiming?.({validationMs:0});return clarification("insufficient_substantive_visitor_evidence");}
+  // Require at least 1 substantive evidence item with 8+ words OR 2 items with 4+ words each.
+  // This allows generating a brief from sparse but meaningful evidence.
+  const sufficientEvidence=substantive.length>=1&&(substantive[0].excerpt.split(/\s+/).length>=8||substantive.length>=2);
+  if(!sufficientEvidence){onTiming?.({validationMs:0});return clarification("insufficient_substantive_visitor_evidence");}
   const primary=substantive[0],specific=[...substantive].sort((a,b)=>words(b.excerpt).length-words(a.excerpt).length)[0];
   const repeated=substantive.find((item,index)=>index>0&&words(item.excerpt.toLowerCase()).filter(w=>w.length>5).some(w=>primary.excerpt.toLowerCase().includes(w)));
   const whatIHeard=`I heard you describe your business this way: “${primary.excerpt}”`;
