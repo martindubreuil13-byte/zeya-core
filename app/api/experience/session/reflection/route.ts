@@ -10,6 +10,7 @@ import {
 } from "@/lib/experience/representation-brief-generator";
 import type { RepresentationBrief, RepresentationBriefValidation } from "@/types/experience";
 import { isExperienceDebugEnabled } from "@/lib/experience/experience-debug-guard";
+import { generateCommercialContext } from "@/lib/experience/commercial-context-generator";
 
 type Turn = { role?: unknown; text?: unknown; id?: unknown };
 type StoredBrief = { id: string; status: "valid" | "requires_clarification" | "failed"; structured_brief: RepresentationBrief | null; spoken_brief: string | null; confidence_level: string; evidence_references: unknown; validation_outcome: unknown; generator_version: string; provider: string; model: string; created_at: string };
@@ -108,6 +109,21 @@ export async function GET(req: NextRequest) {
       }
       mark("loadZeyaConversationMs");
       if (debug) console.info("[Experience Debug][Transcript Loading] veya_conversation_output_id:", session.veya_conversation_output_id, "veya_turns_count:", veyaTurns.length);
+
+      // Generate commercial context from both transcripts
+      const commercialContextStarted = performance.now();
+      const commercialContext = generateCommercialContext(null, zeyaTurns as any, veyaTurns as any);
+      timings.commercialContextMs = Math.round(performance.now() - commercialContextStarted);
+      if (debug) {
+        console.info("[Experience Debug][Commercial Context]", {
+          businessCategory: commercialContext.businessCategory,
+          customerType: commercialContext.likelyCustomerType,
+          acquisitionPattern: commercialContext.acquisitionPattern,
+          overallConfidence: commercialContext.overallConfidence,
+          problemsFound: commercialContext.explicitProblems.length,
+        });
+      }
+
       const map = (turns: Turn[]) => turns.map((turn, index) => {
         const mapped = { role: String(turn.role ?? ""), text: String(turn.text ?? ""), id: typeof turn.id === "string" ? turn.id : `turn_${index}` };
         if (debug && index < 2) console.info("[Experience Debug][Role Mapping] input_role:", turn.role, "mapped_role:", mapped.role, "text_length:", mapped.text.length);
