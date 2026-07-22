@@ -22,6 +22,7 @@ export interface NormalizedElevenLabsEvent {
   transcript: ElevenLabsTranscriptSegment[];
   durationSeconds: number | null;
   providerSummary?: string | null;
+  providerCredits?: number | null;
   eventKey: string;
 }
 

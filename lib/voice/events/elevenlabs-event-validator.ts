@@ -72,6 +72,7 @@ export function normalizeElevenLabsWebhook(event: unknown): NormalizedElevenLabs
     conversationId, providerCallId, agentId, outcome, transcript: turns,
     durationSeconds: typeof duration === "number" ? duration : null,
     providerSummary: providerSummary(payload.summary),
+    providerCredits: typeof (payload.metadata as Record<string,unknown>|undefined)?.cost==="number" ? (payload.metadata as Record<string,number>).cost : null,
     eventKey: `${type}:${conversationId}:${timestamp}`,
   };
 }

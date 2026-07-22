@@ -7,7 +7,7 @@ type ProviderConversation = {
   conversation_id?: unknown;
   status?: unknown;
   transcript?: unknown;
-  metadata?: { start_time_unix_secs?: unknown; call_duration_secs?: unknown } | null;
+  metadata?: { start_time_unix_secs?: unknown; call_duration_secs?: unknown; cost?: unknown; charging?: { credits?: unknown } } | null;
   analysis?: { transcript_summary?: unknown } | null;
 };
 
@@ -31,12 +31,14 @@ export function publicExperienceProviderConversationEvent(
   });
   const started = typeof body.metadata?.start_time_unix_secs === "number" ? body.metadata.start_time_unix_secs : 1;
   const duration = typeof body.metadata?.call_duration_secs === "number" ? body.metadata.call_duration_secs : null;
+  const credits = typeof body.metadata?.charging?.credits === "number" ? body.metadata.charging.credits : typeof body.metadata?.cost === "number" ? body.metadata.cost : null;
   return {
     provider: "elevenlabs", providerEventType: "provider_status_reconciliation",
     eventTimestamp: Math.max(1, Math.floor(started + (duration ?? 0))), conversationId: session.provider_conversation_id,
     providerCallId: session.provider_call_id, agentId: body.agent_id,
     outcome: transcript.length ? "completed" : "completed_without_transcript", transcript, durationSeconds: duration,
     providerSummary: typeof body.analysis?.transcript_summary === "string" ? body.analysis.transcript_summary.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0, 2_000) : null,
+    providerCredits: credits,
     eventKey: `provider_status_reconciliation:${session.provider_conversation_id}`,
   };
 }

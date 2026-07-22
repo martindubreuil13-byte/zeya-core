@@ -201,7 +201,11 @@ export async function GET(req: NextRequest) {
       console.table(timings);
       console.info("--------------------------------------------------------------------------");
     }
-    return NextResponse.json({ status: "reflection_ready", outcome, reflection: { summary: "Zeya preserved the business context that was carried into Veya’s real call.", observations, reviewNotice: "Anything learned here would be reviewed before becoming part of the business Representation. Nothing is approved automatically." }, ...publicBrief(stored), ...(debug ? { experienceDebug: { timings, briefStatus: debugStatus, validation: debugValidation, briefDiagnostics: debugBriefDiagnostics } } : {}) });
+    const metadata=veyaOutput.data.safe_metadata&&typeof veyaOutput.data.safe_metadata==="object"?veyaOutput.data.safe_metadata as Record<string,unknown>:{};
+    const messageCount=typeof metadata.turnCount==="number"?metadata.turnCount:veyaTurns.length;
+    const durationSeconds=typeof metadata.durationSeconds==="number"?metadata.durationSeconds:null;
+    const providerCredits=typeof metadata.providerCredits==="number"?metadata.providerCredits:null;
+    return NextResponse.json({ status: "reflection_ready", outcome, callMetrics:{durationSeconds,messageCount,providerCredits,approximateCreditsPerCompletedCall:providerCredits}, reflection: { summary: "Zeya preserved the business context that was carried into Veya’s real call.", observations, reviewNotice: "Anything learned here would be reviewed before becoming part of the business Representation. Nothing is approved automatically." }, ...publicBrief(stored), ...(debug ? { experienceDebug: { timings, briefStatus: debugStatus, validation: debugValidation, briefDiagnostics: debugBriefDiagnostics } } : {}) });
   } catch {
     return NextResponse.json({ error: "The reflection is unavailable." }, { status: 503 });
   }
