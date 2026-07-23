@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const update = await db.from("public_experience_test_records").update({ [column]: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("public_experience_session_id", session.id).is(column, null);
     if (update.error) throw update.error;
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ recorded: true }, { status: 200 });
   } catch {
     return NextResponse.json({ error: "Telemetry unavailable." }, { status: 503 });
   }

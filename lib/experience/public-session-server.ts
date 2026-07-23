@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { assertCurrentPreviewEnvironmentIsolation } from "./preview-environment-guard";
 export {
   PUBLIC_EXPERIENCE_MAX_TRANSCRIPT_CHARS,
   PUBLIC_EXPERIENCE_MAX_TURN_CHARS,
@@ -45,6 +46,7 @@ export function isPlausibleExperienceToken(token: unknown): token is string {
 }
 
 export function createExperienceServiceClient(): SupabaseClient {
+  assertCurrentPreviewEnvironmentIsolation();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Experience service is unavailable");

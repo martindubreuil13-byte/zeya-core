@@ -430,13 +430,13 @@ CREATE TABLE IF NOT EXISTS representation_proposals (
   business_representation_id UUID NOT NULL REFERENCES business_representations(id) ON DELETE CASCADE,
 
   -- Affected elements
-  affected_element_ids UUID[] NOT NULL,  -- Which elements are proposed to change
+  affected_element_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],  -- Which elements are proposed to change
 
   -- Change specification (before/after)
   proposed_changes JSONB NOT NULL,  -- {element_id: {before: ..., after: ...}, ...}
 
   -- Evidence supporting proposal
-  supporting_observation_ids UUID[] NOT NULL,  -- Which observations support this
+  supporting_observation_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],  -- Which observations support this
   supporting_evidence_ids UUID[] DEFAULT ARRAY[]::UUID[],  -- Which raw evidence
 
   -- Risk and sensitivity assessment
@@ -453,6 +453,7 @@ CREATE TABLE IF NOT EXISTS representation_proposals (
 
   -- Metadata
   rationale TEXT,  -- Why is this change proposed?
+  expires_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 
   -- INVARIANT: Draft proposals can be modified, approved proposals cannot
@@ -497,13 +498,15 @@ CREATE POLICY "users_can_insert_own_proposals"
 
 CREATE TABLE IF NOT EXISTS approval_decisions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_representation_id UUID NOT NULL REFERENCES business_representations(id) ON DELETE CASCADE,
   representation_proposal_id UUID NOT NULL REFERENCES representation_proposals(id) ON DELETE CASCADE,
 
   -- Decision
   decision approval_decision_type NOT NULL,
 
   -- Approver details
-  approver_actor TEXT NOT NULL,  -- User ID or system
+  approver_actor TEXT,  -- Legacy actor label
+  approver_user_id UUID REFERENCES auth.users(id) ON DELETE RESTRICT,
   approval_reason TEXT,  -- Why was this approved/rejected?
 
   -- Metadata
@@ -630,12 +633,14 @@ CREATE POLICY "users_can_insert_own_versions"
 
 CREATE TABLE IF NOT EXISTS confidence_assessments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_representation_id UUID NOT NULL REFERENCES business_representations(id) ON DELETE CASCADE,
   representation_version_id UUID NOT NULL REFERENCES representation_versions(id) ON DELETE CASCADE,
 
   -- Score and explanation
   confidence_score SMALLINT NOT NULL CHECK (confidence_score >= 0 AND confidence_score <= 100),
   confidence_band_min SMALLINT,  -- e.g., 65 for "75±10"
   confidence_band_max SMALLINT,
+  confidence_band TEXT,
 
   -- Factors contributing to score
   evidence_count SMALLINT NOT NULL DEFAULT 0,
@@ -651,6 +656,9 @@ CREATE TABLE IF NOT EXISTS confidence_assessments (
 
   -- Human explanation
   rationale TEXT NOT NULL,  -- 3-5 sentence explanation in plain language
+  factors JSONB NOT NULL DEFAULT '{}'::jsonb,
+  affected_element_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
+  review_required BOOLEAN NOT NULL DEFAULT false,
 
   -- Metadata
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
@@ -1015,7 +1023,7 @@ CREATE OR REPLACE FUNCTION get_agent_representation_context(
 RETURNS TABLE (
   element_id UUID,
   element_key TEXT,
-  element_type representation_element_type,
+  element_type element_type,
   current_value JSONB,
   overall_confidence_score SMALLINT,
   claim_eligibility claim_eligibility_state,
