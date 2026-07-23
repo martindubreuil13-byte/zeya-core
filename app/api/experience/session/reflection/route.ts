@@ -11,6 +11,7 @@ import {
 import type { RepresentationBrief, RepresentationBriefValidation } from "@/types/experience";
 import { isExperienceDebugEnabled } from "@/lib/experience/experience-debug-guard";
 import { generateCommercialContext } from "@/lib/experience/commercial-context-generator";
+import { normalizeTranscriptText } from "@/lib/experience/transcript-normalization";
 
 type Turn = { role?: unknown; text?: unknown; id?: unknown };
 type StoredBrief = { id: string; status: "valid" | "requires_clarification" | "failed"; structured_brief: RepresentationBrief | null; spoken_brief: string | null; confidence_level: string; evidence_references: unknown; validation_outcome: unknown; generator_version: string; provider: string; model: string; created_at: string };
@@ -125,7 +126,8 @@ export async function GET(req: NextRequest) {
       }
 
       const map = (turns: Turn[]) => turns.map((turn, index) => {
-        const mapped = { role: String(turn.role ?? ""), text: String(turn.text ?? ""), id: typeof turn.id === "string" ? turn.id : `turn_${index}` };
+        const rawText = String(turn.text ?? "");
+        const mapped = { role: String(turn.role ?? ""), text: normalizeTranscriptText(rawText).normalized, rawText, id: typeof turn.id === "string" ? turn.id : `turn_${index}` };
         if (debug && index < 2) console.info("[Experience Debug][Role Mapping] input_role:", turn.role, "mapped_role:", mapped.role, "text_length:", mapped.text.length);
         return mapped;
       });

@@ -1,0 +1,29 @@
+{
+  "session": {
+    "durationSeconds": 96,
+    "messageCount": 13,
+    "evaluation": 100,
+    "credits": 966,
+    "llmCredits": 141,
+    "reportedCost": 0.0237
+  },
+  "turns": [
+    {
+      "role": "agent",
+      "message": "Hi Martin. This is Veya. Zeya just brought me into the conversation and told me about your business coaching, so I already have some context. Do you have a minute?",
+      "timeInCallSeconds": 0,
+      "llmLatencyMs": 3100
+    },
+    {
+      "role": "user",
+      "message": "That, that I suggest probably increase my business. Definitely more clients.",
+      "timeInCallSeconds": 82
+    },
+    {
+      "role": "agent",
+      "message": "That’s exactly what I needed to hear. I’ll pass everything back to Zeya now. Head back to the page now—Zeya will take it from here. Can I help you with anything else?",
+      "timeInCallSeconds": 87,
+      "llmLatencyMs": 8600
+    }
+  ]
+}

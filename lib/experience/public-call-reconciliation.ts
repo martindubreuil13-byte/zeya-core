@@ -7,9 +7,13 @@ type ProviderConversation = {
   conversation_id?: unknown;
   status?: unknown;
   transcript?: unknown;
-  metadata?: { start_time_unix_secs?: unknown; call_duration_secs?: unknown; cost?: unknown; charging?: { credits?: unknown } } | null;
-  analysis?: { transcript_summary?: unknown } | null;
+  metadata?: { start_time_unix_secs?: unknown; call_duration_secs?: unknown; cost?: unknown; charging?: { credits?: unknown; llm_credits?: unknown } } | null;
+  analysis?: { transcript_summary?: unknown; evaluation_criteria_results?: unknown } | null;
 };
+
+function finite(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 export type PublicCallReconciliationResult = {
   providerStatus: string;
@@ -25,9 +29,16 @@ export function publicExperienceProviderConversationEvent(
   const rawTurns = Array.isArray(body.transcript) ? body.transcript : [];
   const transcript = rawTurns.flatMap<ElevenLabsTranscriptSegment>((raw) => {
     if (!raw || typeof raw !== "object") return [];
-    const turn = raw as { role?: unknown; message?: unknown; time_in_call_secs?: unknown };
+    const turn = raw as { role?: unknown; message?: unknown; time_in_call_secs?: unknown; conversation_turn_metrics?: Record<string, unknown>; sentiment?: unknown };
     if ((turn.role !== "user" && turn.role !== "agent") || typeof turn.message !== "string" || !turn.message.trim()) return [];
-    return [{ role: turn.role as "user" | "agent", message: turn.message.trim().slice(0, 4_000), timestamp: typeof turn.time_in_call_secs === "number" ? turn.time_in_call_secs * 1_000 : undefined }];
+    const metrics = turn.conversation_turn_metrics ?? {};
+    return [{ role: turn.role as "user" | "agent", message: turn.message.trim().slice(0, 4_000), timestamp: typeof turn.time_in_call_secs === "number" ? turn.time_in_call_secs * 1_000 : undefined, metrics: {
+      asrLatencyMs: finite(metrics.asr_latency_secs) !== undefined ? finite(metrics.asr_latency_secs)! * 1_000 : undefined,
+      llmLatencyMs: finite(metrics.llm_latency_secs) !== undefined ? finite(metrics.llm_latency_secs)! * 1_000 : undefined,
+      ttsLatencyMs: finite(metrics.tts_latency_secs) !== undefined ? finite(metrics.tts_latency_secs)! * 1_000 : undefined,
+      firstTokenLatencyMs: finite(metrics.llm_ttfb_secs) !== undefined ? finite(metrics.llm_ttfb_secs)! * 1_000 : undefined,
+      sentiment: typeof turn.sentiment === "string" ? turn.sentiment.slice(0, 40) : undefined,
+    } }];
   });
   const started = typeof body.metadata?.start_time_unix_secs === "number" ? body.metadata.start_time_unix_secs : 1;
   const duration = typeof body.metadata?.call_duration_secs === "number" ? body.metadata.call_duration_secs : null;
@@ -39,6 +50,9 @@ export function publicExperienceProviderConversationEvent(
     outcome: transcript.length ? "completed" : "completed_without_transcript", transcript, durationSeconds: duration,
     providerSummary: typeof body.analysis?.transcript_summary === "string" ? body.analysis.transcript_summary.replace(/https?:\/\/\S+/gi,"[link]").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[contact detail]").replace(/(?:\+?\d[\d\s().-]{6,}\d)/g,"[contact detail]").replace(/\s+/g," ").trim().slice(0, 2_000) : null,
     providerCredits: credits,
+    providerLlmCredits: finite(body.metadata?.charging?.llm_credits) ?? null,
+    providerReportedCost: finite(body.metadata?.cost) ?? null,
+    providerEvaluation: finite(body.analysis?.evaluation_criteria_results) ?? null,
     eventKey: `provider_status_reconciliation:${session.provider_conversation_id}`,
   };
 }

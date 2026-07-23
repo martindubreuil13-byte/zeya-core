@@ -185,8 +185,8 @@ export async function POST(req: NextRequest) {
       objective: conversationPlan.privateGuidance,
       desiredOutcome: "The visitor experiences a natural contextual continuation and indicates interested, uncertain, or not interested.",
       keyQuestions: conversationPlan.coreQuestions,
-      objectionGuidance: ["Acknowledge the answer briefly and naturally.", "Connect to consistent business representation.", "Adapt based on their response."],
-      escalationRules: ["Ask up to three core questions in order.", "Allow for one or two adaptive follow-ups if needed.", "Close and end within 60–120 seconds maximum."],
+      objectionGuidance: ["Acknowledge the answer in one short sentence.", "Do not introduce new topics."],
+      escalationRules: ["Ask three core questions in order.", "Allow no more than one meaningful adaptive follow-up.", "Enter the fixed completion state and end immediately."],
       successCriteria: "Continuity is established, three core topics are explored, interest level is understood, and the visitor is handed back to Zeya cleanly.",
       toneGuidance: "Warm, natural, curious, and professional. Pronounce the visitor name normally; never spell it. Avoid sales language.",
       dynamicVariables: {
@@ -194,7 +194,11 @@ export async function POST(req: NextRequest) {
         source: "zeya_experience", zeyaConversationOccurred: true,
         hasTargetPhone: true, conversationSummary, relevantDetail,
         primaryQuestion: conversationPlan.primaryQuestion,
-        spokenHandoffContext: conversationPlan.spokenHandoffContext,
+        missionObjective: conversationPlan.opening,
+        deterministicClosing: conversationPlan.closing,
+        maxCoreQuestions: 3,
+        maxAdaptiveFollowUps: 1,
+        toolsAllowed: false,
       },
     });
     const provider: ProviderType = process.env.PUBLIC_EXPERIENCE_PROVIDER === "MOCK" ? "MOCK" : "ELEVENLABS";

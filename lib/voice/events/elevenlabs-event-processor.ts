@@ -74,8 +74,8 @@ export async function processElevenLabsWebhook(input: unknown,payloadHashInput?:
       voiceContextId:lineage.data.voice_context_id,conversationId:event.conversationId,providerCallId:lineage.data.provider_call_id,
       provider:"elevenlabs",channel:"veya_outbound",captureSource:"provider_callback",transcriptTrustLevel:"provider_attested",providerAttested:true,
       startedAt:event.durationSeconds!==null?new Date(completedAt.getTime()-event.durationSeconds*1000).toISOString():null,completedAt:completedAt.toISOString(),
-      transcript:event.transcript.map(turn=>({role:turn.role==="user"?"customer":"agent",text:turn.message,startedAtMs:turn.timestamp})),
-      transcriptStatus:"finalized",conversationStatus:"done",completionReason:"provider_completed",safeMetadata:{turnCount:event.transcript.length,durationSeconds:event.durationSeconds,providerCredits:event.providerCredits??null,...(event.providerSummary?{providerSummary:event.providerSummary}:{})},
+      transcript:event.transcript.map(turn=>({role:turn.role==="user"?"customer":"agent",text:turn.message,startedAtMs:turn.timestamp,metrics:turn.metrics})),
+      transcriptStatus:"finalized",conversationStatus:"done",completionReason:"provider_completed",safeMetadata:{turnCount:event.transcript.length,durationSeconds:event.durationSeconds,providerCredits:event.providerCredits??null,providerLlmCredits:event.providerLlmCredits??null,providerReportedCost:event.providerReportedCost??null,providerEvaluation:event.providerEvaluation??null,...(event.providerSummary?{providerSummary:event.providerSummary}:{})},
     },extractionModel:process.env.PUBLIC_EXPERIENCE_TEST_MODE==="true"
       ? async()=>[{candidateType:"customer_need",content:{summary:"A provider-attested customer need requires founder review."},speakerRole:"customer",statementKind:"assertion",sourceReference:{turnIndexes:[Math.max(0,event.transcript.length-1)]},relevantElementKeys:process.env.PUBLIC_EXPERIENCE_TEST_ELEMENT_KEY?[process.env.PUBLIC_EXPERIENCE_TEST_ELEMENT_KEY]:[],confidence:0.8,rationale:"Deterministic deployed integration fixture."}]
       : undefined});

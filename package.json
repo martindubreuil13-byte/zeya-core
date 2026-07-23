@@ -35,6 +35,7 @@
     "test:commercial-bridge": "npx tsx tests/integration/commercial-bridge-v1.test.ts",
     "test:commercial-bridge-experience": "npx tsx tests/integration/commercial-bridge-experience.test.ts",
     "test:experience-debug": "npx tsx tests/integration/experience-debug-instrumentation.test.ts",
+    "test:public-experience-v2.1": "npx tsx tests/integration/public-experience-v2.1.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",

@@ -9,6 +9,13 @@ export interface ElevenLabsTranscriptSegment {
   role: "user" | "agent";
   message: string;
   timestamp?: number;
+  metrics?: {
+    asrLatencyMs?: number;
+    llmLatencyMs?: number;
+    ttsLatencyMs?: number;
+    firstTokenLatencyMs?: number;
+    sentiment?: string;
+  };
 }
 
 export interface NormalizedElevenLabsEvent {
@@ -23,6 +30,9 @@ export interface NormalizedElevenLabsEvent {
   durationSeconds: number | null;
   providerSummary?: string | null;
   providerCredits?: number | null;
+  providerLlmCredits?: number | null;
+  providerReportedCost?: number | null;
+  providerEvaluation?: number | null;
   eventKey: string;
 }
 

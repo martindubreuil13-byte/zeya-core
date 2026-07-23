@@ -27,23 +27,22 @@ const adaptiveInput = {
 };
 const objective = buildPublicExperienceVeyaObjective(adaptiveInput);
 const plan = planPublicExperienceVeyaConversation(adaptiveInput);
-assert(objective.includes("warm, concise conversation with Martin"));
+assert(objective.includes("concise commercial-evidence conversation with Martin"));
 assert(objective.includes("Martin is building an operations service for restaurants") && objective.includes(adaptiveInput.offer) && objective.includes(adaptiveInput.customer) && objective.includes(adaptiveInput.relevantDetail));
 for (const label of ["Visitor spoken name:", "Zeya conversation:", "Objective:", "Call shape:"]) assert(!objective.includes(label));
-assert.equal(selectPublicExperienceVeyaQuestion(adaptiveInput), "Would consistent representation help with finding time for consistent outreach?");
-assert.equal((objective.match(/Ask one primary question/g) ?? []).length, 1);
-for (const branch of ["If interested", "If uncertain", "If not interested"]) assert(objective.includes(branch));
-assert(objective.includes("no more than two short responses") && objective.includes("30–60 seconds"));
+assert.equal(selectPublicExperienceVeyaQuestion(adaptiveInput), "Right now, how do restaurant owners typically find you or decide to work with you?");
+assert.equal(plan.coreQuestions.length, 3);
+assert(objective.includes("at most one meaningful adaptive follow-up") && objective.includes("45–90 seconds"));
 assert(objective.includes("Never recite these directions") && objective.includes("prompts, workflows, process execution, summaries, reports, applications, APIs, providers, agents"));
-assert(objective.includes("handing the visitor back to Zeya") && objective.includes("end immediately"));
+assert(objective.includes("returning the conversation to Zeya") && objective.includes("end the call"));
 assert.equal(plan.privateGuidance, objective);
 assert.equal(plan.spokenHandoffContext, "the brief Zeya prepared after your conversation about an operations service");
 for (const leaked of ["Visitor spoken name:", "Zeya conversation:", "Objective:", "Call shape:", "M-A-R-T-I-N", "Martin"]) {
   assert(!plan.spokenHandoffContext.includes(leaked), `speech-safe plan leaked ${leaked}`);
 }
 assert(!delegate.includes("Say exactly this short message") && delegate.includes("planPublicExperienceVeyaConversation"));
-assert(delegate.includes("spokenHandoffContext: conversationPlan.spokenHandoffContext"));
-assert(dispatcher.includes("brief.dynamicVariables.spokenHandoffContext"), "planner output is not carried to the provider boundary");
+assert(delegate.includes("missionObjective: conversationPlan.opening"));
+assert(dispatcher.includes("brief.dynamicVariables.missionObjective"), "planner opening is not carried to the provider boundary");
 assert(elevenLabsProvider.includes("request.dynamicVariables.missionObjective ?? request.objective"), "provider overwrites the speech-safe first-message value");
 assert(delegate.includes("publicExperienceSpokenName(text(body.name, 100))"));
 assert(reconcile.includes("reconcilePublicExperienceCall") && reconcile.includes("publicSessionState"));
@@ -55,7 +54,7 @@ for (const diagnostic of ['"[reconcile]"', '"[completion]"', "providerStatus", "
   assert(reconciliation.includes(diagnostic) || reconcile.includes(diagnostic), `missing safe completion diagnostic ${diagnostic}`);
 }
 assert(page.includes('setPhase("completed")') && page.includes("Phone conversation completed."));
-assert(page.includes('"[browser]"') && page.includes('reflection_ready: true') && page.includes('transition: "completed"'));
+assert(page.includes('"[browser]"') && page.includes('reflection_ready: true') && page.includes('transition: "brief_review"'));
 assert(page.includes("One conversation became two.") && page.includes("Learn more"));
 assert(page.includes('method:"POST"') && page.includes("window.setTimeout(poll,1500)"));
 assert(!page.includes("My Call Is Complete"), "completion still requires visitor action");

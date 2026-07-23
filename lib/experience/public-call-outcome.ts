@@ -6,6 +6,7 @@ export type PublicExperienceCallOutcome = {
   relevantVisitorResponse: string | null;
   nextStepSignal: string | null;
 };
+import { normalizeTranscriptText } from "./transcript-normalization";
 
 type OutcomeTurn = { role?: unknown; text?: unknown };
 
@@ -15,7 +16,7 @@ export function derivePublicExperienceCallOutcome(
 ): PublicExperienceCallOutcome {
   const responses = turns
     .filter((turn) => turn.role === "customer")
-    .map((turn) => sanitize(turn.text))
+    .map((turn) => normalizeTranscriptText(sanitize(turn.text)).normalized)
     .filter(Boolean);
   const relevantVisitorResponse = responses.at(-1) ?? null;
   const combined = responses.join(" ").toLocaleLowerCase();

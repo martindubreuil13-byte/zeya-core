@@ -18,6 +18,13 @@ export type ConversationTranscriptTurn = {
   text: string;
   startedAtMs?: number;
   endedAtMs?: number;
+  metrics?: {
+    asrLatencyMs?: number;
+    llmLatencyMs?: number;
+    ttsLatencyMs?: number;
+    firstTokenLatencyMs?: number;
+    sentiment?: string;
+  };
 };
 
 export type ConversationCandidate = {

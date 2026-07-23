@@ -69,7 +69,9 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       text,
       model_id: "eleven_turbo_v2_5",
-      voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+      // A modest increase for the entrepreneur-facing experience. ElevenLabs
+      // accepts 0.7–1.2; keep this well below the rushed end of that range.
+      voice_settings: { stability: 0.5, similarity_boost: 0.8, speed: 1.08 },
     }),
   });
 

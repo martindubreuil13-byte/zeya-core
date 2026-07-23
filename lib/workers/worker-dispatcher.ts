@@ -220,7 +220,9 @@ export async function dispatchWorkerBrief(
     ? {
         ...buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext }),
         missionObjective:
-          valueAsString(brief.dynamicVariables.spokenHandoffContext) ?? brief.objective,
+          valueAsString(brief.dynamicVariables.missionObjective)
+          ?? valueAsString(brief.dynamicVariables.spokenHandoffContext)
+          ?? brief.objective,
       }
     : brief.dynamicVariables;
 

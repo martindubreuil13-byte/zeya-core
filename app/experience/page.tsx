@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePublicExperienceVoiceConversation } from "@/hooks/voice/usePublicExperienceVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
@@ -90,8 +90,14 @@ export default function ExperiencePage() {
 
   const isVoiceActive = ["connecting", "listening", "thinking", "speaking"].includes(voiceState);
   const callRequested = delegationStatus === "call_requested"
+    || delegationStatus === "call_dispatched"
     || delegationStatus === "correlation_pending"
     || delegationStatus === "dispatch_resolution_pending";
+  const recordExperienceEvent=useCallback((event:string)=>{
+    const token=experienceSession?.token;
+    if(!token)return;
+    void fetch("/api/experience/session/telemetry",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({event}),keepalive:true}).catch(()=>undefined);
+  },[experienceSession?.token]);
 
   useEffect(()=>{const saved=sessionStorage.getItem("zeyaCommercialBridgeResume");if(!saved)return;try{const state=JSON.parse(saved) as {phase?:Phase;brief?:RepresentationBrief;name?:string|null;businessName?:string};if(state.phase==="identity_confirmation"&&state.brief){setRepresentationBrief(state.brief);setCommercialBridge(generateCommercialBridge(state.brief));setExtractedName(state.name??null);setBusinessName(state.businessName??"");setPhase("identity_confirmation");}}catch{sessionStorage.removeItem("zeyaCommercialBridgeResume");}},[]);
 
@@ -119,6 +125,7 @@ export default function ExperiencePage() {
     const token=experienceSession?.token;
     if(phase!=="waiting_for_call"||!token||!callRequested)return;
     let stopped=false,inFlight=false,timer:number|undefined;
+    const pollingStartedAt=performance.now();
     const controller=new AbortController();
     const poll=async()=>{
       if(stopped||inFlight)return;
@@ -132,14 +139,22 @@ export default function ExperiencePage() {
           if(body.status)setDurableCallStatus(body.status);
           if(body.status==="reflection_ready"){
             setDurableCallStatus("reviewing_what_was_learned");
-            console.info("[browser]", { reflection_ready: true });
+            const detectedAt=performance.now();
+            console.info("[browser]", { reflection_ready: true, completionDetectedMs: Math.round(detectedAt-pollingStartedAt), firstVisibleStateUpdateAt: Date.now() });
+            recordExperienceEvent("browser_detected_completion");
+            recordExperienceEvent("first_visible_acknowledgement");
+            recordExperienceEvent("reflection_started");
+            // Acknowledge independently of transcript finalization/reflection. Do
+            // not await audio before starting the remaining pipeline.
+            void speakText("Welcome back. Veya has returned the conversation to me. I’m organizing what we learned.").catch(()=>undefined);
+            recordExperienceEvent("first_post_call_voice_started");
             if(EXPERIENCE_DEBUG_ENABLED){reflectionDebugRef.current={startedAt:performance.now()};experienceDebugLog("reflection_started");}
             const reflectionResponse=await fetch("/api/experience/session/reflection",{headers:{Authorization:`Bearer ${token}`,...(EXPERIENCE_DEBUG_ENABLED?{"x-experience-debug":"1"}:{})},signal:controller.signal});
             if(stopped)return;
             if(reflectionResponse.ok){
               const completed=await reflectionResponse.json() as {outcome?:PublicExperienceCallOutcome;brief?:RepresentationBrief;spokenBrief?:string;clarification?:{message:string;question:string};experienceDebug?:{timings?:Record<string,number>;briefStatus?:string;validation?:unknown;briefDiagnostics?:{evidenceItems?:string[];[key:string]:unknown}}};
               if(EXPERIENCE_DEBUG_ENABLED&&reflectionDebugRef.current){reflectionDebugRef.current.responseAt=performance.now();reflectionDebugRef.current.serverTimings=completed.experienceDebug?.timings;reflectionDebugRef.current.briefStatus=completed.experienceDebug?.briefStatus;reflectionDebugRef.current.validation=completed.experienceDebug?.validation;experienceDebugLog("reflection_response_returned",{elapsedMs:Math.round(performance.now()-reflectionDebugRef.current.startedAt),briefStatus:completed.experienceDebug?.briefStatus,validation:completed.experienceDebug?.validation});const diagnostics=completed.experienceDebug?.briefDiagnostics;if(diagnostics){const{evidenceItems=[],...safeDiagnostics}=diagnostics;console.info("[Experience Debug][Representation Brief]",safeDiagnostics);console.info("[Experience Debug][Visitor Evidence]");console.table(evidenceItems.map((visitorStatement,index)=>({evidence:index+1,visitorStatement})));}}
-              if(completed.outcome){setCallOutcome(completed.outcome);setRepresentationBrief(completed.brief??null);setSpokenBrief(completed.spokenBrief??null);setBriefClarification(completed.clarification??null);stopped=true;setPhase("brief_review");console.info("[browser]", { transition: "brief_review" });}
+              if(completed.outcome){setCallOutcome(completed.outcome);setRepresentationBrief(completed.brief??null);setSpokenBrief(completed.spokenBrief??null);setBriefClarification(completed.clarification??null);recordExperienceEvent("brief_displayed");stopped=true;setPhase("brief_review");console.info("[browser]", { transition: "brief_review" });}
             }else if(reflectionResponse.status!==409){
               setDurableCallStatus("recoverable_reflection_failure");
               stopped=true;
@@ -149,11 +164,17 @@ export default function ExperiencePage() {
           if(body.status==="call_failed"||body.status==="expired"){stopped=true;return;}
         }
       }catch{/* transient network errors are retried */}
-      finally{inFlight=false;if(!stopped)timer=window.setTimeout(poll,1500);}
+      finally{
+        inFlight=false;
+        if(!stopped){
+          if(performance.now()-pollingStartedAt>180_000)setDurableCallStatus("completion_delayed");
+          timer=window.setTimeout(poll,1500);
+        }
+      }
     };
     void poll();
     return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
-  },[callRequested,experienceSession?.token,phase]);
+  },[callRequested,experienceSession?.token,phase,recordExperienceEvent]);
 
   useEffect(()=>{
     if(!EXPERIENCE_DEBUG_ENABLED||phase!=="completed"||!reflectionDebugRef.current)return;
@@ -747,6 +768,12 @@ export default function ExperiencePage() {
               <p className="text-sm text-zeya-taupe">Your completed browser conversation is still preserved. You can retry without repeating it.</p>
               <button type="button" onClick={()=>{setPhase("dispatching_call");window.setTimeout(()=>setPhase("waiting_for_call"),0);}} className="border border-zeya-taupe/40 px-5 py-3 text-sm text-zeya-ivory">Try preparing it again</button>
             </div>
+          ) : durableCallStatus === "completion_delayed" ? (
+            <div className="w-full max-w-md space-y-5 text-center" role="status" aria-live="polite">
+              <PresenceCore state="idle" />
+              <p className="font-serif text-lg text-zeya-ivory">I’m still reconnecting the call result.</p>
+              <p className="text-sm text-zeya-taupe">Nothing has been lost. This page will keep checking automatically.</p>
+            </div>
           ) : durableCallStatus === "call_failed" || durableCallStatus === "expired" ? (
             <div className="w-full max-w-md text-center space-y-4">
               <PresenceCore state="idle"/>
@@ -1190,7 +1217,7 @@ export default function ExperiencePage() {
               {callOutcome?.visitorInterest === "interested" && <p className="text-sm leading-7 text-zeya-ivory">It sounds like you&apos;d like to explore what comes next.</p>}
               {callOutcome?.visitorInterest === "uncertain" && <p className="text-sm leading-7 text-zeya-ivory">You&apos;ve experienced how an informed conversation can continue naturally.</p>}
               {callOutcome?.visitorInterest === "not_interested" && <p className="text-sm leading-7 text-zeya-ivory">Thank you for trying the experience.</p>}
-              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya heard: &ldquo;{callOutcome.relevantVisitorResponse}&rdquo;</p>}
+              {callOutcome?.relevantVisitorResponse && <p className="text-xs leading-6 text-zeya-taupe/80">Veya captured a commercially relevant response for the evidence record.</p>}
               <p className="text-sm leading-7 text-zeya-taupe">Imagine what happens when that becomes hundreds.</p>
             </div>
             <Link href="/" className="inline-block border border-zeya-champagne/60 px-6 py-3 text-sm text-zeya-champagne transition-colors hover:bg-zeya-champagne/5">
