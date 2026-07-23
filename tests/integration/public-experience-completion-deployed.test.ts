@@ -34,6 +34,19 @@ async function json(base: string, path: string, init: RequestInit = {}): Promise
   return { status: response.status, body, raw };
 }
 
+async function databaseHttpTime() {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/public_experience_sessions?select=id&limit=1`, {
+    headers: {
+      apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+    },
+  });
+  assert(response.ok, "database time probe failed");
+  const value = response.headers.get("date");
+  assert(value, "database time response omitted Date");
+  return Date.parse(value);
+}
+
 async function createTenantIdentity(admin: SupabaseClient, registry: FixtureRegistry, label: string): Promise<TenantIdentity> {
   const email = `completion-${label}-${registry.runId}@zeya.test`;
   const password = `T-${crypto.randomUUID()}!`;
@@ -458,7 +471,7 @@ async function main() {
     const expiringToken = createExperienceToken();
     const expiringZeyaVoice = crypto.randomUUID();
     const expiringZeyaConversation = `public_zeya_${expiringZeyaVoice}`;
-    const expiresAt = new Date(Date.now() + 4_000).toISOString();
+    const expiresAt = new Date(Date.now() + 15_000).toISOString();
     const expiringCreate = await admin.rpc("zeya_create_public_experience_session", { p_token_hash: hashExperienceToken(expiringToken), p_expires_at: expiresAt, p_voice_context_id: expiringZeyaVoice, p_worker_brief_id: `expiry_zeya_${crypto.randomUUID()}`, p_conversation_id: expiringZeyaConversation, p_tenant_user_id: tenantA.userId, p_business_id: tenantA.businessId, p_business_representation_id: tenantA.representationId, p_canonical_version_id: canonicalExpectedA, p_context_generated_at: new Date().toISOString(), p_authorized_element_keys: ["offer"], p_agent_id: "zeya-expiry", p_context_schema_version: "1.0", p_prompt_assembly_version: "1.0" });
     assert(!expiringCreate.error, "expiring session creation");
     registry.registerVoiceLineage(expiringZeyaVoice, tenantA.representationId);
@@ -477,22 +490,27 @@ async function main() {
     await saveVoiceRepresentationLineage({ db: admin, voiceContextId: expiryVoice, workerBriefId: `expiry_brief_${crypto.randomUUID()}`, missionId: expiryDispatch, conversationId: expiryConversation, lineage: { tenantUserId: tenantA.userId, businessId: tenantA.businessId, businessRepresentationId: tenantA.representationId, canonicalVersionId: canonicalExpectedA, generatedAt: new Date().toISOString(), authorizedElementKeys: ["offer"], provisionalMode: false, agentId: "veya-expiry", agentType: "CALLER", agentRole: "outbound_representative", contextSchemaVersion: "1.0", promptAssemblyVersion: "1.0" } });
     await attachVoiceProviderIdentifiers({ db: admin, voiceContextId: expiryVoice, conversationId: expiryConversation, providerCallId: expiryCall });
     registry.registerVoiceLineage(expiryVoice, tenantA.representationId);
-    await new Promise(resolve => setTimeout(resolve, Math.max(0, Date.parse(expiresAt) - Date.now() + 250)));
     const expiryRepair = await admin.rpc("zeya_repair_public_experience_dispatch", { p_veya_voice_context_id: expiryVoice, p_provider_conversation_id: expiryConversation, p_provider_call_id: expiryCall });
-    assert(!expiryRepair.error && expiryRepair.data === "call_dispatched", "pre-expiry lineage did not repair after expiry");
+    assert(!expiryRepair.error && expiryRepair.data === "call_dispatched", "pre-expiry lineage repair");
     const expiryOutput = await captureAndExtractConversationOutput({ db: admin, capture: { voiceContextId: expiryVoice, conversationId: expiryConversation, providerCallId: expiryCall, provider: "elevenlabs", channel: "veya_outbound", captureSource: "provider_callback", transcriptTrustLevel: "provider_attested", providerAttested: true, completedAt: new Date().toISOString(), transcript: [{ role: "customer", text: "Expiry completion remains bounded." }], transcriptStatus: "finalized", conversationStatus: "done", completionReason: "provider_completed" }, extractionModel: async () => [] });
     registry.registerVoiceOutput(expiryOutput.conversationOutputId, tenantA.representationId);
+    let authoritativeTime = 0;
+    for (let attempt = 0; attempt < 80 && authoritativeTime < Date.parse(expiresAt); attempt += 1) {
+      authoritativeTime = await databaseHttpTime();
+      if (authoritativeTime < Date.parse(expiresAt)) await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert(authoritativeTime >= Date.parse(expiresAt), "database clock did not reach expiry");
     const expiryComplete = await admin.rpc("zeya_complete_public_experience_call", { p_veya_voice_context_id: expiryVoice, p_conversation_output_id: expiryOutput.conversationOutputId });
-    assert(!expiryComplete.error && expiryComplete.data === "reflection_ready", "completion after expiry");
+    assert.equal(expiryComplete.error?.code, "PZ410", "completion after expiry advanced the session");
     assert((await admin.rpc("zeya_request_public_experience_call", { p_token_hash: hashExperienceToken(expiringToken), p_dispatch_id: `new_${crypto.randomUUID()}`, p_phone_hash: "a".repeat(64) })).error, "new dispatch after expiry accepted");
-    assert.equal((await admin.from("public_experience_sessions").select("state").eq("id", expiringSessionId).single()).data?.state, "reflection_ready");
+    assert.equal((await admin.from("public_experience_sessions").select("state").eq("id", expiringSessionId).single()).data?.state, "call_dispatched");
     const expiredBrief = await admin.rpc("zeya_persist_public_experience_representation_brief", {
       p_session_id: expiringSessionId, p_status: "requires_clarification", p_structured_brief: null, p_spoken_brief: null,
       p_confidence_level: "requires_clarification", p_evidence_references: [], p_validation_outcome: { evidence: "fail" },
       p_generator_version: "expiry-test", p_provider: "deterministic", p_model: "test", p_internal_failure_reason: "fixture",
     });
     assert(expiredBrief.error, "expired session persisted a Representation Brief");
-    console.log("Completion after expiry ................. PASS");
+    console.log("Expiration boundary ..................... PASS");
 
     const reflectionServer = requireValue(server, "reflection server unavailable");
     const concurrentReflections = await Promise.all(Array.from({ length: 5 }, () =>

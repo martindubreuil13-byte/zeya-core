@@ -37,6 +37,7 @@
     "test:experience-debug": "npx tsx tests/integration/experience-debug-instrumentation.test.ts",
     "test:public-experience-v2.1": "npx tsx tests/integration/public-experience-v2.1.test.ts",
     "test:preview-environment-isolation": "npx tsx tests/integration/preview-environment-isolation.test.ts",
+    "test:public-experience-expiration-boundary": "npx tsx tests/integration/public-experience-expiration-boundary.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",

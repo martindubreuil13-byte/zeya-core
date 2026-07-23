@@ -89,7 +89,8 @@ export async function GET(req: NextRequest) {
   if (debug) console.info("[Experience Debug] reflection_started");
   try {
     const db = createExperienceServiceClient(), session = await findExperienceSession(db, token);
-    if (!session || isExpired(session)) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
+    if (!session) return NextResponse.json({ error: "Experience session not found." }, { status: 404 });
+    if (isExpired(session)) return NextResponse.json({ error: "This Experience session has expired. Please restart the Experience.", status: "expired" }, { status: 410 });
     if (session.state!=="reflection_ready" || !session.veya_conversation_output_id || !session.zeya_conversation_output_id) return NextResponse.json({ error: "The reflection is not ready yet." }, { status: 409 });
     const veyaOutput = await db.from("voice_conversation_outputs").select("transcript,provider_attested,transcript_status,safe_metadata").eq("id", session.veya_conversation_output_id).eq("voice_context_id", session.veya_voice_context_id).single();
     mark("loadVeyaConversationMs");
@@ -191,6 +192,9 @@ export async function GET(req: NextRequest) {
       });
       timings.persistenceMs = Math.round(performance.now() - persistenceStarted);
       if (persisted.error) {
+        if (persisted.error.code === "PZ410") {
+          return NextResponse.json({ error: "This Experience session has expired. Please restart the Experience.", status: "expired" }, { status: 410 });
+        }
         if (debug) console.info("[Experience Debug][Clarification selection]", { insufficientVisitorEvidence: false, validationFailed: false, generatorReturnedNull: false, persistenceFailed: true, fallbackPath: false, reason: "brief_persistence_failed" });
         throw new Error("brief persistence failed");
       }
