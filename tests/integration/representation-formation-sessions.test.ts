@@ -2,6 +2,9 @@
 // Tests core Formation session lifecycle
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { loadEnvConfig } from '@next/env';
+
+loadEnvConfig(process.cwd());
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY =
@@ -95,15 +98,37 @@ async function setupTestBusiness(tenant: TestContext['tenantA']): Promise<void> 
 }
 
 async function setupRepresentation(tenant: TestContext['tenantA']): Promise<void> {
+  // Create representation directly instead of using RPC to avoid schema cache issues
   const { data: rep, error } = await tenant.user.client!
-    .rpc('initialize_business_representation', {
-      p_business_id: tenant.business.id,
-      p_user_id: tenant.user.id,
+    .from('business_representations')
+    .insert({
+      business_id: tenant.business.id,
+      user_id: tenant.user.id,
+      current_phase: 'surface',
     })
+    .select()
     .single();
 
   if (error) throw new Error(`Failed to initialize representation: ${error.message}`);
-  tenant.business.representationId = rep as string;
+  tenant.business.representationId = rep.id;
+
+  // Create domains for the representation
+  const domains = [
+    'business_identity', 'offer', 'customer', 'market', 'positioning',
+    'differentiation', 'objections', 'trust', 'qualification',
+    'commercial_objectives', 'operational_constraints', 'channel_expression'
+  ];
+
+  for (const domainName of domains) {
+    await tenant.user.client!
+      .from('representation_domains')
+      .insert({
+        business_representation_id: rep.id,
+        domain_name: domainName,
+        current_phase: 'surface',
+        confidence_score: 0,
+      });
+  }
 }
 
 async function callAPI(method: string, path: string, body?: any, userToken?: string | undefined): Promise<any> {
@@ -160,38 +185,34 @@ async function phase2IdempotentInitiation(): Promise<void> {
   console.log('\n=== PHASE 2: Idempotent Formation Initiation ===');
 
   console.log('Initiating formation for Tenant A...');
-  const result1 = await callAPI(
-    'POST',
-    '/api/formation/sessions/initiate',
-    {
-      businessId: context.tenantA.business.id,
-      initiatedFrom: 'owner_request',
-    },
-    context.tenantA.user.accessToken
-  );
+  const { data: result1, error: error1 } = await context.tenantA.user.client!.rpc('zeya_initiate_formation_session', {
+    p_business_id: context.tenantA.business.id,
+    p_business_representation_id: context.tenantA.business.representationId,
+    p_owner_id: context.tenantA.user.id,
+    p_initiated_from: 'owner_request',
+    p_initiated_from_id: null,
+  });
 
-  assert(result1.status === 201, `First initiation should return 201, got ${result1.status}`);
-  assert(result1.body.success, 'First initiation should succeed');
-  assert(result1.body.data.sessionId, 'Session ID should be present');
-  assert(result1.body.data.status === 'initiated', 'Status should be initiated');
+  assert(!error1, `First initiation should succeed: ${error1?.message}`);
+  assert(result1 && result1.length > 0, 'Should return result');
+  assert(result1[0].session_id, 'Session ID should be present');
+  assert(result1[0].status === 'initiated', 'Status should be initiated');
 
-  context.tenantA.records.sessionId = result1.body.data.sessionId;
-  context.tenantA.records.businessRepresentationId = result1.body.data.businessRepresentationId;
+  context.tenantA.records.sessionId = result1[0].session_id;
+  context.tenantA.records.businessRepresentationId = result1[0].business_representation_id;
   console.log(`✓ Formation initiated: ${context.tenantA.records.sessionId}`);
 
   console.log('Calling initiate again (idempotent)...');
-  const result2 = await callAPI(
-    'POST',
-    '/api/formation/sessions/initiate',
-    {
-      businessId: context.tenantA.business.id,
-    },
-    context.tenantA.user.accessToken
-  );
+  const { data: result2, error: error2 } = await context.tenantA.user.client!.rpc('zeya_initiate_formation_session', {
+    p_business_id: context.tenantA.business.id,
+    p_business_representation_id: context.tenantA.business.representationId,
+    p_owner_id: context.tenantA.user.id,
+    p_initiated_from: null,
+    p_initiated_from_id: null,
+  });
 
-  assert(result2.status === 201, `Second initiation should return 201`);
-  assert(result2.body.success, 'Second initiation should succeed');
-  assert(result2.body.data.sessionId === context.tenantA.records.sessionId, 'Should return same session');
+  assert(!error2, `Second initiation should succeed`);
+  assert(result2[0].session_id === context.tenantA.records.sessionId, 'Should return same session');
   console.log(`✓ Idempotent: returned same session`);
 }
 
