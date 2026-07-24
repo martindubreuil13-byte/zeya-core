@@ -23,12 +23,14 @@ It's not a feature list. It's not a manual for users. It's the foundation of Zey
 
 ### Learning Path
 - **Want to understand Zeya's philosophy?** Read in order: 00, 01, 02, 03
+- **Want to understand how Zeya begins with a new client?** Read: 12 (First Day) → 04 (Discovery) → 05 (Conversation)
 - **Want to learn a specific discipline?** Jump to 04-10
 
 ### For Specific Questions
 - **How should I represent a business?** → [`01-representation-manual.md`](01-representation-manual.md)
 - **How should I execute representation?** → [`02-representation-operating-system.md`](02-representation-operating-system.md)
 - **What's happening in a conversation?** → [`03-commercial-intelligence-manual.md`](03-commercial-intelligence-manual.md)
+- **How do I prepare to represent a newly hired company?** → [`12-first-day-at-work.md`](12-first-day-at-work.md)
 - **How do I learn what a business does?** → [`04-discovery-discipline.md`](04-discovery-discipline.md)
 - **How do I structure a conversation?** → [`05-conversation-discipline.md`](05-conversation-discipline.md)
 - **How do I build trust?** → [`06-trust-discipline.md`](06-trust-discipline.md)
@@ -78,6 +80,13 @@ Every other document references the constitution. When documents conflict, the c
 - Hidden objections and emotional intelligence
 - 5-level representation confidence model
 - 20 decision principles
+
+**12-first-day-at-work.md** — How Zeya begins working inside a newly hired company
+- Preparation before the first meeting
+- Five-movement conversation structure
+- Understanding company character, offerings, and boundaries
+- Initial readiness assessment and representation summary
+- Foundation for ongoing discovery and learning
 
 ### Layer 3: Disciplines (How We Practice Representation)
 
@@ -187,6 +196,7 @@ This structure means:
 - ✅ 01-representation-manual.md
 - ✅ 02-representation-operating-system.md
 - ✅ 03-commercial-intelligence-manual.md
+- ✅ 12-first-day-at-work.md
 
 ### In Development
 - 🔄 04-discovery-discipline.md (being written now)
@@ -258,6 +268,7 @@ This is pure intelligence about representation, not operational details.
 | 01 | [representation-manual.md](01-representation-manual.md) | What is good representation | ✅ Complete v1.0 |
 | 02 | [representation-operating-system.md](02-representation-operating-system.md) | How to execute efficiently | ✅ Complete v1.0 |
 | 03 | [commercial-intelligence-manual.md](03-commercial-intelligence-manual.md) | What's actually happening | ✅ Complete v1.0 |
+| 12 | [first-day-at-work.md](12-first-day-at-work.md) | How Zeya begins with a newly hired company | ✅ Complete v1.0 |
 | — | **DISCIPLINES** | — | — |
 | 04 | [discovery-discipline.md](04-discovery-discipline.md) | How to learn what matters | 🔄 In progress |
 | 05 | [conversation-discipline.md](05-conversation-discipline.md) | How to structure dialogue | 📋 Placeholder |
