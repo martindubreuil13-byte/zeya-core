@@ -16,8 +16,7 @@ CREATE TYPE formation_session_status AS ENUM (
   'initiated',
   'getting_familiar',
   'working_conversation_pending',
-  'working_conversation_linked',
-  'formation_complete'
+  'working_conversation_linked'
 );
 
 CREATE TYPE formation_initiation_source AS ENUM (
@@ -49,8 +48,8 @@ CREATE TABLE IF NOT EXISTS representation_formation_sessions (
 
   -- Context references (by-reference, not copied)
   public_experience_session_id UUID REFERENCES public_experience_sessions(id) ON DELETE SET NULL,
-  representation_brief_id UUID,  -- No FK; brief may be dropped later
-  first_working_conversation_id UUID,  -- Will be linked on conversation_linked transition
+  representation_brief_id UUID REFERENCES public_experience_representation_briefs(id) ON DELETE SET NULL,
+  first_working_conversation_id UUID REFERENCES voice_conversation_outputs(id) ON DELETE SET NULL,
 
   -- Lifecycle timestamps
   formation_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
@@ -60,9 +59,8 @@ CREATE TABLE IF NOT EXISTS representation_formation_sessions (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 
-  -- Constraints
-  CONSTRAINT formation_session_single_active_per_representation
-    UNIQUE(business_representation_id) WHERE status <> 'formation_complete'
+  -- Constraint: one active Formation session per representation
+  UNIQUE(business_representation_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_formation_sessions_business_id ON representation_formation_sessions(business_id);
@@ -313,15 +311,10 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'formation session status conflict';
   END IF;
 
-  -- Prevent reopening of completed formation
-  IF p_expected_current_status = 'formation_complete' AND p_new_status <> 'formation_complete' THEN
-    RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'formation already complete';
-  END IF;
 
   -- Perform transition
   UPDATE public.representation_formation_sessions
   SET status = p_new_status,
-      formation_completed_at = CASE WHEN p_new_status = 'formation_complete' THEN now() ELSE formation_completed_at END,
       updated_at = now()
   WHERE id = p_session_id
   RETURNING * INTO v_session;

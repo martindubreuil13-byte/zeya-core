@@ -101,15 +101,6 @@ export interface LinkConversationResponse {
   linkedAt: string;
 }
 
-export interface CompleteFormationRequest {
-  // Empty body, idempotent operation
-}
-
-export interface CompleteFormationResponse {
-  sessionId: string;
-  status: FormationSessionStatus;
-  completedAt: string;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // MUTATION COMMANDS

@@ -332,33 +332,22 @@ async function phase7ConversationLinking(): Promise<void> {
   console.log(`✓ Conversation linked`);
 }
 
-async function phase8FormationComplete(): Promise<void> {
-  console.log('\n=== PHASE 8: Formation Completion ===');
+async function phase8LinkedStateReadiness(): Promise<void> {
+  console.log('\n=== PHASE 8: Formation Preparation Complete ===');
 
-  console.log('Marking formation complete...');
+  console.log('Verifying formation session is in working_conversation_linked state...');
   const result = await callAPI(
-    'POST',
-    `/api/formation/sessions/${context.tenantA.records.sessionId}/complete`,
-    {},
+    'GET',
+    `/api/formation/sessions/${context.tenantA.records.sessionId}`,
+    undefined,
     context.tenantA.user.accessToken
   );
 
-  assert(result.status === 200, `Complete should return 200`);
-  assert(result.body.success, 'Complete should succeed');
-  assert(result.body.data.status === 'formation_complete', 'Status should be formation_complete');
-  console.log(`✓ Formation marked complete`);
-
-  console.log('Verifying formation cannot be reopened...');
-  const result2 = await callAPI(
-    'POST',
-    `/api/formation/sessions/${context.tenantA.records.sessionId}/complete`,
-    {},
-    context.tenantA.user.accessToken
-  );
-
-  assert(result2.status === 200, 'Re-complete should be idempotent');
-  assert(result2.body.data.status === 'formation_complete', 'Should remain complete');
-  console.log(`✓ Formation completion is idempotent and terminal`);
+  assert(result.status === 200, 'Should retrieve session');
+  assert(result.body.data.status === 'working_conversation_linked', 'Status should be working_conversation_linked');
+  console.log(`✓ Formation session is in working_conversation_linked state`);
+  console.log(`✓ Formation preparation phase is complete`);
+  console.log(`✓ Ready for First Representation Summary (RF-B+)`);
 }
 
 async function phase9GovernanceProtection(): Promise<void> {
@@ -444,7 +433,7 @@ async function main(): Promise<void> {
     await phase5StateTransitions();
     await phase6InvalidStateTransition();
     await phase7ConversationLinking();
-    await phase8FormationComplete();
+    await phase8LinkedStateReadiness();
     await phase9GovernanceProtection();
     await phase10PurgeIntegration();
 
