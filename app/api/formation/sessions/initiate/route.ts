@@ -1,6 +1,7 @@
 // POST /api/formation/sessions/initiate
 // Idempotent Formation session initiation
 
+import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createFormationService, isFormationError } from '@/lib/formation/formation-service';
 import {
@@ -49,12 +50,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<any>> {
     }
 
     // Use service role to initiate formation (idempotent)
-    const supabaseServiceRole = await auth.supabase.auth.admin.getUserById(auth.user.id);
-    if (supabaseServiceRole.error) {
-      return NextResponse.json({ success: false, error: 'Authorization failed' }, { status: 401 });
-    }
+    const supabaseServiceRole = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
 
-    const { data: session, error: sessionError } = await auth.supabase.rpc('zeya_initiate_formation_session', {
+    const { data: session, error: sessionError } = await supabaseServiceRole.rpc('zeya_initiate_formation_session', {
       p_business_id: body.businessId,
       p_business_representation_id: representation.id,
       p_owner_id: auth.user.id,

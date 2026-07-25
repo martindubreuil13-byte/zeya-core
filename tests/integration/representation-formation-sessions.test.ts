@@ -11,7 +11,11 @@ const SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const API_BASE = process.env.API_BASE_URL || 'http://localhost:3000';
+
+// Service role client for calling SECURITY DEFINER functions
+const supabaseServiceRole = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 interface TestUser {
   email: string;
@@ -185,7 +189,7 @@ async function phase2IdempotentInitiation(): Promise<void> {
   console.log('\n=== PHASE 2: Idempotent Formation Initiation ===');
 
   console.log('Initiating formation for Tenant A...');
-  const { data: result1, error: error1 } = await context.tenantA.user.client!.rpc('zeya_initiate_formation_session', {
+  const { data: result1, error: error1 } = await supabaseServiceRole.rpc('zeya_initiate_formation_session', {
     p_business_id: context.tenantA.business.id,
     p_business_representation_id: context.tenantA.business.representationId,
     p_owner_id: context.tenantA.user.id,
@@ -203,7 +207,7 @@ async function phase2IdempotentInitiation(): Promise<void> {
   console.log(`✓ Formation initiated: ${context.tenantA.records.sessionId}`);
 
   console.log('Calling initiate again (idempotent)...');
-  const { data: result2, error: error2 } = await context.tenantA.user.client!.rpc('zeya_initiate_formation_session', {
+  const { data: result2, error: error2 } = await supabaseServiceRole.rpc('zeya_initiate_formation_session', {
     p_business_id: context.tenantA.business.id,
     p_business_representation_id: context.tenantA.business.representationId,
     p_owner_id: context.tenantA.user.id,
@@ -266,7 +270,7 @@ async function phase5StateTransitions(): Promise<void> {
   console.log('\n=== PHASE 5: State Transitions ===');
 
   console.log('Transitioning from initiated to getting_familiar...');
-  const { data: transition } = await context.tenantA.user.client!.rpc('zeya_advance_formation_status', {
+  const { data: transition } = await supabaseServiceRole.rpc('zeya_advance_formation_status', {
     p_session_id: context.tenantA.records.sessionId,
     p_business_representation_id: context.tenantA.records.businessRepresentationId,
     p_expected_current_status: 'initiated',
@@ -279,7 +283,7 @@ async function phase5StateTransitions(): Promise<void> {
   console.log(`✓ Transitioned to getting_familiar`);
 
   console.log('Transitioning from getting_familiar to working_conversation_pending...');
-  const { data: transition2 } = await context.tenantA.user.client!.rpc('zeya_advance_formation_status', {
+  const { data: transition2 } = await supabaseServiceRole.rpc('zeya_advance_formation_status', {
     p_session_id: context.tenantA.records.sessionId,
     p_business_representation_id: context.tenantA.records.businessRepresentationId,
     p_expected_current_status: 'getting_familiar',
@@ -295,7 +299,7 @@ async function phase6InvalidStateTransition(): Promise<void> {
   console.log('\n=== PHASE 6: Invalid State Transitions Rejected ===');
 
   console.log('Attempting invalid transition (skipping a state)...');
-  const { error } = await context.tenantA.user.client!.rpc('zeya_advance_formation_status', {
+  const { error } = await supabaseServiceRole.rpc('zeya_advance_formation_status', {
     p_session_id: context.tenantA.records.sessionId,
     p_business_representation_id: context.tenantA.records.businessRepresentationId,
     p_expected_current_status: 'initiated',  // Wrong: we're in working_conversation_pending
@@ -425,8 +429,7 @@ async function phase10PurgeIntegration(): Promise<void> {
   console.log(`Formation session created for Tenant B: ${result.body.data.sessionId}`);
 
   // Purge business representation
-  const admin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-  const { data: purgeResult, error: purgeError } = await admin.rpc('zeya_purge_business_representation', {
+  const { data: purgeResult, error: purgeError } = await supabaseServiceRole.rpc('zeya_purge_business_representation', {
     p_business_representation_id: context.tenantB.records.businessRepresentationId || result.body.data.businessRepresentationId,
     p_expected_business_id: context.tenantB.business.id,
   });

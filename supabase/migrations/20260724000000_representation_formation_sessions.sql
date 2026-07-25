@@ -206,7 +206,6 @@ BEGIN
   INTO v_existing
   FROM public.representation_formation_sessions
   WHERE business_representation_id = p_business_representation_id
-    AND status <> 'formation_complete'
   LIMIT 1;
 
   IF v_existing.id IS NOT NULL THEN

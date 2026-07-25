@@ -1,6 +1,7 @@
 // POST /api/formation/sessions/[sessionId]/link-conversation
 // Link first working conversation to Formation session
 
+import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   createAuthenticatedRepresentationContext,
@@ -57,7 +58,12 @@ export async function POST(
     }
 
     // Link conversation via service role function
-    const { data: result, error: linkError } = await auth.supabase.rpc('zeya_link_formation_conversation', {
+    const supabaseServiceRole = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
+
+    const { data: result, error: linkError } = await supabaseServiceRole.rpc('zeya_link_formation_conversation', {
       p_session_id: sessionId,
       p_business_representation_id: session.business_representation_id,
       p_conversation_id: body.conversationId,
