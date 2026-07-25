@@ -155,7 +155,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'PZ404', MESSAGE = 'representation not found';
   END IF;
 
-  -- Check if active Formation session already exists
+  -- Check if active Formation session already exists (idempotency check FIRST)
   SELECT *
   INTO v_existing
   FROM public.representation_formation_sessions
@@ -163,7 +163,7 @@ BEGIN
   LIMIT 1;
 
   IF v_existing.id IS NOT NULL THEN
-    -- Idempotent: return existing session
+    -- Idempotent: return existing session without re-validating parameters
     RETURN QUERY
     SELECT
       v_existing.id,
@@ -171,6 +171,11 @@ BEGIN
       v_existing.status,
       v_existing.formation_started_at;
     RETURN;
+  END IF;
+
+  -- Validate initiation parameters only for new sessions
+  IF p_initiated_from IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid formation initiation parameters';
   END IF;
 
   -- Create new Formation session

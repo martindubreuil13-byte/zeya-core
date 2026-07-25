@@ -258,7 +258,6 @@ async function phase3TenantIsolation(apiBase: string): Promise<void> {
 
   console.log('Tenant A can access own session...');
   const result2 = await callAPI(
-    apiBase,
     'GET',
     `/api/formation/sessions/${context.tenantA.records.sessionId}`,
     undefined,
@@ -274,7 +273,6 @@ async function phase4StateRetrieval(apiBase: string): Promise<void> {
   console.log('\n=== PHASE 4: State Retrieval ===');
 
   const result = await callAPI(
-    apiBase,
     'GET',
     `/api/formation/sessions/${context.tenantA.records.sessionId}`,
     undefined,
@@ -336,7 +334,7 @@ async function phase6InvalidStateTransition(): Promise<void> {
   console.log(`✓ Invalid transition rejected: ${errorMsg}`);
 }
 
-async function phase7ConversationLinking(apiBase: string): Promise<void> {
+async function phase7ConversationLinking(): Promise<void> {
   console.log('\n=== PHASE 7: Conversation Linking ===');
 
   // Create a test conversation
@@ -366,7 +364,6 @@ async function phase7ConversationLinking(apiBase: string): Promise<void> {
 
   console.log('Linking conversation to formation session...');
   const result = await callAPI(
-    apiBase,
     'POST',
     `/api/formation/sessions/${context.tenantA.records.sessionId}/link-conversation`,
     {
@@ -382,12 +379,11 @@ async function phase7ConversationLinking(apiBase: string): Promise<void> {
   console.log(`✓ Conversation linked`);
 }
 
-async function phase8LinkedStateReadiness(apiBase: string): Promise<void> {
+async function phase8LinkedStateReadiness(): Promise<void> {
   console.log('\n=== PHASE 8: Formation Preparation Complete ===');
 
   console.log('Verifying formation session is in working_conversation_linked state...');
   const result = await callAPI(
-    apiBase,
     'GET',
     `/api/formation/sessions/${context.tenantA.records.sessionId}`,
     undefined,
@@ -401,12 +397,11 @@ async function phase8LinkedStateReadiness(apiBase: string): Promise<void> {
   console.log(`✓ Ready for First Representation Summary (RF-B+)`);
 }
 
-async function phase9GovernanceProtection(apiBase: string): Promise<void> {
+async function phase9GovernanceProtection(): Promise<void> {
   console.log('\n=== PHASE 9: Governance Protection ===');
 
   // Initialize a fresh session for this test
   const result = await callAPI(
-    apiBase,
     'POST',
     '/api/formation/sessions/initiate',
     {
@@ -440,12 +435,11 @@ async function phase9GovernanceProtection(apiBase: string): Promise<void> {
   console.log(`✓ Formation does not bypass governance pipeline`);
 }
 
-async function phase10PurgeIntegration(apiBase: string): Promise<void> {
+async function phase10PurgeIntegration(): Promise<void> {
   console.log('\n=== PHASE 10: Purge Integration ===');
 
   // Create formation session
   const result = await callAPI(
-    apiBase,
     'POST',
     '/api/formation/sessions/initiate',
     {
