@@ -67,11 +67,15 @@ export async function POST(
       p_session_id: sessionId,
       p_business_representation_id: session.business_representation_id,
       p_conversation_id: body.conversationId,
-      p_conversation_type: body.conversationType || 'first_working_conversation',
     });
 
     if (linkError) {
-      console.error('[formation] link conversation failed:', linkError);
+      console.error('[formation] link conversation failed - RPC error:');
+      console.error('  Code:', linkError.code);
+      console.error('  Message:', linkError.message);
+      console.error('  Details:', linkError.details);
+      console.error('  Hint:', linkError.hint);
+      console.error('  Full error:', JSON.stringify(linkError, null, 2));
       if (linkError.code === '23505') {
         return NextResponse.json(
           { success: false, error: linkError.message || 'Cannot link conversation in current state' },

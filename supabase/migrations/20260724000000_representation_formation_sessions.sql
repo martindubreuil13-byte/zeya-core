@@ -288,7 +288,7 @@ CREATE OR REPLACE FUNCTION zeya_link_formation_conversation(
 )
 RETURNS TABLE (
   session_id UUID,
-  status formation_session_status,
+  status TEXT,
   conversation_linked_at TIMESTAMP WITH TIME ZONE
 )
 LANGUAGE plpgsql
@@ -340,7 +340,7 @@ BEGIN
   RETURNING * INTO v_session;
 
   RETURN QUERY
-  SELECT v_session.id, v_session.business_representation_id, v_session.status, now();
+  SELECT v_session.id, v_session.status, now();
 END;
 $$;
 

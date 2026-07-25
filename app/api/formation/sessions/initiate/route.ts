@@ -64,7 +64,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<any>> {
     });
 
     if (sessionError) {
-      console.error('[formation] initiate failed:', sessionError);
+      console.error('[formation] initiate failed - RPC error:');
+      console.error('  Code:', sessionError.code);
+      console.error('  Message:', sessionError.message);
+      console.error('  Details:', sessionError.details);
+      console.error('  Hint:', sessionError.hint);
+      console.error('  Full error:', JSON.stringify(sessionError, null, 2));
       return NextResponse.json(
         { success: false, error: 'Failed to initiate formation session' },
         { status: 500 }
