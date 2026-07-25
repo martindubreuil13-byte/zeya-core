@@ -244,48 +244,8 @@ async function createVoiceConversationOutput(
   );
 
   if (outputError) {
-    console.error('RPC capture failed, trying direct insert...');
-
-    // As a fallback, try direct insert with minimal required fields
-    // This bypasses the capture RPC but gives us a valid voice_conversation_outputs record for testing
-    const directInsertResult = await supabaseServiceRole
-      .from('voice_conversation_outputs')
-      .insert({
-        voice_context_id: voiceContextId,
-        tenant_user_id: tenant.user.id,
-        business_id: tenant.business.id,
-        business_representation_id: tenant.records.businessRepresentationId,
-        canonical_version_id: versionId,
-        agent_id: 'test-agent',
-        agent_type: 'ZEYA',
-        provider: 'test_provider',
-        conversation_id: conversationId,
-        provider_call_id: `test_call_${Date.now()}`,
-        channel: 'zeya_realtime',
-        capture_source: 'trusted_server',
-        transcript_trust_level: 'provider_attested',
-        provider_attested: true,
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        transcript: [
-          { role: 'customer', text: 'Test question' },
-          { role: 'agent', text: 'Test answer' },
-        ],
-        transcript_status: 'finalized',
-        conversation_status: 'completed',
-        completion_reason: 'natural_conclusion',
-      })
-      .select('id')
-      .single();
-
-    if (directInsertResult.error) {
-      console.error('Direct insert also failed:');
-      console.error('  Code:', directInsertResult.error.code);
-      console.error('  Message:', directInsertResult.error.message);
-      return null;
-    }
-
-    return directInsertResult.data.id;
+    console.error('Voice output capture RPC failed:', outputError.message);
+    return null;
   }
 
   console.log(`Voice output captured via RPC: ${outputId}`);
@@ -604,13 +564,21 @@ async function phase7ConversationLinking(apiBase: string): Promise<void> {
   console.log(`Conversation business_rep_id: ${convCheck?.business_representation_id}`);
   console.log(`Session business_rep_id: ${context.tenantA.records.businessRepresentationId}`);
 
-  // Note: Conversation linking test is skipped pending database schema alignment
-  // Phase 7 has successfully verified:
-  // ✓ Voice output creation through proper lineage + RPC capture
-  // ✓ Formation session in correct state (working_conversation_pending)
-  // ✓ Conversation and session lineage match
-  // The linking RPC schema mismatch is a database configuration issue, not a code issue
-  console.log('✓ Phase 7 verified: voice output fixture created and formation session in working_conversation_pending state');
+  console.log('Linking conversation through the owner-scoped API...');
+  const linkResult = await callAPI(
+    apiBase,
+    'POST',
+    `/api/formation/sessions/${context.tenantA.records.sessionId}/link-conversation`,
+    {
+      conversationId: context.tenantA.records.conversationId,
+      conversationType: 'voice_conversation_output',
+    },
+    context.tenantA.user.accessToken
+  );
+
+  assert(linkResult.status === 200, `Conversation linking should return 200, got ${linkResult.status}: ${JSON.stringify(linkResult.body)}`);
+  assert(linkResult.body.data?.status === 'working_conversation_linked', 'Link response should report working_conversation_linked');
+  console.log('✓ Conversation linked through owner-scoped API');
 }
 
 async function phase8LinkedStateReadiness(apiBase: string): Promise<void> {
@@ -628,20 +596,8 @@ async function phase8LinkedStateReadiness(apiBase: string): Promise<void> {
   assert(result.status === 200, 'Should retrieve session');
   const status = result.body.data.status;
 
-  // Phase 7 conversation linking is optional (may skip due to test setup)
-  // Accept either working_conversation_pending (if phase 7 skipped) or working_conversation_linked (if complete)
-  const isTerminal = status === 'working_conversation_linked' || status === 'working_conversation_pending';
-  assert(isTerminal, `Status should be terminal state, got ${status}`);
-
-  if (status === 'working_conversation_linked') {
-    console.log(`✓ Formation session is in working_conversation_linked state`);
-    console.log(`✓ Formation preparation phase is complete`);
-    console.log(`✓ Ready for First Representation Summary (RF-B+)`);
-  } else {
-    console.log(`✓ Formation session is in working_conversation_pending state`);
-    console.log(`  (Phase 7 conversation linking was skipped in test)`);
-    console.log(`✓ Formation state machine verified operational`);
-  }
+  assert(status === 'working_conversation_linked', `Status should be working_conversation_linked, got ${status}`);
+  console.log(`✓ Formation session is in working_conversation_linked state`);
 }
 
 async function phase9GovernanceProtection(apiBase: string): Promise<void> {
@@ -661,10 +617,13 @@ async function phase9GovernanceProtection(apiBase: string): Promise<void> {
     .single();
 
   assert(session, 'Formation session should exist from Phase 2');
-  assert(!session.first_working_conversation_id, 'Formation should not auto-link conversations');
+  assert(
+    session.first_working_conversation_id === context.tenantA.records.conversationId,
+    'Formation should retain the explicitly linked conversation'
+  );
 
   // Verify Formation session structure is correct
-  assert(session.status === 'working_conversation_pending', 'Session should be in working_conversation_pending');
+  assert(session.status === 'working_conversation_linked', 'Session should be in working_conversation_linked');
   assert(session.initiated_from === 'owner_request', 'Should track initiation source');
 
   console.log(`✓ Formation session has proper structure and doesn't auto-create governance artifacts`);
@@ -747,8 +706,24 @@ async function phase10PurgeIntegration(apiBase: string): Promise<void> {
   });
 
   assert(!purgeError, `Purge should succeed: ${purgeError?.message}`);
-  assert(purgeResult.deleted.representation_formation_sessions >= 0, 'Formation sessions should be counted in purge');
+  assert(purgeResult.deleted.representation_formation_sessions === 1, 'Purge should delete exactly one Tenant B formation session');
+
+  const [{ data: tenantASession }, { data: tenantBSessions }] = await Promise.all([
+    supabaseServiceRole
+      .from('representation_formation_sessions')
+      .select('id, status')
+      .eq('id', context.tenantA.records.sessionId)
+      .maybeSingle(),
+    supabaseServiceRole
+      .from('representation_formation_sessions')
+      .select('id')
+      .eq('business_representation_id', context.tenantB.records.businessRepresentationId),
+  ]);
+
+  assert(tenantASession?.status === 'working_conversation_linked', 'Tenant A linked session must survive Tenant B purge');
+  assert(tenantBSessions?.length === 0, 'Tenant B formation sessions must be removed by controlled purge');
   console.log(`✓ Formation sessions safely purged`);
+  console.log(`✓ Tenant A formation session unaffected by Tenant B purge`);
   console.log(`  Deleted records:`, purgeResult.deleted);
 }
 
@@ -781,13 +756,13 @@ async function main(): Promise<void> {
     console.log('\n' + '='.repeat(80));
     console.log('ALL TESTS PASSED ✓');
     console.log('='.repeat(80));
-    process.exit(0);
+    process.exitCode = 0;
   } catch (error) {
     console.error('\n' + '='.repeat(80));
     console.error('TEST FAILED ✗');
     console.error('='.repeat(80));
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     if (server) {
       console.log('\nCleaning up server...');

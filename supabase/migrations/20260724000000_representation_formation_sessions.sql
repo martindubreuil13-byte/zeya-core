@@ -288,8 +288,9 @@ CREATE OR REPLACE FUNCTION zeya_link_formation_conversation(
 )
 RETURNS TABLE (
   session_id UUID,
+  business_representation_id UUID,
   status TEXT,
-  conversation_linked_at TIMESTAMP WITH TIME ZONE
+  linked_at TIMESTAMP WITH TIME ZONE
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -301,6 +302,10 @@ DECLARE
 BEGIN
   IF auth.role() <> 'service_role' THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'not authorized';
+  END IF;
+
+  IF p_conversation_type <> 'voice_conversation_output' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'unsupported conversation type';
   END IF;
 
   -- Verify session
@@ -340,7 +345,11 @@ BEGIN
   RETURNING * INTO v_session;
 
   RETURN QUERY
-  SELECT v_session.id, v_session.status, now();
+  SELECT
+    v_session.id,
+    v_session.business_representation_id,
+    v_session.status::TEXT,
+    now();
 END;
 $$;
 

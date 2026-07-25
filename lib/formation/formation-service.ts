@@ -160,7 +160,7 @@ export function createFormationService(supabase: SupabaseClient): FormationSessi
         p_session_id: sessionId,
         p_business_representation_id: businessRepresentationId,
         p_conversation_id: conversationId,
-        p_conversation_type: conversationType || 'first_working_conversation',
+        p_conversation_type: conversationType || 'voice_conversation_output',
       });
 
       if (error) {

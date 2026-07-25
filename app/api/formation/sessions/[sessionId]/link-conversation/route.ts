@@ -67,6 +67,7 @@ export async function POST(
       p_session_id: sessionId,
       p_business_representation_id: session.business_representation_id,
       p_conversation_id: body.conversationId,
+      p_conversation_type: body.conversationType || 'voice_conversation_output',
     });
 
     if (linkError) {
