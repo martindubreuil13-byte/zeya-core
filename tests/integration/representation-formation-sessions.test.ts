@@ -299,7 +299,7 @@ async function phase6InvalidStateTransition(): Promise<void> {
     p_session_id: context.tenantA.records.sessionId,
     p_business_representation_id: context.tenantA.records.businessRepresentationId,
     p_expected_current_status: 'initiated',  // Wrong: we're in working_conversation_pending
-    p_new_status: 'formation_complete',
+    p_new_status: 'working_conversation_linked',
     p_transition_details: {},
   });
 

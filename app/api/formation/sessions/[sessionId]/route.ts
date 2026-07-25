@@ -77,8 +77,6 @@ function getNextAction(status: string): string {
       return 'Waiting to link your first working conversation';
     case 'working_conversation_linked':
       return 'Formation preparation is complete';
-    case 'formation_complete':
-      return 'Formation is complete';
     default:
       return 'Unknown state';
   }

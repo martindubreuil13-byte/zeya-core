@@ -28,8 +28,6 @@ export interface FormationSessionService {
     transitionDetails?: Record<string, unknown>
   ): Promise<FormationSession>;
 
-  markFormationComplete(sessionId: string, businessRepresentationId: string): Promise<FormationSession>;
-
   linkWorkingConversation(
     sessionId: string,
     businessRepresentationId: string,
@@ -150,32 +148,6 @@ export function createFormationService(supabase: SupabaseClient): FormationSessi
 
       // Fetch updated session
       return this.getFormationSession(sessionId);
-    },
-
-    async markFormationComplete(sessionId: string, businessRepresentationId: string): Promise<FormationSession> {
-      // Get current session first
-      const current = await this.getFormationSession(sessionId);
-
-      if (current.status === 'formation_complete') {
-        // Idempotent: already complete
-        return current;
-      }
-
-      if (current.status !== 'working_conversation_linked') {
-        throw new FormationStateError(
-          `Cannot complete formation from ${current.status}; must be working_conversation_linked`,
-          current.status,
-          'formation_complete'
-        );
-      }
-
-      return this.advanceFormationStatus(
-        sessionId,
-        businessRepresentationId,
-        'working_conversation_linked',
-        'formation_complete',
-        { completedAt: new Date().toISOString() }
-      );
     },
 
     async linkWorkingConversation(

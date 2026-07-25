@@ -9,8 +9,7 @@ export type FormationSessionStatus =
   | 'initiated'
   | 'getting_familiar'
   | 'working_conversation_pending'
-  | 'working_conversation_linked'
-  | 'formation_complete';
+  | 'working_conversation_linked';
 
 export type FormationInitiationSource =
   | 'public_experience_session'
