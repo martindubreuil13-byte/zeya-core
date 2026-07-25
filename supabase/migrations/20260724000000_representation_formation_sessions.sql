@@ -112,53 +112,7 @@ CREATE TRIGGER formation_sessions_updated_at
 -- AUDIT INTEGRATION
 -- ──────────────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION record_formation_session_audit(
-  p_business_representation_id UUID,
-  p_event_type TEXT,
-  p_session_id UUID,
-  p_details JSONB
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_business_id UUID;
-BEGIN
-  -- Resolve business_id from representation
-  SELECT public.business_representations.business_id
-  INTO v_business_id
-  FROM public.business_representations
-  WHERE id = p_business_representation_id;
-
-  IF v_business_id IS NULL THEN
-    RETURN;  -- Silent fail if representation not found (purge scenario)
-  END IF;
-
-  INSERT INTO public.audit_events (
-    business_representation_id,
-    event_type,
-    actor_system,
-    details,
-    created_at
-  ) VALUES (
-    p_business_representation_id,
-    p_event_type,
-    'formation_orchestrator',
-    jsonb_build_object(
-      'formation_session_id', p_session_id,
-      'details', p_details
-    ),
-    now()
-  );
-END;
-$$;
-
-REVOKE ALL ON FUNCTION record_formation_session_audit(UUID, TEXT, UUID, JSONB)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION record_formation_session_audit(UUID, TEXT, UUID, JSONB)
-  TO service_role;
+-- Formation audit removed: RF-A does not create canonical audit events
 
 -- ──────────────────────────────────────────────────────────────────────────────
 -- IDEMPOTENT FORMATION INITIATION (SECURITY DEFINER)
@@ -238,17 +192,6 @@ BEGIN
     now()
   ) RETURNING id INTO v_session_id;
 
-  -- Audit
-  PERFORM public.record_formation_session_audit(
-    p_business_representation_id,
-    'formation_initiated',
-    v_session_id,
-    jsonb_build_object(
-      'initiated_from', p_initiated_from,
-      'initiated_from_id', p_initiated_from_id
-    )
-  );
-
   RETURN QUERY
   SELECT
     v_session_id,
@@ -318,20 +261,8 @@ BEGIN
   WHERE id = p_session_id
   RETURNING * INTO v_session;
 
-  -- Audit
-  PERFORM public.record_formation_session_audit(
-    p_business_representation_id,
-    'formation_status_changed',
-    p_session_id,
-    jsonb_build_object(
-      'from_status', p_expected_current_status,
-      'to_status', p_new_status,
-      'details', p_transition_details
-    )
-  );
-
   RETURN QUERY
-  SELECT v_session.id, v_session.status, v_session.updated_at;
+  SELECT v_session.id, v_session.business_representation_id, v_session.status, v_session.updated_at;
 END;
 $$;
 
@@ -403,19 +334,8 @@ BEGIN
   WHERE id = p_session_id
   RETURNING * INTO v_session;
 
-  -- Audit
-  PERFORM public.record_formation_session_audit(
-    p_business_representation_id,
-    'formation_conversation_linked',
-    p_session_id,
-    jsonb_build_object(
-      'conversation_id', p_conversation_id,
-      'conversation_type', p_conversation_type
-    )
-  );
-
   RETURN QUERY
-  SELECT v_session.id, v_session.status, now();
+  SELECT v_session.id, v_session.business_representation_id, v_session.status, now();
 END;
 $$;
 
