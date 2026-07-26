@@ -5,6 +5,8 @@ import { createExperienceToken, hashExperienceToken, isPlausibleExperienceToken 
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 const migration = read("supabase/migrations/20260716120000_public_experience_sessions.sql");
+const reflectionGuardMigration = read("supabase/migrations/20260721000000_fix_reflection_ready_guard.sql");
+const representationBriefMigration = read("supabase/migrations/20260721100000_public_experience_representation_brief.sql");
 const createRoute = read("app/api/experience/session/route.ts");
 const finalizeRoute = read("app/api/experience/session/finalize-zeya/route.ts");
 const statusRoute = read("app/api/experience/session/status/route.ts");
@@ -36,6 +38,16 @@ assert(!delegationRoute.includes("body.dispatchId"), "browser cannot select a di
 assert(webhook.includes("zeya_complete_public_experience_call"), "provider webhook owns completion");
 assert(migration.includes("zeya_fail_public_experience_session"), "credential failure has a durable failed transition");
 assert(createRoute.includes("zeya_fail_public_experience_session"), "credential failure compensation is invoked");
+assert(
+  !reflectionGuardMigration.includes("CREATE TABLE") &&
+    !reflectionGuardMigration.includes("zeya_persist_public_experience_representation_brief"),
+  "reflection-ready guard does not pre-create the canonical representation-brief contract",
+);
+assert(
+  representationBriefMigration.includes("CREATE TABLE public.public_experience_representation_briefs") &&
+    representationBriefMigration.includes("CREATE FUNCTION public.zeya_persist_public_experience_representation_brief"),
+  "representation-brief migration exclusively owns its table and persistence RPC",
+);
 for (const required of ["check_name", "passed", "pg_get_functiondef", "definition_md5", "dependency_columns_exact", "object_collisions", "purge_md5_pinned", "8fb71232dd96059d13bc8000586bebee", "EXCEPT"]) assert(preflight.includes(required), `preflight includes ${required}`);
 const foreignKeySection = preflight.slice(preflight.indexOf("expected_fk("), preflight.indexOf("expected_functions("));
 for (const required of [
