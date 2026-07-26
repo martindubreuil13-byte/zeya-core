@@ -29,6 +29,12 @@ function matches(sql: string, pattern: RegExp): string[] {
 
 const latestPurge = purgeFunction(latestPreRfAPurgeMigration);
 const correctivePurge = purgeFunction(correction);
+const linkFunction = correction.slice(
+  correction.indexOf('CREATE OR REPLACE FUNCTION public.zeya_link_formation_conversation'),
+  correction.indexOf(
+    'REVOKE ALL ON FUNCTION public.zeya_initiate_formation_session'
+  )
+);
 const latestDeleteTables = new Set(matches(latestPurge, /DELETE FROM public\.([a-z_]+)/g));
 const correctiveDeleteTables = new Set(matches(correctivePurge, /DELETE FROM public\.([a-z_]+)/g));
 const latestCounters = new Set(matches(latestPurge, /jsonb_build_object\('([a-z_]+)'/g));
@@ -107,7 +113,7 @@ assert(
   'idempotency lookup must qualify the RETURNS TABLE output-column name'
 );
 assert(
-  correction.includes(
+  linkFunction.includes(
     'AND formation_session.business_representation_id = p_business_representation_id'
   ),
   'conversation-link lookup must qualify the RETURNS TABLE output-column name'

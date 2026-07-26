@@ -221,9 +221,9 @@ BEGIN
 
   SELECT *
   INTO v_session
-  FROM public.representation_formation_sessions
-  WHERE id = p_session_id
-    AND business_representation_id = p_business_representation_id
+  FROM public.representation_formation_sessions AS formation_session
+  WHERE formation_session.id = p_session_id
+    AND formation_session.business_representation_id = p_business_representation_id
   FOR UPDATE;
 
   IF v_session.id IS NULL THEN
