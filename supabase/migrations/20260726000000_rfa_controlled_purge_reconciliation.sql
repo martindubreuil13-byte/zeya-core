@@ -86,7 +86,7 @@ BEGIN
     p_initiated_from_id,
     pg_catalog.now()
   )
-  ON CONFLICT ON CONSTRAINT representation_formation_sessions_business_representation_id_key
+  ON CONFLICT ON CONSTRAINT formation_session_representation_uniq
   DO NOTHING;
 
   SELECT *

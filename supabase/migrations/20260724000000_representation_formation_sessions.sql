@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS representation_formation_sessions (
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 
   -- Constraint: one active Formation session per representation
-  UNIQUE(business_representation_id)
+  CONSTRAINT formation_session_representation_uniq
+    UNIQUE(business_representation_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_formation_sessions_business_id ON representation_formation_sessions(business_id);
