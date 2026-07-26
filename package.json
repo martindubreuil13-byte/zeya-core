@@ -51,6 +51,7 @@
     "test:public-experience-governed-learning": "npx tsx tests/integration/public-experience-governed-learning-static.test.ts",
     "test:representation-formation-sessions": "npx tsx tests/integration/representation-formation-sessions.test.ts",
     "test:representation-formation-static": "npx tsx tests/integration/representation-formation-migration-static.test.ts",
+    "test:representation-state-reconciliation-static": "npx tsx tests/integration/representation-state-reconciliation-static.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
