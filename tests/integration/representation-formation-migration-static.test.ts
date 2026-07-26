@@ -107,6 +107,11 @@ assert(
   'idempotency lookup must qualify the RETURNS TABLE output-column name'
 );
 assert(
+  correction.indexOf('IF v_existing.id IS NOT NULL THEN') <
+    correction.indexOf('IF p_initiated_from IS NULL THEN'),
+  'existing authorized initiation must replay before validating creation-only source'
+);
+assert(
   correction.includes("p_expected_current_status = 'initiated'") &&
     correction.includes("p_new_status = 'getting_familiar'") &&
     correction.includes("p_expected_current_status = 'getting_familiar'") &&

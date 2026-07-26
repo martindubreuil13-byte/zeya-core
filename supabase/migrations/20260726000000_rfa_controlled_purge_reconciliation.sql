@@ -48,8 +48,7 @@ BEGIN
 
   IF p_business_id IS NULL
      OR p_business_representation_id IS NULL
-     OR p_owner_id IS NULL
-     OR p_initiated_from IS NULL THEN
+     OR p_owner_id IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid formation initiation parameters';
   END IF;
 
@@ -66,6 +65,25 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'PZ404', MESSAGE = 'representation not found';
+  END IF;
+
+  SELECT *
+  INTO v_existing
+  FROM public.representation_formation_sessions AS formation_session
+  WHERE formation_session.business_representation_id = p_business_representation_id;
+
+  IF v_existing.id IS NOT NULL THEN
+    RETURN QUERY
+    SELECT
+      v_existing.id,
+      v_existing.business_representation_id,
+      v_existing.status,
+      v_existing.formation_started_at;
+    RETURN;
+  END IF;
+
+  IF p_initiated_from IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid formation initiation parameters';
   END IF;
 
   INSERT INTO public.representation_formation_sessions (
