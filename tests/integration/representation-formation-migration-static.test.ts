@@ -101,6 +101,12 @@ assert(
   'concurrency-safe initiation constraint target missing'
 );
 assert(
+  correction.includes(
+    'WHERE formation_session.business_representation_id = p_business_representation_id'
+  ),
+  'idempotency lookup must qualify the RETURNS TABLE output-column name'
+);
+assert(
   correction.includes("p_expected_current_status = 'initiated'") &&
     correction.includes("p_new_status = 'getting_familiar'") &&
     correction.includes("p_expected_current_status = 'getting_familiar'") &&

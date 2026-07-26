@@ -91,8 +91,8 @@ BEGIN
 
   SELECT *
   INTO v_existing
-  FROM public.representation_formation_sessions
-  WHERE business_representation_id = p_business_representation_id;
+  FROM public.representation_formation_sessions AS formation_session
+  WHERE formation_session.business_representation_id = p_business_representation_id;
 
   IF v_existing.owner_id IS DISTINCT FROM p_owner_id
      OR v_existing.business_id IS DISTINCT FROM p_business_id THEN
