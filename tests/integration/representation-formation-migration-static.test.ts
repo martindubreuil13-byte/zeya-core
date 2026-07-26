@@ -107,6 +107,12 @@ assert(
   'idempotency lookup must qualify the RETURNS TABLE output-column name'
 );
 assert(
+  correction.includes(
+    'AND formation_session.business_representation_id = p_business_representation_id'
+  ),
+  'conversation-link lookup must qualify the RETURNS TABLE output-column name'
+);
+assert(
   correction.indexOf('IF v_existing.id IS NOT NULL THEN') <
     correction.indexOf('IF p_initiated_from IS NULL THEN'),
   'existing authorized initiation must replay before validating creation-only source'
