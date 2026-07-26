@@ -47,7 +47,7 @@ export async function POST(
       );
     }
 
-    if (session.status !== 'working_conversation_pending') {
+    if (!['working_conversation_pending', 'working_conversation_linked'].includes(session.status)) {
       return NextResponse.json(
         {
           success: false,
@@ -99,7 +99,7 @@ export async function POST(
     const response: LinkConversationResponse = {
       sessionId: result[0].session_id,
       status: result[0].status,
-      linkedAt: new Date().toISOString(),
+      linkedAt: result[0].linked_at,
     };
 
     return NextResponse.json({ success: true, data: response }, { status: 200 });

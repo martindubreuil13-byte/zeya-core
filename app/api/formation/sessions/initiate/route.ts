@@ -59,7 +59,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<any>> {
       p_business_id: body.businessId,
       p_business_representation_id: representation.id,
       p_owner_id: auth.user.id,
-      p_initiated_from: body.initiatedFrom || null,
+      p_initiated_from: body.initiatedFrom || 'owner_request',
       p_initiated_from_id: body.initiatedFromId || null,
     });
 

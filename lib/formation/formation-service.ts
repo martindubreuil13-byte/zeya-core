@@ -49,7 +49,6 @@ function mapFormationSessionRow(row: FormationSessionRow): FormationSession {
     representationBriefId: row.representation_brief_id,
     firstWorkingConversationId: row.first_working_conversation_id,
     formationStartedAt: new Date(row.formation_started_at),
-    formationCompletedAt: row.formation_completed_at ? new Date(row.formation_completed_at) : null,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -92,7 +91,6 @@ export function createFormationService(supabase: SupabaseClient): FormationSessi
         representationBriefId: null,
         firstWorkingConversationId: null,
         formationStartedAt: new Date(data[0].initiated_at),
-        formationCompletedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

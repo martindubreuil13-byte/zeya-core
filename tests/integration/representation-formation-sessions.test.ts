@@ -63,8 +63,7 @@ const context: TestContext = {
 
 async function createVoiceConversationOutput(
   tenant: TestContext['tenantA'],
-  apiBase: string,
-  conversationType: string
+  apiBase: string
 ): Promise<string | null> {
   // Check if representation needs governance initialization
   const { data: existingProposal } = await supabaseServiceRole
@@ -477,7 +476,15 @@ async function phase4StateRetrieval(apiBase: string): Promise<void> {
   assert(result.body.data.status === 'initiated', 'Status should be initiated');
   assert(result.body.data.linkedContextSummary, 'Context summary should be present');
   assert(result.body.data.nextAction, 'Next action should be present');
+
+  const directUpdate = await context.tenantA.user.client!
+    .from('representation_formation_sessions')
+    .update({ status: 'working_conversation_linked' })
+    .eq('id', context.tenantA.records.sessionId);
+  assert(directUpdate.error !== null, 'Authenticated owners must not directly mutate Formation state');
+
   console.log(`✓ Formation status retrieved`);
+  console.log(`✓ Direct authenticated state mutation rejected`);
   console.log(`  Status: ${result.body.data.status}`);
   console.log(`  Next action: ${result.body.data.nextAction}`);
 }
@@ -514,11 +521,11 @@ async function phase5StateTransitions(): Promise<void> {
 async function phase6InvalidStateTransition(): Promise<void> {
   console.log('\n=== PHASE 6: Invalid State Transitions Rejected ===');
 
-  console.log('Attempting invalid transition (skipping a state)...');
+  console.log('Attempting invalid transition through the generic state RPC...');
   const { error } = await supabaseServiceRole.rpc('zeya_advance_formation_status', {
     p_session_id: context.tenantA.records.sessionId,
     p_business_representation_id: context.tenantA.records.businessRepresentationId,
-    p_expected_current_status: 'initiated',  // Wrong: we're in working_conversation_pending
+    p_expected_current_status: 'working_conversation_pending',
     p_new_status: 'working_conversation_linked',
     p_transition_details: {},
   });
@@ -533,7 +540,7 @@ async function phase7ConversationLinking(apiBase: string): Promise<void> {
 
   // Create a test conversation using proper RPC
   console.log('Creating test conversation...');
-  const conversationId = await createVoiceConversationOutput(context.tenantA, apiBase, 'first_working_conversation');
+  const conversationId = await createVoiceConversationOutput(context.tenantA, apiBase);
 
   if (!conversationId) {
     console.error('Note: Cannot create test conversation');
@@ -578,7 +585,32 @@ async function phase7ConversationLinking(apiBase: string): Promise<void> {
 
   assert(linkResult.status === 200, `Conversation linking should return 200, got ${linkResult.status}: ${JSON.stringify(linkResult.body)}`);
   assert(linkResult.body.data?.status === 'working_conversation_linked', 'Link response should report working_conversation_linked');
+
+  const replayResult = await callAPI(
+    apiBase,
+    'POST',
+    `/api/formation/sessions/${context.tenantA.records.sessionId}/link-conversation`,
+    {
+      conversationId: context.tenantA.records.conversationId,
+      conversationType: 'voice_conversation_output',
+    },
+    context.tenantA.user.accessToken
+  );
+  assert(replayResult.status === 200, `Exact conversation-link replay should return 200, got ${replayResult.status}`);
+
+  const replacementResult = await callAPI(
+    apiBase,
+    'POST',
+    `/api/formation/sessions/${context.tenantA.records.sessionId}/link-conversation`,
+    {
+      conversationId: require('crypto').randomUUID(),
+      conversationType: 'voice_conversation_output',
+    },
+    context.tenantA.user.accessToken
+  );
+  assert(replacementResult.status === 409, `Linked conversation replacement should return 409, got ${replacementResult.status}`);
   console.log('✓ Conversation linked through owner-scoped API');
+  console.log('✓ Exact replay idempotent and replacement rejected');
 }
 
 async function phase8LinkedStateReadiness(apiBase: string): Promise<void> {

@@ -33,7 +33,6 @@ export interface FormationSessionRow {
   representation_brief_id: string | null;
   first_working_conversation_id: string | null;
   formation_started_at: string;
-  formation_completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -54,7 +53,6 @@ export interface FormationSession {
   representationBriefId: string | null;
   firstWorkingConversationId: string | null;
   formationStartedAt: Date;
-  formationCompletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

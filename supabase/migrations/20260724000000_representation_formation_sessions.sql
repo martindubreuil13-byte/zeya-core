@@ -53,8 +53,6 @@ CREATE TABLE IF NOT EXISTS representation_formation_sessions (
 
   -- Lifecycle timestamps
   formation_started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-  formation_completed_at TIMESTAMP WITH TIME ZONE,
-
   -- Audit timestamps
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
@@ -267,7 +265,7 @@ BEGIN
   RETURNING * INTO v_session;
 
   RETURN QUERY
-  SELECT v_session.id, v_session.business_representation_id, v_session.status, v_session.updated_at;
+  SELECT v_session.id, v_session.status, v_session.updated_at;
 END;
 $$;
 
