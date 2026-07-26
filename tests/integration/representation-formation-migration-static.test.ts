@@ -96,7 +96,7 @@ assert(
 assert(correction.includes('b.user_id = p_owner_id'), 'Business owner verification missing');
 assert(correction.includes('br.user_id = p_owner_id'), 'Representation owner verification missing');
 assert(
-  formationMigration.includes('CONSTRAINT formation_session_representation_uniq') &&
+  foundation.includes('CONSTRAINT formation_session_representation_uniq') &&
     correction.includes('ON CONFLICT ON CONSTRAINT formation_session_representation_uniq'),
   'concurrency-safe initiation constraint target missing'
 );
