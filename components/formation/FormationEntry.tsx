@@ -1,6 +1,7 @@
 // Formation Entry Component
-// Handles transition from identity_confirmation to Formation after authentication
-// Calls /api/formation/prepare with public experience session ID
+// Handles Formation initialization
+// Supports both Public Experience flow (with sessionId) and independent owners
+// Calls /api/formation/prepare (with Public Experience) or /api/formation/sessions/initiate (independent)
 
 'use client';
 
@@ -22,36 +23,54 @@ export function FormationEntry({ onComplete }: FormationEntryProps) {
       try {
         setLoading(true);
 
-        // Get public experience session ID from sessionStorage
+        // Check for public experience session (from existing Public Experience flow)
         const sessionStorage = typeof window !== 'undefined' ? window.sessionStorage : null;
         const publicExpSessionId = sessionStorage?.getItem('publicExperienceSessionId');
 
-        if (!publicExpSessionId) {
-          setError('Public experience session not found. Please start from the beginning.');
-          setLoading(false);
-          return;
-        }
+        let formationSessionId: string;
 
-        // Call /api/formation/prepare
-        const res = await fetch('/api/formation/prepare', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            publicExperienceSessionId: publicExpSessionId,
-          }),
-        });
+        if (publicExpSessionId) {
+          // Public Experience flow - use existing prepare endpoint
+          const res = await fetch('/api/formation/prepare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              publicExperienceSessionId: publicExpSessionId,
+            }),
+          });
 
-        if (!res.ok) {
+          if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || `Failed to prepare formation: ${res.statusText}`);
+          }
+
           const data = await res.json();
-          throw new Error(data.error || `Failed to prepare formation: ${res.statusText}`);
+          if (!data.success) {
+            throw new Error(data.error || 'Failed to prepare formation');
+          }
+
+          formationSessionId = data.data.sessionId;
+        } else {
+          // Independent owner flow - initiate new Formation session
+          const res = await fetch('/api/formation/sessions/initiate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+
+          if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || `Failed to initiate formation: ${res.statusText}`);
+          }
+
+          const data = await res.json();
+          if (!data.success) {
+            throw new Error(data.error || 'Failed to initiate formation');
+          }
+
+          formationSessionId = data.data.sessionId;
         }
 
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error || 'Failed to prepare formation');
-        }
-
-        const formationSessionId = data.data.sessionId;
         setSessionId(formationSessionId);
 
         // Notify parent or redirect
