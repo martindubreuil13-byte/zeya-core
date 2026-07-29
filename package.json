@@ -52,6 +52,7 @@
     "test:representation-formation-sessions": "npx tsx tests/integration/representation-formation-sessions.test.ts",
     "test:representation-formation-static": "npx tsx tests/integration/representation-formation-migration-static.test.ts",
     "test:representation-state-reconciliation-static": "npx tsx tests/integration/representation-state-reconciliation-static.test.ts",
+    "test:rf-b-critical-path": "npx vitest run tests/integration/rf-b-critical-path.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
@@ -80,6 +81,7 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^4.1.10"
   }
 }

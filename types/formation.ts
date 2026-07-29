@@ -125,3 +125,45 @@ export interface LinkFormationConversationCommand {
   conversationId: string;
   conversationType?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// FORMATION SUMMARY TYPES
+// ─────────────────────────────────────────────────────────────────────
+
+export interface FormationSummarySection {
+  title: string;
+  content: string;
+}
+
+export interface FormationSummaryMetadata {
+  formationSessionId: string;
+  reviewType: 'formation_initial_review';
+  sourceFingerprint: string;
+  generatorVersion: string;
+  reviewedAt: string; // ISO-8601 timestamp
+  reviewedByOwnerId: string;
+}
+
+export interface FormationSummary {
+  proposalId: string;
+  sourceFingerprint: string;
+  generatorVersion: string;
+  isCurrent: boolean;
+  sections: FormationSummarySection[];
+}
+
+export interface FormationSummaryRequest {
+  proposalId?: string;
+  sourceFingerprint?: string;
+}
+
+export interface FormationApprovalRequest {
+  proposalId: string;
+  sourceFingerprint: string;
+}
+
+export interface FormationApprovalResponse {
+  success: boolean;
+  versionId?: string;
+  message: string;
+}
