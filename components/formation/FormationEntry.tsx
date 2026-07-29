@@ -12,14 +12,22 @@ import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 
 interface FormationEntryProps {
   onComplete?: (sessionId: string) => void;
+  onError?: (error: string) => void;
 }
 
-export function FormationEntry({ onComplete }: FormationEntryProps) {
+export function FormationEntry({ onComplete, onError }: FormationEntryProps) {
   const router = useRouter();
   const { session, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  // Notify parent of errors if callback provided
+  useEffect(() => {
+    if (error && onError) {
+      onError(error);
+    }
+  }, [error, onError]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -78,6 +86,11 @@ export function FormationEntry({ onComplete }: FormationEntryProps) {
           }
 
           formationSessionId = data.data.sessionId;
+        }
+
+        // Verify sessionId is valid before proceeding
+        if (!formationSessionId || typeof formationSessionId !== 'string') {
+          throw new Error('Invalid formation session ID returned from server');
         }
 
         setSessionId(formationSessionId);

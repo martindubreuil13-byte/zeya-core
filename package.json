@@ -54,6 +54,8 @@
     "test:representation-state-reconciliation-static": "npx tsx tests/integration/representation-state-reconciliation-static.test.ts",
     "test:rf-b-critical-path": "npx vitest run tests/integration/rf-b-critical-path.test.ts",
     "test:rf-b-authenticated-fetch": "npx vitest run tests/integration/rf-b-authenticated-fetch.test.ts",
+    "test:rf-b-create-directly": "npx vitest run tests/integration/rf-b-create-directly.test.ts",
+    "test:rf-b-concurrency-audit": "npx vitest run tests/integration/rf-b-concurrency-audit.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",

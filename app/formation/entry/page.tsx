@@ -76,7 +76,7 @@ export default function FormationEntryPage() {
           return;
         }
 
-        // New owner - show onboarding
+        // New owner - show onboarding (Representation Experience)
         setOwnerState({ status: 'new_owner' });
       } catch (err) {
         console.error('[formation-entry] Failed to check status:', err);
@@ -92,27 +92,13 @@ export default function FormationEntryPage() {
     router.replace('/login');
   };
 
-  const handleStartExperience = async () => {
-    // Redirect to formation workflow to start new experience
-    // For new owners, this initiates Formation without Public Experience session
-    // The Formation flow will handle creating Business/Representation if needed
-    router.push('/formation/sessions/new');
-  };
-
-  const handleCreateDirect = async () => {
-    // Direct creation path
-    // For now, same as experience - both go through Formation
-    // In future, this might show a different form
-    router.push('/formation/sessions/new');
-  };
-
   // Loading state
   if (loading || ownerState.status === 'loading') {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border border-gray-300 border-t-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your formation...</p>
+          <p className="text-gray-600">Loading your account...</p>
         </div>
       </div>
     );
@@ -127,7 +113,7 @@ export default function FormationEntryPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <p className="text-red-600 mb-4">Failed to load your formation</p>
+          <p className="text-red-600 mb-4">Failed to load your account</p>
           <button
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -139,7 +125,7 @@ export default function FormationEntryPage() {
     );
   }
 
-  // New owner - show onboarding
+  // New owner - show Representation Experience onboarding
   if (ownerState.status === 'new_owner') {
     return (
       <div>
@@ -160,15 +146,12 @@ export default function FormationEntryPage() {
           )}
         </div>
 
-        <OwnerOnboarding
-          onStartExperience={handleStartExperience}
-          onCreateDirect={handleCreateDirect}
-        />
+        <OwnerOnboarding onStartExperience={() => setOwnerState({ status: 'loading' })} />
       </div>
     );
   }
 
-  // Active Formation - show FormationEntry component
+  // Active Formation - show FormationEntry component to resume
   if (ownerState.status === 'active_formation' && ownerState.formationSessionId) {
     return (
       <div className="min-h-screen bg-gray-50">
