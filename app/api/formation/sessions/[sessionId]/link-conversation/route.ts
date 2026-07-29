@@ -77,10 +77,17 @@ export async function POST(
       console.error('  Details:', linkError.details);
       console.error('  Hint:', linkError.hint);
       console.error('  Full error:', JSON.stringify(linkError, null, 2));
-      if (linkError.code === '23505') {
+      const errorCode = linkError.code || '';
+      if (['23505', '23503', '22023', 'PZ409'].includes(errorCode)) {
         return NextResponse.json(
           { success: false, error: linkError.message || 'Cannot link conversation in current state' },
           { status: 409 }
+        );
+      }
+      if (errorCode === 'PZ404') {
+        return NextResponse.json(
+          { success: false, error: linkError.message || 'Formation session not found' },
+          { status: 404 }
         );
       }
       return NextResponse.json(

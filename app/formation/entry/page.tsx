@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { FormationEntry } from '@/components/formation/FormationEntry';
 import { OwnerOnboarding } from '@/components/owner/OwnerOnboarding';
+import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { useEffect, useState } from 'react';
 
 type OwnerStatus = 'loading' | 'active_formation' | 'has_representation' | 'new_owner' | 'error';
@@ -19,24 +20,36 @@ interface OwnerState {
 
 export default function FormationEntryPage() {
   const router = useRouter();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, session } = useAuth();
   const [ownerState, setOwnerState] = useState<OwnerState>({ status: 'loading' });
   const [showLogout, setShowLogout] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.replace('/login');
     }
   }, [user, loading, router]);
 
   // Check owner's current state
   useEffect(() => {
-    if (!user || loading) return;
+    if (!user || loading || !session) return;
 
     const checkOwnerStatus = async () => {
       try {
-        const res = await fetch('/api/owner/status');
+        const res = await authenticatedFetch('/api/owner/status', session);
+
+        if (res.status === 401) {
+          console.error('[formation-entry] Unauthorized - redirecting to login');
+          router.replace('/login');
+          return;
+        }
+
+        if (!res.ok) {
+          setOwnerState({ status: 'error' });
+          return;
+        }
+
         const data = await res.json();
 
         if (!data.success) {
@@ -59,7 +72,7 @@ export default function FormationEntryPage() {
 
         // If has Representation, redirect to workspace
         if (ownerData.status === 'has_representation') {
-          router.push('/representation/living');
+          router.replace('/representation/living');
           return;
         }
 
@@ -72,11 +85,11 @@ export default function FormationEntryPage() {
     };
 
     checkOwnerStatus();
-  }, [user, loading, router]);
+  }, [user, loading, session, router]);
 
   const handleLogout = async () => {
     await signOut();
-    router.push('/login');
+    router.replace('/login');
   };
 
   const handleStartExperience = async () => {

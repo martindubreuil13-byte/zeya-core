@@ -4,6 +4,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/auth/auth-provider';
+import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { FormationSession, FormationSummary } from '@/types/formation';
 
 interface FormationWorkflowProps {
@@ -14,6 +17,8 @@ type UIState = 'loading' | 'entry' | 'getting_familiar' | 'conversation_ready' |
   | 'processing' | 'summary_review' | 'correction_entry' | 'approval_confirmation' | 'version_created' | 'error';
 
 export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
+  const router = useRouter();
+  const { session: authSession, loading: authLoading } = useAuth();
   const [session, setSession] = useState<FormationSession | null>(null);
   const [summary, setSummary] = useState<FormationSummary | null>(null);
   const [uiState, setUiState] = useState<UIState>('loading');
@@ -41,10 +46,18 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
 
   // Load Formation Session on mount
   useEffect(() => {
+    if (authLoading || !authSession) return;
+
     const loadSession = async () => {
       try {
         setUiState('loading');
-        const res = await fetch(`/api/formation/sessions/${sessionId}`);
+        const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}`, authSession);
+
+        if (res.status === 401) {
+          router.replace('/login');
+          return;
+        }
+
         if (!res.ok) throw new Error(`Session not found`);
         const data = await res.json();
         if (data.success) {
@@ -60,16 +73,27 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
       }
     };
     loadSession();
-  }, [sessionId, mapSessionToUIState]);
+  }, [sessionId, mapSessionToUIState, authLoading, authSession, router]);
 
   const advanceState = useCallback(async (nextStatus: string) => {
+    if (!authSession) {
+      setError('Not authenticated');
+      return;
+    }
+
     try {
       setIsProcessing(true);
-      const res = await fetch(`/api/formation/sessions/${sessionId}/advance`, {
+      const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/advance`, authSession, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nextStatus }),
       });
+
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         const updatedSession = { ...session!, status: nextStatus as any };
@@ -83,16 +107,27 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId, session, mapSessionToUIState]);
+  }, [sessionId, session, mapSessionToUIState, authSession, router]);
 
   const generateSummary = useCallback(async () => {
+    if (!authSession) {
+      setError('Not authenticated');
+      return;
+    }
+
     try {
       setIsProcessing(true);
       setUiState('processing');
-      const res = await fetch(`/api/formation/sessions/${sessionId}/summary`, {
+      const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/summary`, authSession, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         setSummary(data.data);
@@ -107,17 +142,23 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId]);
+  }, [sessionId, authSession, router]);
 
   const submitCorrection = useCallback(async () => {
-    if (!correctionText.trim()) return;
+    if (!correctionText.trim() || !authSession) return;
     try {
       setIsProcessing(true);
-      const res = await fetch(`/api/formation/sessions/${sessionId}/correct`, {
+      const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/correct`, authSession, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ correctionStatement: correctionText }),
       });
+
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         setCorrectionText('');
@@ -131,14 +172,14 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [correctionText, sessionId, generateSummary]);
+  }, [correctionText, sessionId, generateSummary, authSession, router]);
 
   const approveSummary = useCallback(async () => {
-    if (!summary) return;
+    if (!summary || !authSession) return;
     try {
       setIsProcessing(true);
       setUiState('processing');
-      const res = await fetch(`/api/formation/sessions/${sessionId}/approve`, {
+      const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/approve`, authSession, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -146,6 +187,12 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
           sourceFingerprint: summary.sourceFingerprint,
         }),
       });
+
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         setVersionId(data.data.versionId);
@@ -160,13 +207,20 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [summary, sessionId]);
+  }, [summary, sessionId, authSession, router]);
 
   const requestMoreTime = useCallback(async () => {
+    if (!authSession) return;
     try {
-      const res = await fetch(`/api/formation/sessions/${sessionId}/pause`, {
+      const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/pause`, authSession, {
         method: 'POST',
       });
+
+      if (res.status === 401) {
+        router.replace('/login');
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         alert('Your Formation session is saved. Come back whenever you\'re ready.');
@@ -174,7 +228,7 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     }
-  }, [sessionId]);
+  }, [sessionId, authSession, router]);
 
   if (uiState === 'loading') {
     return (

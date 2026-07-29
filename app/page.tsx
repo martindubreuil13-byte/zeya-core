@@ -11,11 +11,11 @@ export default function LandingPage() {
   const router = useRouter();
   const { openAuth, user, loading } = useAuth();
 
-  // Redirect authenticated users to Formation entry (for now)
-  // In the future, this will check for existing Living Representation
+  // Redirect authenticated users to Formation entry
+  // Use router.replace to avoid history stack issues with auth flow
   useEffect(() => {
     if (user && !loading) {
-      router.push("/formation/entry");
+      router.replace("/formation/entry");
     }
   }, [user, loading, router]);
 

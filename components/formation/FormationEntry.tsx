@@ -7,6 +7,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/auth/auth-provider';
+import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 
 interface FormationEntryProps {
   onComplete?: (sessionId: string) => void;
@@ -14,14 +16,21 @@ interface FormationEntryProps {
 
 export function FormationEntry({ onComplete }: FormationEntryProps) {
   const router = useRouter();
+  const { session, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
+
     const prepareFormation = async () => {
       try {
         setLoading(true);
+
+        if (!session) {
+          throw new Error('No session available');
+        }
 
         // Check for public experience session (from existing Public Experience flow)
         const sessionStorage = typeof window !== 'undefined' ? window.sessionStorage : null;
@@ -31,7 +40,7 @@ export function FormationEntry({ onComplete }: FormationEntryProps) {
 
         if (publicExpSessionId) {
           // Public Experience flow - use existing prepare endpoint
-          const res = await fetch('/api/formation/prepare', {
+          const res = await authenticatedFetch('/api/formation/prepare', session, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -52,7 +61,7 @@ export function FormationEntry({ onComplete }: FormationEntryProps) {
           formationSessionId = data.data.sessionId;
         } else {
           // Independent owner flow - initiate new Formation session
-          const res = await fetch('/api/formation/sessions/initiate', {
+          const res = await authenticatedFetch('/api/formation/sessions/initiate', session, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}),
@@ -90,7 +99,7 @@ export function FormationEntry({ onComplete }: FormationEntryProps) {
     };
 
     prepareFormation();
-  }, [router, onComplete]);
+  }, [router, onComplete, session, authLoading]);
 
   if (loading) {
     return (

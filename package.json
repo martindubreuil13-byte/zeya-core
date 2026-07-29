@@ -53,6 +53,7 @@
     "test:representation-formation-static": "npx tsx tests/integration/representation-formation-migration-static.test.ts",
     "test:representation-state-reconciliation-static": "npx tsx tests/integration/representation-state-reconciliation-static.test.ts",
     "test:rf-b-critical-path": "npx vitest run tests/integration/rf-b-critical-path.test.ts",
+    "test:rf-b-authenticated-fetch": "npx vitest run tests/integration/rf-b-authenticated-fetch.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
