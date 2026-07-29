@@ -247,7 +247,7 @@ CREATE OR REPLACE FUNCTION public.zeya_link_formation_conversation(
 RETURNS TABLE (
   session_id UUID,
   business_representation_id UUID,
-  status TEXT,
+  status public.formation_session_status,
   linked_at TIMESTAMPTZ
 )
 LANGUAGE plpgsql
@@ -256,16 +256,29 @@ SET search_path = ''
 AS $$
 DECLARE
   v_session public.representation_formation_sessions%ROWTYPE;
+  v_linked_at TIMESTAMPTZ;
 BEGIN
   IF auth.role() <> 'service_role' THEN
-    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'not authorized';
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'not authorized';
   END IF;
 
-  IF p_conversation_type <> 'voice_conversation_output' THEN
-    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'unsupported conversation type';
+  IF p_session_id IS NULL
+     OR p_business_representation_id IS NULL
+     OR p_conversation_id IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'invalid conversation-link parameters';
   END IF;
 
-  SELECT *
+  IF p_conversation_type IS DISTINCT FROM 'voice_conversation_output' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'unsupported conversation type';
+  END IF;
+
+  SELECT formation_session.*
   INTO v_session
   FROM public.representation_formation_sessions AS formation_session
   WHERE formation_session.id = p_session_id
@@ -273,50 +286,65 @@ BEGIN
   FOR UPDATE;
 
   IF v_session.id IS NULL THEN
-    RAISE EXCEPTION USING ERRCODE = 'PZ404', MESSAGE = 'formation session not found';
+    RAISE EXCEPTION USING
+      ERRCODE = 'PZ404',
+      MESSAGE = 'formation session not found';
   END IF;
 
-  IF v_session.status = 'working_conversation_linked'::public.formation_session_status THEN
-    IF v_session.first_working_conversation_id IS DISTINCT FROM p_conversation_id THEN
-      RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'formation conversation already linked';
-    END IF;
-
+  -- Safe idempotent retry.
+  IF v_session.status =
+       'working_conversation_linked'::public.formation_session_status
+     AND v_session.first_working_conversation_id = p_conversation_id THEN
     RETURN QUERY
     SELECT
       v_session.id,
       v_session.business_representation_id,
-      v_session.status::TEXT,
+      v_session.status,
       v_session.updated_at;
+
     RETURN;
   END IF;
 
-  IF v_session.status <> 'working_conversation_pending'::public.formation_session_status THEN
-    RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'formation session not in valid state for conversation linking';
+  IF v_session.status <>
+       'working_conversation_pending'::public.formation_session_status THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'PZ409',
+      MESSAGE = 'formation session not ready for conversation linking';
   END IF;
 
+  -- Verify that the conversation output belongs to this Representation.
   IF NOT EXISTS (
     SELECT 1
-    FROM public.voice_conversation_outputs AS output
-    WHERE output.id = p_conversation_id
-      AND output.business_representation_id = p_business_representation_id
-      AND output.business_id = v_session.business_id
+    FROM public.voice_conversation_outputs AS conversation_output
+    WHERE conversation_output.id = p_conversation_id
+      AND conversation_output.business_representation_id =
+        p_business_representation_id
   ) THEN
-    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'conversation not found or does not belong to representation';
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'conversation not found or does not belong to representation';
   END IF;
 
-  UPDATE public.representation_formation_sessions
-  SET status = 'working_conversation_linked'::public.formation_session_status,
-      first_working_conversation_id = p_conversation_id,
-      updated_at = pg_catalog.now()
-  WHERE id = p_session_id
-  RETURNING * INTO v_session;
+  v_linked_at := pg_catalog.clock_timestamp();
+
+  UPDATE public.representation_formation_sessions AS formation_session
+  SET
+    status =
+      'working_conversation_linked'::public.formation_session_status,
+    first_working_conversation_id = p_conversation_id,
+    updated_at = v_linked_at
+  WHERE formation_session.id = p_session_id
+    AND formation_session.business_representation_id =
+      p_business_representation_id
+  RETURNING formation_session.*
+  INTO v_session;
 
   RETURN QUERY
   SELECT
     v_session.id,
     v_session.business_representation_id,
-    v_session.status::TEXT,
-    v_session.updated_at;
+    v_session.status,
+    v_linked_at;
 END;
 $$;
 

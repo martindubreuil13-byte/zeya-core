@@ -79,7 +79,12 @@ for (const state of [
 assert(!foundation.includes('formation_complete'), 'foundation retains forbidden Formation Complete concept');
 assert(!finalContract.includes('record_formation_session_audit'), 'Formation canonical audit function must not exist');
 assert(!finalContract.includes("'first_working_conversation'"), 'unsupported conversation discriminator remains');
-assert(correction.includes("p_conversation_type <> 'voice_conversation_output'"), 'voice-output link discriminator missing');
+assert(
+  linkFunction.includes(
+    "p_conversation_type IS DISTINCT FROM 'voice_conversation_output'"
+  ),
+  'voice-output link discriminator missing'
+);
 
 for (const rpc of [
   'zeya_initiate_formation_session',
@@ -119,10 +124,10 @@ assert(
   'idempotency lookup must qualify the RETURNS TABLE output-column name'
 );
 assert(
-  linkFunction.includes(
-    'AND formation_session.business_representation_id = p_business_representation_id'
+  /WHERE formation_session\.id = p_session_id\s+AND formation_session\.business_representation_id = p_business_representation_id\s+FOR UPDATE/.test(
+    linkFunction
   ),
-  'conversation-link lookup must qualify the RETURNS TABLE output-column name'
+  'conversation-link lookup must be representation-scoped'
 );
 assert(
   correction.indexOf('IF v_existing.id IS NOT NULL THEN') <
@@ -168,9 +173,59 @@ assert(
   'advance RPC regressed to the incompatible three-column return shape'
 );
 assert(
-  correction.includes("v_session.status = 'working_conversation_linked'") &&
-    correction.includes('v_session.first_working_conversation_id IS DISTINCT FROM p_conversation_id'),
-  'conversation replay/replacement guard missing'
+  /RETURNS TABLE\s*\(\s*session_id UUID,\s*business_representation_id UUID,\s*status public\.formation_session_status,\s*linked_at TIMESTAMPTZ\s*\)/.test(
+    linkFunction
+  ),
+  'link RPC must preserve the deployed enum-typed four-column return contract'
+);
+assert(
+  !/RETURNS TABLE\s*\([^)]*status TEXT/.test(linkFunction) &&
+    !linkFunction.includes('v_session.status::TEXT'),
+  'link RPC regressed to the incompatible text status contract'
+);
+assert(
+  linkFunction.includes('IF p_session_id IS NULL') &&
+    linkFunction.includes('OR p_business_representation_id IS NULL') &&
+    linkFunction.includes('OR p_conversation_id IS NULL'),
+  'link RPC null parameter validation missing'
+);
+assert(
+  linkFunction.includes(
+    "p_conversation_type IS DISTINCT FROM 'voice_conversation_output'"
+  ),
+  'link RPC null-safe conversation type validation missing'
+);
+assert(
+  /v_session\.status\s*=\s*'working_conversation_linked'::public\.formation_session_status\s+AND v_session\.first_working_conversation_id = p_conversation_id/.test(
+    linkFunction
+  ) &&
+    linkFunction.includes('v_session.updated_at'),
+  'link RPC idempotent retry contract missing'
+);
+assert(
+  linkFunction.includes("ERRCODE = 'PZ409'") &&
+    linkFunction.includes(
+      "MESSAGE = 'formation session not ready for conversation linking'"
+    ),
+  'link RPC not-ready conflict contract missing'
+);
+assert(
+  /conversation_output\.business_representation_id\s*=\s*p_business_representation_id/.test(
+    linkFunction
+  ),
+  'link RPC conversation representation ownership validation missing'
+);
+assert(
+  /WHERE formation_session\.id = p_session_id\s+AND formation_session\.business_representation_id =\s*p_business_representation_id\s+RETURNING formation_session\.\*/.test(
+    linkFunction
+  ),
+  'link RPC update must remain representation-scoped'
+);
+assert(
+  linkFunction.includes('v_linked_at := pg_catalog.clock_timestamp()') &&
+    linkFunction.includes('updated_at = v_linked_at') &&
+    linkFunction.includes('v_linked_at;'),
+  'link RPC linked_at timestamp contract missing'
 );
 
 for (const purgeKey of [
