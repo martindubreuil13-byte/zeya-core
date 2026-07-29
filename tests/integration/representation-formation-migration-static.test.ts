@@ -35,6 +35,12 @@ const linkFunction = correction.slice(
     'REVOKE ALL ON FUNCTION public.zeya_initiate_formation_session'
   )
 );
+const advanceFunction = correction.slice(
+  correction.indexOf('CREATE OR REPLACE FUNCTION public.zeya_advance_formation_status'),
+  correction.indexOf(
+    'CREATE OR REPLACE FUNCTION public.zeya_link_formation_conversation'
+  )
+);
 const latestDeleteTables = new Set(matches(latestPurge, /DELETE FROM public\.([a-z_]+)/g));
 const correctiveDeleteTables = new Set(matches(correctivePurge, /DELETE FROM public\.([a-z_]+)/g));
 const latestCounters = new Set(matches(latestPurge, /jsonb_build_object\('([a-z_]+)'/g));
@@ -124,11 +130,42 @@ assert(
   'existing authorized initiation must replay before validating creation-only source'
 );
 assert(
-  correction.includes("p_expected_current_status = 'initiated'") &&
-    correction.includes("p_new_status = 'getting_familiar'") &&
-    correction.includes("p_expected_current_status = 'getting_familiar'") &&
-    correction.includes("p_new_status = 'working_conversation_pending'"),
+  /p_expected_current_status\s*=\s*'initiated'/.test(advanceFunction) &&
+    /p_new_status\s*=\s*'getting_familiar'/.test(advanceFunction) &&
+    /p_expected_current_status\s*=\s*'getting_familiar'/.test(advanceFunction) &&
+    /p_new_status\s*=\s*'working_conversation_pending'/.test(advanceFunction),
   'ordered transition allow-list missing'
+);
+assert.match(
+  advanceFunction,
+  /RETURNS TABLE\s*\(\s*session_id UUID,\s*business_representation_id UUID,\s*status public\.formation_session_status,\s*transitioned_at TIMESTAMPTZ\s*\)/,
+  'advance RPC must preserve the deployed representation-aware return contract'
+);
+assert(
+  advanceFunction.includes('IF v_session.status = p_new_status THEN') &&
+    advanceFunction.includes('v_session.business_representation_id') &&
+    advanceFunction.includes('v_session.updated_at'),
+  'advance RPC idempotent retry contract missing'
+);
+assert(
+  advanceFunction.includes("ERRCODE = 'PZ409'") &&
+    advanceFunction.includes("MESSAGE = 'formation session state changed'"),
+  'advance RPC state-change conflict contract missing'
+);
+assert(
+  advanceFunction.includes('v_transitioned_at := pg_catalog.clock_timestamp()') &&
+    advanceFunction.includes('updated_at = v_transitioned_at'),
+  'advance RPC transition timestamp contract missing'
+);
+assert(
+  advanceFunction.includes(
+    'AND formation_session.business_representation_id =\n      p_business_representation_id'
+  ),
+  'advance RPC update must retain representation identity'
+);
+assert(
+  !advanceFunction.includes('RETURNS TABLE (\n  session_id UUID,\n  status'),
+  'advance RPC regressed to the incompatible three-column return shape'
 );
 assert(
   correction.includes("v_session.status = 'working_conversation_linked'") &&
