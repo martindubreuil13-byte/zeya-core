@@ -9,8 +9,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { safeInternalPath } from "@/lib/auth/safe-next-path";
 import { AuthModal, type AuthMode } from "@/components/auth/auth-modal";
 
 type AuthContextValue = {
@@ -26,6 +28,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -92,6 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         onAuthenticated={(nextSession) => {
           setSession(nextSession);
           setModalOpen(false);
+          const requestedPath =
+            typeof window === "undefined"
+              ? null
+              : new URLSearchParams(window.location.search).get("next");
+          router.replace(safeInternalPath(requestedPath));
         }}
       />
     </AuthContext.Provider>
