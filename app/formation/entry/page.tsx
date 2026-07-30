@@ -6,7 +6,13 @@ import { OwnerOnboarding } from '@/components/owner/OwnerOnboarding';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { useEffect, useState } from 'react';
 
-type OwnerStatus = 'loading' | 'active_formation' | 'has_representation' | 'new_owner' | 'error';
+type OwnerStatus =
+  | 'loading'
+  | 'active_formation'
+  | 'has_representation'
+  | 'new_owner'
+  | 'business_selection_required'
+  | 'error';
 
 interface OwnerState {
   status: OwnerStatus;
@@ -30,6 +36,7 @@ export default function FormationEntryPage() {
   const [ownerState, setOwnerState] = useState<OwnerState>({ status: 'loading' });
   const [showLogout, setShowLogout] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [statusRequest, setStatusRequest] = useState(0);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -68,6 +75,26 @@ export default function FormationEntryPage() {
             stage: failure.stage ?? 'authentication',
           });
           router.replace('/login');
+          return;
+        }
+
+        if (res.status === 409) {
+          const failure = await res.json().catch(() => ({})) as OwnerStatusErrorBody;
+          console.error('[formation-entry] owner status requires business selection', {
+            status: res.status,
+            error: failure.error ?? 'owner_status_failed',
+            stage: failure.stage ?? 'business_lookup',
+          });
+
+          if (
+            failure.error === 'business_selection_required' &&
+            failure.stage === 'business_lookup'
+          ) {
+            setOwnerState({ status: 'business_selection_required' });
+            return;
+          }
+
+          setOwnerState({ status: 'error' });
           return;
         }
 
@@ -124,7 +151,13 @@ export default function FormationEntryPage() {
     };
 
     checkOwnerStatus();
-  }, [user, loading, session, router]);
+  }, [user, loading, session, router, statusRequest]);
+
+  const retryOwnerStatus = () => {
+    setLoadingTimeout(false);
+    setOwnerState({ status: 'loading' });
+    setStatusRequest((request) => request + 1);
+  };
 
   const handleLogout = async () => {
     await signOut();
@@ -180,6 +213,29 @@ export default function FormationEntryPage() {
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (ownerState.status === 'business_selection_required') {
+    return (
+      <div className="flex items-center justify-center min-h-screen px-6">
+        <div className="text-center max-w-lg">
+          <h1 className="text-xl font-semibold text-gray-900 mb-3">
+            Business selection required
+          </h1>
+          <p className="text-gray-600 mb-6">
+            More than one business is connected to this account. Business selection is not
+            available in this Preview yet. Please resolve the existing business records before
+            continuing.
+          </p>
+          <button
+            onClick={retryOwnerStatus}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Retry
           </button>
         </div>
       </div>

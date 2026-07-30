@@ -87,4 +87,25 @@ describe('RF-B owner status contract', () => {
     expect(entry).not.toContain("router.replace('/')");
     expect(entry).not.toContain("router.push('/')");
   });
+
+  it('renders a dedicated multiple-Business state without selecting or navigating', async () => {
+    const entry = await readFile('app/formation/entry/page.tsx', 'utf8');
+
+    expect(entry).toContain('res.status === 409');
+    expect(entry).toContain("failure.error === 'business_selection_required'");
+    expect(entry).toContain("failure.stage === 'business_lookup'");
+    expect(entry).toContain("setOwnerState({ status: 'business_selection_required' })");
+    expect(entry).toContain('Business selection required');
+    expect(entry).toContain('More than one business is connected to this account.');
+    expect(entry).toContain('onClick={retryOwnerStatus}');
+
+    const selectionState = entry.slice(
+      entry.indexOf("if (ownerState.status === 'business_selection_required')"),
+      entry.indexOf('// New owner - show Representation Experience onboarding'),
+    );
+    expect(selectionState).not.toContain('Failed to load your account');
+    expect(selectionState).not.toContain('router.push');
+    expect(selectionState).not.toContain('router.replace');
+    expect(selectionState).not.toContain('businessId');
+  });
 });
