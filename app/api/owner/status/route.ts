@@ -5,7 +5,6 @@
 // - Neither → return "new_owner" status
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 
 export async function GET(request: NextRequest) {
@@ -26,6 +25,10 @@ export async function GET(request: NextRequest) {
 
     if (formationError && formationError.code !== 'PGRST116') {
       console.error('[owner-status] Formation query failed:', formationError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to check owner status' },
+        { status: 500 }
+      );
     }
 
     // If active Formation exists, return it for resumption
@@ -54,6 +57,10 @@ export async function GET(request: NextRequest) {
 
     if (repError && repError.code !== 'PGRST116') {
       console.error('[owner-status] Representation query failed:', repError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to check owner status' },
+        { status: 500 }
+      );
     }
 
     if (canonicalVersions && canonicalVersions.length > 0) {
@@ -66,20 +73,33 @@ export async function GET(request: NextRequest) {
         .eq('id', version.business_representation_id)
         .maybeSingle();
 
-      if (!repDetailsError && representation) {
+      if (repDetailsError) {
+        console.error('[owner-status] Representation ownership query failed:', repDetailsError);
         return NextResponse.json(
-          {
-            success: true,
-            data: {
-              status: 'has_representation',
-              businessRepresentationId: representation.id,
-              businessId: representation.business_id,
-              versionNumber: version.version_number,
-            },
-          },
-          { status: 200 }
+          { success: false, error: 'Failed to check owner status' },
+          { status: 500 }
         );
       }
+
+      if (!representation) {
+        return NextResponse.json(
+          { success: false, error: 'Failed to check owner status' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            status: 'has_representation',
+            businessRepresentationId: representation.id,
+            businessId: representation.business_id,
+            versionNumber: version.version_number,
+          },
+        },
+        { status: 200 }
+      );
     }
 
     // No active Formation, no canonical Representation

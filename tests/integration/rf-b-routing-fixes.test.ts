@@ -7,18 +7,18 @@ import fs from 'fs/promises';
  */
 
 describe('RF-B Routing Fixes', () => {
-  it('should verify OwnerOnboarding navigates to /experience', async () => {
+  it('routes a new authenticated owner to the authenticated Experience', async () => {
     const filePath = './components/owner/OwnerOnboarding.tsx';
     const content = await fs.readFile(filePath, 'utf-8');
+    const entry = await fs.readFile('./app/formation/entry/page.tsx', 'utf-8');
 
-    // Verify router.push('/experience') is called
-    expect(content).toContain("router.push('/experience')");
-
-    // Verify button click handler calls navigation
     expect(content).toContain('handleStartExperience');
     expect(content).toContain('onClick={handleStartExperience}');
-
-    console.log('✓ OwnerOnboarding button navigates to /experience');
+    expect(content).toContain('await onStartExperience()');
+    expect(entry).toContain("router.push('/experience')");
+    expect(entry).toContain('if (!user || !session)');
+    expect(entry).not.toContain("router.push('/')");
+    expect(entry).not.toContain("router.replace('/')");
   });
 
   it('should verify app/page.tsx does not redirect authenticated users', async () => {
@@ -87,17 +87,13 @@ describe('RF-B Routing Fixes', () => {
     console.log('✓ Loading timeout fallback properly gated by loading state');
   });
 
-  it('should verify OwnerOnboarding callback is optional', async () => {
+  it('requires the owner entry callback and exposes recoverable failures', async () => {
     const filePath = './components/owner/OwnerOnboarding.tsx';
     const content = await fs.readFile(filePath, 'utf-8');
 
-    // Verify callback is optional with ?
-    expect(content).toContain('onStartExperience?: () => void');
-
-    // Verify it checks if callback exists before calling
-    expect(content).toContain('if (onStartExperience)');
-
-    console.log('✓ OwnerOnboarding callback is optional');
+    expect(content).toContain('onStartExperience: () => void | Promise<void>');
+    expect(content).toContain('Unable to begin the Experience. Please try again.');
+    expect(content).toContain('role="alert"');
   });
 
   it('should verify no redirect loop between / and /formation/entry', async () => {
@@ -137,9 +133,7 @@ describe('RF-B Routing Fixes', () => {
     // ✓ Unauthenticated visit to /formation/entry → redirect to /login
     expect(entryContent).toContain("'/login'");
 
-    // ✓ Authenticated explicit visit to /experience → stays on /experience
-    // (not blocked by any middleware or redirect)
-    // This is verified by absence of redirects in /experience route
+    expect(entryContent).toContain("router.push('/experience')");
 
     console.log('✓ Final routing map:');
     console.log('  - / → stays (no auth redirect)');
@@ -155,12 +149,40 @@ describe('RF-B Routing Fixes', () => {
     const entryFile = './app/formation/entry/page.tsx';
     const entryContent = await fs.readFile(entryFile, 'utf-8');
 
-    // Button handler navigates directly
-    expect(onboardingContent).toContain("router.push('/experience')");
+    expect(onboardingContent).toContain('await onStartExperience()');
+    expect(entryContent).toContain("router.push('/experience')");
+    expect(entryContent).not.toContain("router.push('/')");
+  });
 
-    // Entry page doesn't block navigation to /experience
-    expect(entryContent).not.toContain("'/experience'");
+  it('routes active Formation and canonical Representation to exact destinations', async () => {
+    const entryContent = await fs.readFile('./app/formation/entry/page.tsx', 'utf-8');
 
-    console.log('✓ CTA routes to /experience via router.push (direct navigation)');
+    expect(entryContent).toContain(
+      'router.replace(`/formation/sessions/${ownerData.formationSessionId}`)',
+    );
+    expect(entryContent).toContain("router.replace('/representation/living')");
+    expect(entryContent).not.toContain('<FormationEntry');
+  });
+
+  it('shows owner-state failures instead of converting them to new-owner routing', async () => {
+    const entryContent = await fs.readFile('./app/formation/entry/page.tsx', 'utf-8');
+    const statusRoute = await fs.readFile('./app/api/owner/status/route.ts', 'utf-8');
+
+    expect(entryContent).toContain("setOwnerState({ status: 'error' })");
+    expect(entryContent).toContain('Failed to load your account');
+    expect(statusRoute).toContain("console.error('[owner-status] Formation query failed:");
+    expect(statusRoute).toContain("console.error('[owner-status] Representation query failed:");
+    expect(statusRoute).toContain("{ success: false, error: 'Failed to check owner status' }");
+  });
+
+  it('preserves authentication across client routing through the root provider', async () => {
+    const layout = await fs.readFile('./app/layout.tsx', 'utf-8');
+    const provider = await fs.readFile('./components/auth/auth-provider.tsx', 'utf-8');
+    const supabase = await fs.readFile('./lib/supabase.ts', 'utf-8');
+
+    expect(layout).toContain('<AuthProvider>{children}</AuthProvider>');
+    expect(provider).toContain('supabase.auth.onAuthStateChange');
+    expect(provider).toContain('setSession(nextSession)');
+    expect(supabase).toContain('persistSession: true');
   });
 });

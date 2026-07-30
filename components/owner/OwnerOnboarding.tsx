@@ -1,27 +1,23 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 interface OwnerOnboardingProps {
-  onStartExperience?: () => void;
+  onStartExperience: () => void | Promise<void>;
 }
 
 export function OwnerOnboarding({ onStartExperience }: OwnerOnboardingProps) {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleStartExperience = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      // Call callback if provided, then navigate to /experience
-      if (onStartExperience) {
-        await onStartExperience();
-      }
-      // Navigate to Public Experience
-      router.push('/experience');
+      await onStartExperience();
     } catch (err) {
       console.error('[owner-onboarding]', err);
+      setError('Unable to begin the Experience. Please try again.');
       setIsLoading(false);
     }
   };
@@ -51,6 +47,11 @@ export function OwnerOnboarding({ onStartExperience }: OwnerOnboardingProps) {
           >
             {isLoading ? 'Beginning...' : 'Begin the Representation Experience'}
           </button>
+          {error && (
+            <p role="alert" className="mt-4 text-sm text-red-300">
+              {error}
+            </p>
+          )}
         </div>
 
         <p className="text-center text-gray-500 text-xs mt-8">

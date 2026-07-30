@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
-import { FormationEntry } from '@/components/formation/FormationEntry';
 import { OwnerOnboarding } from '@/components/owner/OwnerOnboarding';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { useEffect, useState } from 'react';
@@ -17,6 +16,8 @@ interface OwnerState {
   businessId?: string;
   versionNumber?: number;
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function FormationEntryPage() {
   const router = useRouter();
@@ -74,14 +75,16 @@ export default function FormationEntryPage() {
 
         const ownerData = data.data;
 
-        // If active Formation, stay on this page to resume
+        // Resume the exact active Formation returned by the owner-state API.
         if (ownerData.status === 'active_formation') {
-          setOwnerState({
-            status: 'active_formation',
-            formationSessionId: ownerData.formationSessionId,
-            formationStatus: ownerData.formationStatus,
-            businessRepresentationId: ownerData.businessRepresentationId,
-          });
+          if (
+            typeof ownerData.formationSessionId !== 'string' ||
+            !UUID.test(ownerData.formationSessionId)
+          ) {
+            setOwnerState({ status: 'error' });
+            return;
+          }
+          router.replace(`/formation/sessions/${ownerData.formationSessionId}`);
           return;
         }
 
@@ -105,6 +108,14 @@ export default function FormationEntryPage() {
   const handleLogout = async () => {
     await signOut();
     router.replace('/login');
+  };
+
+  const handleStartExperience = () => {
+    if (!user || !session) {
+      setOwnerState({ status: 'error' });
+      return;
+    }
+    router.push('/experience');
   };
 
   // Loading state
@@ -175,33 +186,7 @@ export default function FormationEntryPage() {
           )}
         </div>
 
-        <OwnerOnboarding onStartExperience={() => setOwnerState({ status: 'loading' })} />
-      </div>
-    );
-  }
-
-  // Active Formation - show FormationEntry component to resume
-  if (ownerState.status === 'active_formation' && ownerState.formationSessionId) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="absolute top-4 right-4">
-          <button
-            onClick={() => setShowLogout(!showLogout)}
-            className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2 rounded hover:bg-gray-200"
-          >
-            Menu
-          </button>
-          {showLogout && (
-            <button
-              onClick={handleLogout}
-              className="absolute right-0 mt-2 px-3 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Sign Out
-            </button>
-          )}
-        </div>
-
-        <FormationEntry onComplete={() => {}} />
+        <OwnerOnboarding onStartExperience={handleStartExperience} />
       </div>
     );
   }
