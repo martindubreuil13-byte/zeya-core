@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { assembleVoiceRepresentationContext } from "@/lib/voice/representation-context";
 import {
   createExperienceServiceClient,
@@ -6,6 +6,11 @@ import {
   hashExperienceToken,
   PUBLIC_EXPERIENCE_TTL_MS,
 } from "@/lib/experience/public-session-server";
+import {
+  parseProvisionOwnerBusinessResult,
+  provisioningFailureResponse,
+} from "@/lib/experience/atomic-provisioning";
+import { createAuthenticatedRepresentationContext } from "@/lib/representation/api-auth";
 
 const OPENAI_REALTIME_SESSION_URL = process.env.OPENAI_REALTIME_SESSION_URL ?? "https://api.openai.com/v1/realtime/client_secrets";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,10 +20,76 @@ export function buildPublicExperienceInstructions(governedContext: string): stri
   return `${PUBLIC_EXPERIENCE_INSTRUCTIONS}\n\n--- GOVERNED REPRESENTATION CONTEXT ---\n${governedContext}`;
 }
 
-export async function POST() {
-  const businessId = process.env.ZEYA_EXPERIENCE_BUSINESS_ID?.trim();
+export async function POST(request: NextRequest) {
   const openAIKey = process.env.OPENAI_API_KEY;
-  if (!businessId || !UUID.test(businessId) || !openAIKey) {
+  if (!openAIKey) {
+    return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
+  }
+
+  let businessId: string | undefined;
+  let businessRepresentationId: string | undefined;
+  let tenantUserId: string | undefined;
+
+  // Check for authenticated user
+  const auth = await createAuthenticatedRepresentationContext(request);
+  if (auth instanceof NextResponse) {
+    // Not authenticated - use shared public business
+    businessId = process.env.ZEYA_EXPERIENCE_BUSINESS_ID?.trim();
+    if (!businessId || !UUID.test(businessId)) {
+      return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
+    }
+
+    // Get tenant user ID from the public business
+    const db = createExperienceServiceClient();
+    const business = await db.from("businesses").select("id,user_id").eq("id", businessId).maybeSingle();
+    if (business.error || !business.data?.user_id) {
+      return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
+    }
+    tenantUserId = business.data.user_id;
+
+    const representation = await db
+      .from("business_representations")
+      .select("id")
+      .eq("business_id", businessId)
+      .eq("user_id", tenantUserId)
+      .maybeSingle();
+    if (
+      representation.error ||
+      typeof representation.data?.id !== "string" ||
+      !UUID.test(representation.data.id)
+    ) {
+      return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
+    }
+    businessRepresentationId = representation.data.id;
+  } else {
+    tenantUserId = auth.user.id;
+    const db = createExperienceServiceClient();
+    const provisioned = await db.rpc("zeya_provision_owner_business", {
+      p_owner_id: tenantUserId,
+      p_business_id: null,
+    });
+    if (provisioned.error) {
+      console.error("[experience-session] Failed to provision owner Business");
+      return provisioningFailureResponse(provisioned.error);
+    }
+
+    const provision = parseProvisionOwnerBusinessResult(provisioned.data);
+    if (!provision) {
+      console.error("[experience-session] Failed to provision owner Business");
+      return provisioningFailureResponse(null);
+    }
+
+    businessId = provision.business_id;
+    businessRepresentationId = provision.business_representation_id;
+  }
+
+  if (
+    !businessId ||
+    !UUID.test(businessId) ||
+    !businessRepresentationId ||
+    !UUID.test(businessRepresentationId) ||
+    !tenantUserId
+  ) {
     return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
   }
 
@@ -27,18 +98,22 @@ export async function POST() {
   try {
     const db = createExperienceServiceClient();
     serviceDb = db;
-    const business = await db.from("businesses").select("id,user_id").eq("id", businessId).maybeSingle();
-    if (business.error || !business.data?.user_id) {
-      return NextResponse.json({ error: "The Experience is temporarily unavailable." }, { status: 503 });
-    }
 
     const voiceContext = await assembleVoiceRepresentationContext({
       db,
-      tenantUserId: business.data.user_id,
+      tenantUserId,
       businessId,
+      businessRepresentationId,
       agent: { id: "zeya-public-experience", type: "ZEYA", role: "public_discovery" },
       provisionalMode: false,
     });
+    if (
+      voiceContext.lineage.businessId !== businessId ||
+      voiceContext.lineage.businessRepresentationId !== businessRepresentationId
+    ) {
+      throw new Error("provisioned identity mismatch");
+    }
+
     const voiceContextId = crypto.randomUUID();
     const conversationId = `public_zeya_${voiceContextId}`;
     const token = createExperienceToken();
@@ -50,8 +125,8 @@ export async function POST() {
       p_worker_brief_id: `public_zeya_${voiceContextId}`,
       p_conversation_id: conversationId,
       p_tenant_user_id: voiceContext.lineage.tenantUserId,
-      p_business_id: voiceContext.lineage.businessId,
-      p_business_representation_id: voiceContext.lineage.businessRepresentationId,
+      p_business_id: businessId,
+      p_business_representation_id: businessRepresentationId,
       p_canonical_version_id: voiceContext.lineage.canonicalVersionId,
       p_context_generated_at: voiceContext.lineage.generatedAt,
       p_authorized_element_keys: voiceContext.lineage.authorizedElementKeys,

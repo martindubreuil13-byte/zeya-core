@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
+import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 import { usePublicExperienceVoiceConversation } from "@/hooks/voice/usePublicExperienceVoiceConversation";
 import { VoiceButton } from "@/components/voice/VoiceButton";
 import { PresenceCore } from "@/components/presence";
@@ -76,6 +79,8 @@ export default function ExperiencePage() {
   });
   const [extractedName, setExtractedName] = useState<string | null>(null);
   const [correctedName, setCorrectedName] = useState("");
+  const [formationLoading, setFormationLoading] = useState(false);
+  const [formationError, setFormationError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -111,8 +116,51 @@ export default function ExperiencePage() {
     return()=>{if(interval)window.clearInterval(interval);stopSpeaking();};
   },[bridgeReplayNonce,businessName,commercialBridge,extractedName,phase,representationBrief]);
 
+  const router = useRouter();
+  const { user, session } = useAuth();
+
   const replayBridge=()=>{spokenBridgePhaseRef.current=null;setBridgeVoiceFailed(false);setBridgeReplayNonce(value=>value+1);};
   const startCommercialBridge=(brief:RepresentationBrief,correction?:string)=>{setPhase("bridge_preparing");window.setTimeout(()=>{try{setCommercialBridge(generateCommercialBridge(brief,correction));setPhase("bridge_recognition");}catch{setPhase("bridge_error");}},120);};
+
+  const handleBeginFormation = useCallback(async () => {
+    if (!user || !session || !experienceSession?.token) {
+      setFormationError("Authentication required");
+      return;
+    }
+
+    setFormationLoading(true);
+    setFormationError(null);
+
+    try {
+      const res = await authenticatedFetch('/api/formation/prepare', session, {
+        method: 'POST',
+        body: JSON.stringify({
+          publicExperienceSessionId: experienceSession.token,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Request failed' }));
+        setFormationError(error?.error || 'Failed to begin Formation');
+        setFormationLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      if (!data.success || !data.data?.sessionId) {
+        setFormationError('Invalid response from server');
+        setFormationLoading(false);
+        return;
+      }
+
+      // Navigate to Formation session
+      router.push(`/formation/sessions/${data.data.sessionId}`);
+    } catch (err) {
+      console.error('[experience] Formation handoff failed:', err);
+      setFormationError('Failed to begin Formation. Please try again.');
+      setFormationLoading(false);
+    }
+  }, [user, session, experienceSession, router]);
   useEffect(()=>{if(["bridge_recognition","bridge_role","bridge_boundaries","hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase))sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase,hiringExplanationViewed:["hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase),continued:["onboarding_preview","identity_confirmation","living_representation"].includes(phase),businessName}));},[businessName,phase]);
   useEffect(()=>{if(phase!=="living_representation"||!representationBrief)return;setRepresentationSectionIndex(0);const copy=`Your initial Representation is ready. This is the first version of how I understand your business. It is not finished. The next step would be for us to deepen it together before I use it in real conversations.`;void speakText(copy).catch(()=>setBridgeVoiceFailed(true));const interval=window.setInterval(()=>setRepresentationSectionIndex(index=>Math.min(index+1,3)),2400);return()=>{window.clearInterval(interval);stopSpeaking();};},[phase,representationBrief]);
 
@@ -1171,14 +1219,41 @@ export default function ExperiencePage() {
               </div>
             </div>
 
-            <div className="space-y-3 text-center">
-              <p className="text-sm text-zeya-taupe">What would you like to do next?</p>
-              <button
-                onClick={() => setPhase("initial")}
-                className="w-full border border-zeya-taupe/30 px-6 py-3 text-sm text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors font-light"
-              >
-                Return home
-              </button>
+            <div className="space-y-3">
+              {formationError && (
+                <div className="p-3 bg-red-900/20 border border-red-700/50 rounded text-sm text-red-200">
+                  {formationError}
+                </div>
+              )}
+              <div className="text-center">
+                <p className="text-sm text-zeya-taupe">What would you like to do next?</p>
+              </div>
+
+              {user ? (
+                <>
+                  <button
+                    onClick={handleBeginFormation}
+                    disabled={formationLoading}
+                    className="w-full px-6 py-4 bg-zeya-champagne/20 border border-zeya-champagne text-zeya-champagne hover:bg-zeya-champagne/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-light"
+                  >
+                    {formationLoading ? 'Beginning Formation...' : 'Begin working with Zeya'}
+                  </button>
+                  <button
+                    onClick={() => setPhase("initial")}
+                    disabled={formationLoading}
+                    className="w-full border border-zeya-taupe/30 px-6 py-3 text-sm text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-light"
+                  >
+                    Return home
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setPhase("initial")}
+                  className="w-full border border-zeya-taupe/30 px-6 py-3 text-sm text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors font-light"
+                >
+                  Return home
+                </button>
+              )}
             </div>
           </div>
         </div>

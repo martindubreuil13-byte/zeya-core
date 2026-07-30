@@ -4,16 +4,22 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 interface OwnerOnboardingProps {
-  onStartExperience: () => void;
+  onStartExperience?: () => void;
 }
 
 export function OwnerOnboarding({ onStartExperience }: OwnerOnboardingProps) {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleStartExperience = async () => {
     setIsLoading(true);
     try {
-      await onStartExperience();
+      // Call callback if provided, then navigate to /experience
+      if (onStartExperience) {
+        await onStartExperience();
+      }
+      // Navigate to Public Experience
+      router.push('/experience');
     } catch (err) {
       console.error('[owner-onboarding]', err);
       setIsLoading(false);

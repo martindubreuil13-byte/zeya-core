@@ -449,7 +449,7 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
             <button
               onClick={() => {
                 // Navigate to Living Representation workspace
-                window.location.href = '/representation/living';
+                router.replace('/representation/living');
               }}
               className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
             >

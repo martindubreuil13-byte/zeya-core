@@ -23,6 +23,7 @@ export default function FormationEntryPage() {
   const { user, loading, signOut, session } = useAuth();
   const [ownerState, setOwnerState] = useState<OwnerState>({ status: 'loading' });
   const [showLogout, setShowLogout] = useState(false);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -30,6 +31,20 @@ export default function FormationEntryPage() {
       router.replace('/login');
     }
   }, [user, loading, router]);
+
+  // Loading timeout fallback - if status stays 'loading' for 10s, show timeout UI
+  useEffect(() => {
+    if (ownerState.status !== 'loading') return;
+
+    const timeoutId = setTimeout(() => {
+      setLoadingTimeout(true);
+    }, 10000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      setLoadingTimeout(false);
+    };
+  }, [ownerState.status]);
 
   // Check owner's current state
   useEffect(() => {
@@ -99,6 +114,20 @@ export default function FormationEntryPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border border-gray-300 border-t-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading your account...</p>
+
+          {loadingTimeout && (
+            <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded">
+              <p className="text-sm text-yellow-800 mb-4">
+                This is taking longer than expected.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              >
+                Retry
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

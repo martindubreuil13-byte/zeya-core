@@ -77,92 +77,56 @@ describe('RF-B Concurrency and Identity Audit', () => {
     console.log(`  - Concurrent initialize calls for same business WILL fail`);
   });
 
-  it('should identify business identity selection rule problem', async () => {
+  it('should verify business identity selection no longer exists', async () => {
     const filePath = './app/api/formation/sessions/initiate/route.ts';
     const content = await fs.readFile(filePath, 'utf-8');
 
-    // Find the business selection logic
-    const selectionStart = content.indexOf('Look for owner\'s first business');
-    const selectionEnd = content.indexOf('if (existingBusiness)', selectionStart + 200);
-    const selectionCode = content.substring(selectionStart, selectionEnd);
+    // Verify no business selection logic (removed for safety)
+    expect(content).not.toContain('Look for owner\'s first business');
+    expect(content).not.toContain('existingBusiness');
+    expect(content).not.toContain('created_at');
 
-    // Verify it orders by created_at and limits to 1
-    expect(selectionCode).toContain('order(\'created_at\'');
-    expect(selectionCode).toContain('.limit(1)');
+    // Verify businessId must be provided explicitly
+    expect(content).toContain('if (!body.businessId)');
 
-    // This is the problem: arbitrarily picks first business
-    const hasExplicitRule = selectionCode.includes('EXPLICIT RULE:') ||
-      selectionCode.includes('If user has multiple') ||
-      selectionCode.includes('stable identity') ||
-      selectionCode.includes('active Formation');
-
-    expect(hasExplicitRule).toBe(false);
-
-    console.log(`✗ Identity selection rule problem:`);
-    console.log(`  - Code does: ORDER BY created_at LIMIT 1`);
-    console.log(`  - This silently picks first business`);
-    console.log(`  - No explicit rule for which business to use`);
-    console.log(`  - Could attach Formation to wrong company`);
-    console.log(`  - No error if user has multiple businesses`);
+    console.log(`✓ Business identity selection removed:`);
+    console.log(`  - No automatic business selection`);
+    console.log(`  - No ORDER BY created_at LIMIT 1`);
+    console.log(`  - businessId must be provided explicitly in request`);
   });
 
-  it('should identify race condition in business creation', async () => {
+  it('should verify business creation race condition is prevented', async () => {
     const filePath = './app/api/formation/sessions/initiate/route.ts';
     const content = await fs.readFile(filePath, 'utf-8');
 
-    // Find the business creation logic
-    const creationStart = content.indexOf('if (!existingBusiness)');
-    const creationEnd = content.indexOf('businessId = newBusiness.id', creationStart) + 50;
-    const creationCode = content.substring(creationStart, creationEnd);
+    // Verify no automatic business creation code (removed to prevent race condition)
+    expect(content).not.toContain('if (!existingBusiness)');
+    expect(content).not.toContain('newBusiness');
 
-    // Verify it does SELECT then INSERT
-    expect(creationCode).toContain('existingBusiness');
-    expect(creationCode).toContain('.insert(');
+    // Verify businessId is required upfront
+    expect(content).toContain('if (!body.businessId)');
 
-    // This is the race condition: SELECT-then-INSERT is not atomic
-    const hasAtomicGuard = creationCode.includes('ON CONFLICT') ||
-      creationCode.includes('unique constraint') ||
-      creationCode.includes('duplicates') ||
-      creationCode.includes('service_role');
-
-    console.log(`✗ Race condition in business creation:`);
-    console.log(`  - Pattern: SELECT then INSERT (not atomic)`);
-    console.log(
-      `  - Two concurrent requests can both see 0 businesses, both INSERT`
-    );
-    console.log(`  - Result: TWO businesses created for same user`);
-    console.log(`  - No UNIQUE(user_id) constraint prevents this`);
+    console.log(`✓ Business creation race condition prevented:`);
+    console.log(`  - No SELECT-then-INSERT pattern`);
+    console.log(`  - businessId must be provided in request`);
+    console.log(`  - No automatic business creation for new owners`);
   });
 
-  it('should identify race condition in representation initialization', async () => {
+  it('should verify representation initialization race condition is prevented', async () => {
     const filePath = './app/api/formation/sessions/initiate/route.ts';
     const content = await fs.readFile(filePath, 'utf-8');
 
-    // Find representation initialization logic
-    const repStart = content.indexOf('if (!representationId)');
-    const repEnd = content.indexOf('representationId = repResult', repStart) + 50;
-    const repCode = content.substring(repStart, repEnd);
+    // Verify representation must already exist (no automatic initialization)
+    expect(content).toContain('Representation not found');
+    expect(content).not.toContain('initialize_business_representation');
 
-    // Verify it checks then calls RPC
-    expect(repCode).toContain('representationId');
-    expect(repCode).toContain('initialize_business_representation');
+    // Verify no SELECT-then-RPC pattern
+    expect(content).not.toContain('if (!representationId)');
 
-    // This is the race condition: SELECT-then-RPC is not atomic
-    const hasErrorHandling = repCode.includes('catch') ||
-      repCode.includes('ON CONFLICT') ||
-      repCode.includes('23505') ||
-      repCode.includes('23503');
-
-    expect(hasErrorHandling).toBe(false);
-
-    console.log(`✗ Race condition in representation initialization:`);
-    console.log(`  - Pattern: SELECT then RPC initialize_business_representation`);
-    console.log(
-      `  - Two concurrent requests can both see 0 representations, both call RPC`
-    );
-    console.log(
-      `  - First RPC succeeds, second FAILS (UNIQUE(business_id) violation)`);
-    console.log(`  - RPC is not idempotent (no ON CONFLICT handling)`);
+    console.log(`✓ Representation initialization race condition prevented:`);
+    console.log(`  - Representation must be pre-created`);
+    console.log(`  - No SELECT-then-RPC pattern`);
+    console.log(`  - No automatic representation initialization`);
   });
 
   it('should document missing atomic provisioning function', async () => {
@@ -194,18 +158,20 @@ describe('RF-B Concurrency and Identity Audit', () => {
     expect(content).toContain('createAuthenticatedRepresentationContext');
     expect(content).toContain('auth.user.id');
 
-    // Check business creation uses authenticated client
-    const businessCreationStart = content.indexOf('Owner is new - create Business');
-    const businessCreationEnd = businessCreationStart + 800;
-    const businessCreation = content.substring(businessCreationStart, businessCreationEnd);
-    expect(businessCreation).toContain('.insert(');
+    // Verify no automatic business creation code (reverted for safety)
+    expect(content).not.toContain('Owner is new - create Business');
+    expect(content).not.toContain('newBusiness');
+
+    // Verify businessId is required upfront
+    expect(content).toContain('if (!body.businessId)');
+    expect(content).toContain('businessId is required');
 
     // Check RPC calls receive ownerId from authenticated request
     expect(content).toContain('p_owner_id: ownerId');
 
     console.log(`✓ Authentication boundary:`);
-    console.log(`  - Uses owner-scoped authenticated client for initial operations`);
-    console.log(`  - Business insert uses authenticated client (RLS enforced)`);
+    console.log(`  - Uses owner-scoped authenticated context`);
+    console.log(`  - Requires explicit businessId (no automatic business creation)`);
     console.log(`  - RPC calls receive ownerId from authenticated request`);
   });
 
