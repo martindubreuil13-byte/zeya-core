@@ -170,9 +170,9 @@ describe('RF-B Routing Fixes', () => {
 
     expect(entryContent).toContain("setOwnerState({ status: 'error' })");
     expect(entryContent).toContain('Failed to load your account');
-    expect(statusRoute).toContain("console.error('[owner-status] Formation query failed:");
-    expect(statusRoute).toContain("console.error('[owner-status] Representation query failed:");
-    expect(statusRoute).toContain("{ success: false, error: 'Failed to check owner status' }");
+    expect(statusRoute).toContain("stage: 'formation_lookup'");
+    expect(statusRoute).toContain("stage: 'representation_lookup'");
+    expect(statusRoute).toContain("error: 'owner_status_failed'");
   });
 
   it('preserves authentication across client routing through the root provider', async () => {

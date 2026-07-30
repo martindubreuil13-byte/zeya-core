@@ -1,38 +1,145 @@
-// GET /api/owner/status
-// Check authenticated owner's current state:
-// - Active Formation session → return for resumption
-// - Canonical Representation exists → return for redirect
-// - Neither → return "new_owner" status
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 
+type OwnerStatusFailureStage =
+  | 'authentication'
+  | 'business_lookup'
+  | 'representation_lookup'
+  | 'formation_lookup'
+  | 'version_lookup'
+  | 'response_validation';
+
+const ACTIVE_FORMATION_STATUSES = [
+  'initiated',
+  'getting_familiar',
+  'working_conversation_pending',
+  'working_conversation_linked',
+] as const;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ownerStatusFailure(
+  stage: OwnerStatusFailureStage,
+  status = 500,
+) {
+  return NextResponse.json(
+    { success: false, error: 'owner_status_failed', stage },
+    { status },
+  );
+}
+
+function newOwnerResponse() {
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        status: 'new_owner',
+        message: 'Ready to start Representation Experience',
+      },
+    },
+    { status: 200 },
+  );
+}
+
 export async function GET(request: NextRequest) {
+  const auth = await createAuthenticatedRepresentationContext(request);
+  if (auth instanceof NextResponse) {
+    return ownerStatusFailure('authentication', 401);
+  }
+
+  const ownerId = auth.user.id;
+
   try {
-    const auth = await createAuthenticatedRepresentationContext(request);
-    if (auth instanceof NextResponse) return auth;
+    const businessesResult = await auth.supabase
+      .from('businesses')
+      .select('id')
+      .eq('user_id', ownerId)
+      .order('created_at', { ascending: true });
 
-    const ownerId = auth.user.id;
+    if (businessesResult.error) {
+      console.error('[owner-status]', {
+        stage: 'business_lookup',
+        code: businessesResult.error.code,
+      });
+      return ownerStatusFailure('business_lookup');
+    }
 
-    // Check for active Formation session
-    const { data: activeFormation, error: formationError } = await auth.supabase
-      .from('representation_formation_sessions')
-      .select('id, status, business_representation_id')
-      .eq('owner_id', ownerId)
-      .in('status', ['initiated', 'getting_familiar', 'working_conversation_pending', 'working_conversation_linked'])
-      .order('created_at', { ascending: false })
-      .maybeSingle();
+    const businesses = businessesResult.data ?? [];
+    if (businesses.length === 0) return newOwnerResponse();
 
-    if (formationError && formationError.code !== 'PGRST116') {
-      console.error('[owner-status] Formation query failed:', formationError);
+    if (businesses.length > 1) {
       return NextResponse.json(
-        { success: false, error: 'Failed to check owner status' },
-        { status: 500 }
+        {
+          success: false,
+          error: 'business_selection_required',
+          stage: 'business_lookup',
+        },
+        { status: 409 },
       );
     }
 
-    // If active Formation exists, return it for resumption
+    const businessId = businesses[0]?.id;
+    if (typeof businessId !== 'string' || !UUID.test(businessId)) {
+      return ownerStatusFailure('response_validation');
+    }
+
+    const representationResult = await auth.supabase
+      .from('business_representations')
+      .select('id, business_id, user_id, current_version_id')
+      .eq('business_id', businessId)
+      .eq('user_id', ownerId)
+      .maybeSingle();
+
+    if (representationResult.error) {
+      console.error('[owner-status]', {
+        stage: 'representation_lookup',
+        code: representationResult.error.code,
+      });
+      return ownerStatusFailure('representation_lookup');
+    }
+
+    const representation = representationResult.data;
+    if (!representation) return newOwnerResponse();
+
+    if (
+      typeof representation.id !== 'string' ||
+      !UUID.test(representation.id) ||
+      representation.business_id !== businessId ||
+      representation.user_id !== ownerId
+    ) {
+      return ownerStatusFailure('response_validation');
+    }
+
+    const formationResult = await auth.supabase
+      .from('representation_formation_sessions')
+      .select('id, status, business_id, business_representation_id, owner_id')
+      .eq('owner_id', ownerId)
+      .eq('business_id', businessId)
+      .eq('business_representation_id', representation.id)
+      .in('status', [...ACTIVE_FORMATION_STATUSES])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (formationResult.error) {
+      console.error('[owner-status]', {
+        stage: 'formation_lookup',
+        code: formationResult.error.code,
+      });
+      return ownerStatusFailure('formation_lookup');
+    }
+
+    const activeFormation = formationResult.data?.[0];
     if (activeFormation) {
+      if (
+        typeof activeFormation.id !== 'string' ||
+        !UUID.test(activeFormation.id) ||
+        activeFormation.business_id !== businessId ||
+        activeFormation.business_representation_id !== representation.id ||
+        activeFormation.owner_id !== ownerId
+      ) {
+        return ownerStatusFailure('response_validation');
+      }
+
       return NextResponse.json(
         {
           success: true,
@@ -40,84 +147,56 @@ export async function GET(request: NextRequest) {
             status: 'active_formation',
             formationSessionId: activeFormation.id,
             formationStatus: activeFormation.status,
-            businessRepresentationId: activeFormation.business_representation_id,
+            businessRepresentationId: representation.id,
+            businessId,
           },
         },
-        { status: 200 }
+        { status: 200 },
       );
     }
 
-    // Check for canonical Representation
-    // Query representation_versions directly for canonical versions
-    const { data: canonicalVersions, error: repError } = await auth.supabase
+    if (!representation.current_version_id) return newOwnerResponse();
+    if (
+      typeof representation.current_version_id !== 'string' ||
+      !UUID.test(representation.current_version_id)
+    ) {
+      return ownerStatusFailure('response_validation');
+    }
+
+    const versionResult = await auth.supabase
       .from('representation_versions')
       .select('id, version_number, business_representation_id')
-      .eq('is_canonical', true)
-      .limit(1);
+      .eq('id', representation.current_version_id)
+      .eq('business_representation_id', representation.id)
+      .maybeSingle();
 
-    if (repError && repError.code !== 'PGRST116') {
-      console.error('[owner-status] Representation query failed:', repError);
-      return NextResponse.json(
-        { success: false, error: 'Failed to check owner status' },
-        { status: 500 }
-      );
+    if (versionResult.error) {
+      console.error('[owner-status]', {
+        stage: 'version_lookup',
+        code: versionResult.error.code,
+      });
+      return ownerStatusFailure('version_lookup');
     }
 
-    if (canonicalVersions && canonicalVersions.length > 0) {
-      const version = canonicalVersions[0];
+    if (!versionResult.data) return ownerStatusFailure('version_lookup');
 
-      // Get the business representation to verify ownership
-      const { data: representation, error: repDetailsError } = await auth.supabase
-        .from('business_representations')
-        .select('id, business_id')
-        .eq('id', version.business_representation_id)
-        .maybeSingle();
-
-      if (repDetailsError) {
-        console.error('[owner-status] Representation ownership query failed:', repDetailsError);
-        return NextResponse.json(
-          { success: false, error: 'Failed to check owner status' },
-          { status: 500 }
-        );
-      }
-
-      if (!representation) {
-        return NextResponse.json(
-          { success: false, error: 'Failed to check owner status' },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-          data: {
-            status: 'has_representation',
-            businessRepresentationId: representation.id,
-            businessId: representation.business_id,
-            versionNumber: version.version_number,
-          },
-        },
-        { status: 200 }
-      );
-    }
-
-    // No active Formation, no canonical Representation
     return NextResponse.json(
       {
         success: true,
         data: {
-          status: 'new_owner',
-          message: 'Ready to start Representation Experience',
+          status: 'has_representation',
+          businessRepresentationId: representation.id,
+          businessId,
+          versionNumber: versionResult.data.version_number,
         },
       },
-      { status: 200 }
+      { status: 200 },
     );
-  } catch (error) {
-    console.error('[owner-status] Failed:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to check owner status' },
-      { status: 500 }
-    );
+  } catch {
+    console.error('[owner-status]', {
+      stage: 'response_validation',
+      code: 'unexpected_exception',
+    });
+    return ownerStatusFailure('response_validation');
   }
 }

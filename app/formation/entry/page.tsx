@@ -17,6 +17,11 @@ interface OwnerState {
   versionNumber?: number;
 }
 
+type OwnerStatusErrorBody = {
+  error?: string;
+  stage?: string;
+};
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function FormationEntryPage() {
@@ -56,12 +61,23 @@ export default function FormationEntryPage() {
         const res = await authenticatedFetch('/api/owner/status', session);
 
         if (res.status === 401) {
-          console.error('[formation-entry] Unauthorized - redirecting to login');
+          const failure = await res.json().catch(() => ({})) as OwnerStatusErrorBody;
+          console.error('[formation-entry] owner status failed', {
+            status: res.status,
+            error: failure.error ?? 'owner_status_failed',
+            stage: failure.stage ?? 'authentication',
+          });
           router.replace('/login');
           return;
         }
 
         if (!res.ok) {
+          const failure = await res.json().catch(() => ({})) as OwnerStatusErrorBody;
+          console.error('[formation-entry] owner status failed', {
+            status: res.status,
+            error: failure.error ?? 'owner_status_failed',
+            stage: failure.stage ?? 'response_validation',
+          });
           setOwnerState({ status: 'error' });
           return;
         }
@@ -69,6 +85,11 @@ export default function FormationEntryPage() {
         const data = await res.json();
 
         if (!data.success) {
+          console.error('[formation-entry] owner status failed', {
+            status: res.status,
+            error: data.error ?? 'owner_status_failed',
+            stage: data.stage ?? 'response_validation',
+          });
           setOwnerState({ status: 'error' });
           return;
         }

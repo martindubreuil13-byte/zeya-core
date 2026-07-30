@@ -60,6 +60,7 @@
     "test:rf-b-atomic-provisioning": "npx vitest run tests/integration/rf-b-atomic-provisioning.test.ts",
     "test:rf-b-experience-to-formation": "npx vitest run tests/integration/rf-b-experience-to-formation.test.ts",
     "test:rf-b-living-representation": "npx vitest run tests/integration/rf-b-living-representation.test.ts",
+    "test:rf-b-owner-status": "npx vitest run tests/integration/rf-b-owner-status.test.ts",
     "provision:public-experience": "npx tsx scripts/provision-public-experience-business.ts",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
