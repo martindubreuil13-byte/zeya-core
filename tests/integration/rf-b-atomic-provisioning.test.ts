@@ -48,15 +48,17 @@ describe("RF-B atomic Public Experience provisioning", () => {
     });
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toEqual({
-      error: "Select the Business you want to use.",
-      code: "business_selection_required",
+      success: false,
+      error: "business_selection_required",
+      stage: "atomic_provisioning",
     });
 
     const missing = provisioningFailureResponse({ code: "PZ404" });
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({
-      error: "Business setup could not be completed.",
-      code: "business_not_found",
+      success: false,
+      error: "business_not_found",
+      stage: "atomic_provisioning",
     });
 
     expect(provisioningFailureResponse({ code: "XX000" }).status).toBe(503);
@@ -121,5 +123,59 @@ describe("RF-B atomic Public Experience provisioning", () => {
     expect(route).not.toContain("version_number: 0");
     expect(route).not.toContain("existingBusiness");
     expect(route).not.toContain("newBusiness");
+  });
+
+  it("uses authenticatedFetch for the authenticated Experience session request", async () => {
+    const realtimeHook = await readFile(
+      "hooks/realtime/useRealtimeOnboardingSession.ts",
+      "utf8",
+    );
+    const publicHook = await readFile(
+      "hooks/voice/usePublicExperienceVoiceConversation.ts",
+      "utf8",
+    );
+
+    expect(realtimeHook).toContain(
+      "authenticatedFetch(endpoint, options.session ?? null, init)",
+    );
+    expect(publicHook).toContain("useAuth()");
+    expect(publicHook).toContain(
+      "useRealtimeOnboardingSession({ publicExperience: true, session })",
+    );
+  });
+
+  it("returns distinct safe stages for every session startup boundary", async () => {
+    const route = await readFile(
+      "app/api/experience/session/route.ts",
+      "utf8",
+    );
+
+    for (const stage of [
+      "authentication",
+      "atomic_provisioning",
+      "provisioning_response_validation",
+      "voice_context",
+      "experience_session_creation",
+      "provider_configuration",
+      "provider_request",
+      "provider_response",
+    ]) {
+      expect(route).toContain(`"${stage}"`);
+    }
+    expect(route).toContain('error: code, stage');
+    expect(route).toContain("openai_http_${upstream.status}");
+    expect(route).toContain("malformed_provider_response");
+  });
+
+  it("keeps retries on the idempotent provisioning RPC and creates no Version", async () => {
+    const route = await readFile(
+      "app/api/experience/session/route.ts",
+      "utf8",
+    );
+
+    expect(route.match(/zeya_provision_owner_business/g)).toHaveLength(1);
+    expect(route).toContain("p_business_id: null");
+    expect(route).not.toContain("representation_versions");
+    expect(route).not.toContain("version_number");
   });
 });

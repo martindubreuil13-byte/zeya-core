@@ -14,7 +14,8 @@ export type VoiceRepresentationLineage = {
   tenantUserId: string;
   businessId: string;
   businessRepresentationId: string;
-  canonicalVersionId: string;
+  canonicalVersionId: string | null;
+  representationContextMode: "canonical" | "pre_canonical";
   generatedAt: string;
   authorizedElementKeys: string[];
   provisionalMode: boolean;
@@ -36,6 +37,79 @@ export class VoiceContextUnavailableError extends Error {
     super("Authorized voice context is unavailable");
     this.name = "VoiceContextUnavailableError";
   }
+}
+
+function buildPreCanonicalSystemContext(businessName: string | null): string {
+  return [
+    "PRE-CANONICAL BUSINESS DISCOVERY",
+    "You are learning about this business directly from its owner.",
+    "Do not claim established, approved, or complete knowledge about the business.",
+    "Treat owner statements as onboarding input to be reviewed through Representation Formation, not as authorized external claims.",
+    "Do not make customer-facing commitments, invent missing facts, or write canonical memory.",
+    businessName ? `Preliminary business name: ${businessName}` : "The business name has not yet been established.",
+  ].join("\n");
+}
+
+/** Discovery-only boundary for a clean owner. It deliberately reads no canonical Representation data. */
+export async function assemblePreCanonicalVoiceContext(input: {
+  db: SupabaseClient;
+  tenantUserId: string;
+  businessId: string;
+  businessRepresentationId: string;
+  agent: VoiceAgentIdentity;
+}): Promise<VoiceReadyContext> {
+  const business = await input.db
+    .from("businesses")
+    .select("id,user_id,business_name")
+    .eq("id", input.businessId)
+    .eq("user_id", input.tenantUserId)
+    .maybeSingle();
+  if (business.error || !business.data) throw new VoiceContextUnavailableError();
+
+  const representation = await input.db
+    .from("business_representations")
+    .select("id,business_id,user_id,current_version_id")
+    .eq("id", input.businessRepresentationId)
+    .eq("business_id", input.businessId)
+    .eq("user_id", input.tenantUserId)
+    .maybeSingle();
+  if (
+    representation.error ||
+    !representation.data ||
+    representation.data.current_version_id !== null
+  ) {
+    throw new VoiceContextUnavailableError();
+  }
+
+  const versions = await input.db
+    .from("representation_versions")
+    .select("id", { count: "exact", head: true })
+    .eq("business_representation_id", input.businessRepresentationId);
+  if (versions.error || versions.count !== 0) throw new VoiceContextUnavailableError();
+
+  return {
+    systemContext: buildPreCanonicalSystemContext(
+      typeof business.data.business_name === "string"
+        ? business.data.business_name
+        : null,
+    ),
+    claims: {},
+    lineage: {
+      tenantUserId: input.tenantUserId,
+      businessId: input.businessId,
+      businessRepresentationId: input.businessRepresentationId,
+      canonicalVersionId: null,
+      representationContextMode: "pre_canonical",
+      generatedAt: new Date().toISOString(),
+      authorizedElementKeys: [],
+      provisionalMode: true,
+      agentId: input.agent.id,
+      agentType: input.agent.type,
+      agentRole: input.agent.role,
+      contextSchemaVersion: VOICE_CONTEXT_SCHEMA_VERSION,
+      promptAssemblyVersion: VOICE_PROMPT_ASSEMBLY_VERSION,
+    },
+  };
 }
 
 function claimValue(value: Record<string, unknown> | null): unknown {
@@ -156,6 +230,7 @@ export async function assembleVoiceRepresentationContext(input: {
     businessId: input.businessId,
     businessRepresentationId: representation.data.id,
     canonicalVersionId,
+    representationContextMode: "canonical",
     generatedAt: (authorized?.retrievedAt ?? new Date()).toISOString(),
     authorizedElementKeys,
     provisionalMode,
@@ -183,6 +258,7 @@ export function buildVoiceProviderVariables(input: {
     authorizedBusinessContext: input.context.systemContext,
     businessRepresentationId: input.context.lineage.businessRepresentationId,
     canonicalVersionId: input.context.lineage.canonicalVersionId,
+    representationContextMode: input.context.lineage.representationContextMode,
     provisionalMode: input.context.lineage.provisionalMode,
     voiceContextSchemaVersion: input.context.lineage.contextSchemaVersion,
     promptAssemblyVersion: input.context.lineage.promptAssemblyVersion,

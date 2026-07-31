@@ -38,8 +38,9 @@ export function provisioningFailureResponse(error: unknown): NextResponse {
   if (code === "PZ409") {
     return NextResponse.json(
       {
-        error: "Select the Business you want to use.",
-        code: "business_selection_required",
+        success: false,
+        error: "business_selection_required",
+        stage: "atomic_provisioning",
       },
       { status: 409 },
     );
@@ -48,15 +49,20 @@ export function provisioningFailureResponse(error: unknown): NextResponse {
   if (code === "PZ404") {
     return NextResponse.json(
       {
-        error: "Business setup could not be completed.",
-        code: "business_not_found",
+        success: false,
+        error: "business_not_found",
+        stage: "atomic_provisioning",
       },
       { status: 404 },
     );
   }
 
   return NextResponse.json(
-    { error: "The Experience is temporarily unavailable." },
+    {
+      success: false,
+      error: "experience_session_failed",
+      stage: "atomic_provisioning",
+    },
     { status: 503 },
   );
 }

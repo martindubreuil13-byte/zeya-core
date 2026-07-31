@@ -208,6 +208,7 @@ export async function POST(req: NextRequest) {
         tenantUserId: session.tenant_user_id,
         businessRepresentationId: session.business_representation_id,
         canonicalVersionId: session.canonical_version_id,
+        representationContextMode: session.representation_context_mode,
       },
     });
     providerAccepted = result.providerOutcome !== "REJECTED";

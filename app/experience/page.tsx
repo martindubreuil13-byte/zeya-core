@@ -27,6 +27,7 @@ import type { RepresentationBrief, RepresentationBriefResponseType } from "@/typ
 import { EXPERIENCE_DEBUG_ENABLED, experienceDebugLog, experienceDebugTable } from "@/lib/experience/experience-debug";
 import {generateCommercialBridge,type CommercialBridge} from "@/lib/experience/commercial-bridge-generator";
 import {speakText,stopSpeaking} from "@/lib/voice/text-to-speech";
+import { RealtimeSessionRequestError } from "@/lib/realtime/openai-realtime-client";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "brief_review" | "calibration" | "bridge_preparing" | "bridge_error" | "bridge_recognition" | "bridge_role" | "bridge_boundaries" | "hiring_decision" | "onboarding_preview" | "identity_confirmation" | "living_representation" | "completed" | "handoff_error";
 
@@ -104,7 +105,31 @@ export default function ExperiencePage() {
     void fetch("/api/experience/session/telemetry",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({event}),keepalive:true}).catch(()=>undefined);
   },[experienceSession?.token]);
 
-  useEffect(()=>{const saved=sessionStorage.getItem("zeyaCommercialBridgeResume");if(!saved)return;try{const state=JSON.parse(saved) as {phase?:Phase;brief?:RepresentationBrief;name?:string|null;businessName?:string};if(state.phase==="identity_confirmation"&&state.brief){setRepresentationBrief(state.brief);setCommercialBridge(generateCommercialBridge(state.brief));setExtractedName(state.name??null);setBusinessName(state.businessName??"");setPhase("identity_confirmation");}}catch{sessionStorage.removeItem("zeyaCommercialBridgeResume");}},[]);
+  useEffect(() => {
+    const saved = sessionStorage.getItem("zeyaCommercialBridgeResume");
+    if (!saved) return;
+    let state: {
+      phase?: Phase;
+      brief?: RepresentationBrief;
+      name?: string | null;
+      businessName?: string;
+    };
+    try {
+      state = JSON.parse(saved) as typeof state;
+    } catch {
+      sessionStorage.removeItem("zeyaCommercialBridgeResume");
+      return;
+    }
+    if (state.phase !== "identity_confirmation" || !state.brief) return;
+    const timeout = window.setTimeout(() => {
+      setRepresentationBrief(state.brief ?? null);
+      setCommercialBridge(generateCommercialBridge(state.brief!));
+      setExtractedName(state.name ?? null);
+      setBusinessName(state.businessName ?? "");
+      setPhase("identity_confirmation");
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(()=>{
     if(!commercialBridge||!["bridge_recognition","bridge_role","bridge_boundaries","onboarding_preview"].includes(phase)||spokenBridgePhaseRef.current===phase)return;
@@ -162,7 +187,25 @@ export default function ExperiencePage() {
     }
   }, [user, session, experienceSession, router]);
   useEffect(()=>{if(["bridge_recognition","bridge_role","bridge_boundaries","hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase))sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase,hiringExplanationViewed:["hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase),continued:["onboarding_preview","identity_confirmation","living_representation"].includes(phase),businessName}));},[businessName,phase]);
-  useEffect(()=>{if(phase!=="living_representation"||!representationBrief)return;setRepresentationSectionIndex(0);const copy=`Your initial Representation is ready. This is the first version of how I understand your business. It is not finished. The next step would be for us to deepen it together before I use it in real conversations.`;void speakText(copy).catch(()=>setBridgeVoiceFailed(true));const interval=window.setInterval(()=>setRepresentationSectionIndex(index=>Math.min(index+1,3)),2400);return()=>{window.clearInterval(interval);stopSpeaking();};},[phase,representationBrief]);
+  useEffect(() => {
+    if (phase !== "living_representation" || !representationBrief) return;
+    const resetTimeout = window.setTimeout(
+      () => setRepresentationSectionIndex(0),
+      0,
+    );
+    const copy = `Your initial Representation is ready. This is the first version of how I understand your business. It is not finished. The next step would be for us to deepen it together before I use it in real conversations.`;
+    void speakText(copy).catch(() => setBridgeVoiceFailed(true));
+    const interval = window.setInterval(
+      () =>
+        setRepresentationSectionIndex((index) => Math.min(index + 1, 3)),
+      2400,
+    );
+    return () => {
+      window.clearTimeout(resetTimeout);
+      window.clearInterval(interval);
+      stopSpeaking();
+    };
+  }, [phase, representationBrief]);
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
@@ -329,7 +372,20 @@ export default function ExperiencePage() {
       });
       await controller.startBeat();
       console.log("[EXPERIENCE] controller.startBeat() returned");
-    } catch {
+    } catch (error) {
+      if (error instanceof RealtimeSessionRequestError) {
+        console.error("[experience] voice session start failed", {
+          status: error.status,
+          error: error.code,
+          stage: error.stage,
+        });
+      } else {
+        console.error("[experience] voice session start failed", {
+          status: 0,
+          error: "experience_session_failed",
+          stage: "client_connection",
+        });
+      }
       resetConversation();
       controllerRef.current = null;
       setVoiceStartError("The voice session could not start. Please try again.");

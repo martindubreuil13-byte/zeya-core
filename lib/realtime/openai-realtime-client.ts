@@ -20,7 +20,19 @@ type RealtimeSessionResponse = {
   voice_context_id?: string;
   experience_token?: string;
   expires_at?: string;
+  stage?: string;
 };
+
+export class RealtimeSessionRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly stage: string,
+  ) {
+    super(code);
+    this.name = "RealtimeSessionRequestError";
+  }
+}
 
 export type OpenAIRealtimeClientEvents = {
   onStateChange?: (state: VoiceState) => void;
@@ -34,6 +46,10 @@ export type OpenAIRealtimeClientEvents = {
   sessionEndpoint?: string;
   sessionBody?: Record<string, unknown>;
   sessionHeaders?: Record<string, string>;
+  sessionRequest?: (
+    endpoint: string,
+    init: RequestInit,
+  ) => Promise<Response>;
 };
 
 function devLog(message: string, details?: Record<string, unknown>) {
@@ -467,7 +483,11 @@ export class OpenAIRealtimeClient {
 
     let data: RealtimeSessionResponse;
     try {
-      const response = await fetch(endpoint, {
+      const sessionRequest =
+        this.events.sessionRequest ??
+        ((requestEndpoint: string, init: RequestInit) =>
+          fetch(requestEndpoint, init));
+      const response = await sessionRequest(endpoint, {
         method: "POST",
         headers: {
           ...(bodyPayload ? { "Content-Type": "application/json" } : {}),
@@ -485,18 +505,28 @@ export class OpenAIRealtimeClient {
       data = (await response.json()) as RealtimeSessionResponse;
 
       if (!response.ok) {
-        const errorMsg = data.error ?? `HTTP ${response.status}: ${response.statusText}`;
+        const errorMsg =
+          data.error ?? `HTTP ${response.status}: ${response.statusText}`;
         devLog("Session creation failed", {
           status: response.status,
           error: errorMsg,
-          details: data.details,
+          stage: data.stage,
         });
-        throw new Error(errorMsg);
+        throw new RealtimeSessionRequestError(
+          response.status,
+          errorMsg,
+          data.stage ?? "client_connection",
+        );
       }
     } catch (e) {
+      if (e instanceof RealtimeSessionRequestError) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       devLog("Session fetch failed", { error: msg });
-      throw new Error(`Session creation failed: ${msg}`);
+      throw new RealtimeSessionRequestError(
+        0,
+        "experience_session_failed",
+        "client_connection",
+      );
     }
 
     devLog("Session created successfully", {

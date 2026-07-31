@@ -35,9 +35,17 @@ export async function captureAndExtractConversationOutput(input: {
   extractionModel?: ConversationExtractionModel;
 }): Promise<{ conversationOutputId: string; candidateCount: number }> {
   const lineage = await input.db.from("voice_representation_lineage")
-    .select("canonical_version_id,authorized_element_keys,agent_type")
+    .select("canonical_version_id,representation_context_mode,authorized_element_keys,agent_type")
     .eq("voice_context_id", input.capture.voiceContextId).single();
   if (lineage.error || !lineage.data) throw new Error("Conversation lineage is unavailable");
+  if (
+    (lineage.data.representation_context_mode === "canonical" &&
+      lineage.data.canonical_version_id === null) ||
+    (lineage.data.representation_context_mode === "pre_canonical" &&
+      lineage.data.canonical_version_id !== null)
+  ) {
+    throw new Error("Conversation lineage Representation context is invalid");
+  }
 
   const existing = await input.db.from("voice_conversation_outputs")
     .select("id,transcript_status,transcript")

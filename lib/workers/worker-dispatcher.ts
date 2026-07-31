@@ -9,6 +9,7 @@ import { saveWorkerBrief } from "./worker-brief-repository";
 import { saveBriefConversationMapping } from "@/lib/voice/persistence/brief-conversation-mapping-repository";
 import {
   assembleVoiceRepresentationContext,
+  assemblePreCanonicalVoiceContext,
   buildVoiceProviderVariables,
   type VoiceReadyContext,
 } from "@/lib/voice/representation-context";
@@ -100,15 +101,25 @@ export async function dispatchWorkerBrief(
       if (options.representationSnapshot && options.representationSnapshot.tenantUserId !== owner.data.user_id) {
         throw new Error("Representation snapshot owner mismatch");
       }
-      voiceContext = await assembleVoiceRepresentationContext({
-        db: supabase,
-        tenantUserId: options.representationSnapshot?.tenantUserId ?? owner.data.user_id,
-        businessId,
-        agent: { id: brief.workerName, type: brief.workerType, role: "outbound_representative" },
-        provisionalMode: options.provisionalMode === true,
-        businessRepresentationId: options.representationSnapshot?.businessRepresentationId,
-        canonicalVersionId: options.representationSnapshot?.canonicalVersionId,
-      });
+      const tenantUserId = options.representationSnapshot?.tenantUserId ?? owner.data.user_id;
+      const agent = { id: brief.workerName, type: brief.workerType, role: "outbound_representative" };
+      voiceContext = options.representationSnapshot?.representationContextMode === "pre_canonical"
+        ? await assemblePreCanonicalVoiceContext({
+          db: supabase,
+          tenantUserId,
+          businessId,
+          businessRepresentationId: options.representationSnapshot.businessRepresentationId,
+          agent,
+        })
+        : await assembleVoiceRepresentationContext({
+          db: supabase,
+          tenantUserId,
+          businessId,
+          agent,
+          provisionalMode: options.provisionalMode === true,
+          businessRepresentationId: options.representationSnapshot?.businessRepresentationId,
+          canonicalVersionId: options.representationSnapshot?.canonicalVersionId ?? undefined,
+        });
       voiceContextId = crypto.randomUUID();
     } catch {
       return {

@@ -41,14 +41,14 @@ export async function processElevenLabsWebhook(input: unknown,payloadHashInput?:
   let correlatedVoiceContextId: string | null = null;
   let correlatedProviderCallId: string | null = null;
   try{
-    let lineageQuery=db.from("voice_representation_lineage").select("voice_context_id,mission_id,conversation_id,provider_call_id,business_id,business_representation_id,canonical_version_id").eq("conversation_id",event.conversationId);
+    let lineageQuery=db.from("voice_representation_lineage").select("voice_context_id,mission_id,conversation_id,provider_call_id,business_id,business_representation_id,canonical_version_id,representation_context_mode").eq("conversation_id",event.conversationId);
     if(event.providerCallId)lineageQuery=lineageQuery.eq("provider_call_id",event.providerCallId);
     const lineage=await lineageQuery.maybeSingle();
     if(lineage.error||!lineage.data?.provider_call_id)throw new Error("provider_lineage_unavailable");
-    const session=await db.from("public_experience_sessions").select("id,state,business_id,business_representation_id,canonical_version_id,provider_conversation_id,provider_call_id")
+    const session=await db.from("public_experience_sessions").select("id,state,business_id,business_representation_id,canonical_version_id,representation_context_mode,provider_conversation_id,provider_call_id")
       .or(`veya_voice_context_id.eq.${lineage.data.voice_context_id},dispatch_id.eq.${lineage.data.mission_id}`).maybeSingle();
     if(session.error||!session.data)throw new Error("public_session_unavailable");
-    if(session.data.business_id!==lineage.data.business_id||session.data.business_representation_id!==lineage.data.business_representation_id||session.data.canonical_version_id!==lineage.data.canonical_version_id)throw new Error("lineage_identity_mismatch");
+    if(session.data.business_id!==lineage.data.business_id||session.data.business_representation_id!==lineage.data.business_representation_id||session.data.canonical_version_id!==lineage.data.canonical_version_id||session.data.representation_context_mode!==lineage.data.representation_context_mode)throw new Error("lineage_identity_mismatch");
     const repair=await db.rpc("zeya_repair_public_experience_dispatch",{p_veya_voice_context_id:lineage.data.voice_context_id,p_provider_conversation_id:event.conversationId,p_provider_call_id:lineage.data.provider_call_id});
     if(repair.error)throw new Error("dispatch_correlation_unavailable");
     const begun=await db.rpc("zeya_begin_voice_webhook_receipt",{p_event_key:event.eventKey,p_event_type:event.providerEventType,p_provider_conversation_id:event.conversationId,p_payload_hash:payloadHash,p_public_experience_session_id:session.data.id});

@@ -68,7 +68,8 @@ export interface WorkerDispatchOptions {
   representationSnapshot?: {
     tenantUserId: string;
     businessRepresentationId: string;
-    canonicalVersionId: string;
+    canonicalVersionId: string | null;
+    representationContextMode?: "canonical" | "pre_canonical";
   };
 }
 

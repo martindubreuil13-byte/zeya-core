@@ -6,6 +6,8 @@ import { OpenAIRealtimeClient } from "@/lib/realtime/openai-realtime-client";
 import type { OnboardingMemory } from "@/types/onboarding";
 import type { RealtimeOnboardingSnapshot } from "@/types/realtime";
 import type { VoiceTranscriptEntry } from "@/types/voice";
+import type { Session } from "@supabase/supabase-js";
+import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 
 const REALTIME_DEBUG = process.env.NEXT_PUBLIC_REALTIME_DEBUG === "true";
 
@@ -45,7 +47,9 @@ function upsertTranscriptEntry(
   return updated.slice(-limit);
 }
 
-export function useRealtimeOnboardingSession(options: { publicExperience?: boolean } = {}) {
+export function useRealtimeOnboardingSession(
+  options: { publicExperience?: boolean; session?: Session | null } = {},
+) {
   const clientRef = useRef<OpenAIRealtimeClient | null>(null);
   const memoryRef = useRef<OnboardingMemory>({});
   const transcriptLogRef = useRef<VoiceTranscriptEntry[]>([]);
@@ -111,6 +115,12 @@ export function useRealtimeOnboardingSession(options: { publicExperience?: boole
     });
     const client = new OpenAIRealtimeClient({
       ...(options.publicExperience ? { sessionEndpoint: "/api/experience/session" } : {}),
+      ...(options.publicExperience && options.session
+        ? {
+            sessionRequest: (endpoint: string, init: RequestInit) =>
+              authenticatedFetch(endpoint, options.session ?? null, init),
+          }
+        : {}),
       onSessionCreated: ({ experienceToken, expiresAt }) => {
         if (options.publicExperience && experienceToken && expiresAt) {
           setExperienceSession({ token: experienceToken, expiresAt });
@@ -186,7 +196,7 @@ export function useRealtimeOnboardingSession(options: { publicExperience?: boole
       client.close();
       clientRef.current = null;
     };
-  }, [appendTranscript, options.publicExperience]);
+  }, [appendTranscript, options.publicExperience, options.session]);
 
   // Safety net: if the session stays in "thinking" for more than 1500ms after the user
   // finishes speaking and no response has arrived, force a transition back to "listening".

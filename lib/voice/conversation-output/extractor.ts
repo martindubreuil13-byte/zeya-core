@@ -5,7 +5,7 @@ export type ConversationExtractionInput = {
   transcript: ConversationTranscriptTurn[];
   channel: "zeya_realtime" | "veya_outbound";
   agentType: string;
-  canonicalVersionId: string;
+  canonicalVersionId: string | null;
   authorizedElementKeys: string[];
   transcriptTrustLevel: "provider_attested" | "authenticated_client_relay" | "status_only";
 };

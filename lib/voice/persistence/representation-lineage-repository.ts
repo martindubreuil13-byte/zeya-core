@@ -10,7 +10,10 @@ export async function saveVoiceRepresentationLineage(input: {
   providerCallId?: string | null;
   lineage: VoiceRepresentationLineage;
 }): Promise<void> {
-  const result = await input.db.rpc("zeya_create_voice_representation_lineage", {
+  const rpc = input.lineage.representationContextMode === "pre_canonical"
+    ? "zeya_create_pre_canonical_voice_representation_lineage"
+    : "zeya_create_voice_representation_lineage";
+  const result = await input.db.rpc(rpc, {
     p_voice_context_id: input.voiceContextId,
     p_worker_brief_id: input.workerBriefId,
     p_mission_id: input.missionId,

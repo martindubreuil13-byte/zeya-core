@@ -15,7 +15,8 @@ export type PublicExperienceSessionRow = {
   tenant_user_id: string;
   business_id: string;
   business_representation_id: string;
-  canonical_version_id: string;
+  canonical_version_id: string | null;
+  representation_context_mode: "canonical" | "pre_canonical";
   zeya_voice_context_id: string;
   zeya_conversation_output_id: string | null;
   veya_voice_context_id: string | null;
