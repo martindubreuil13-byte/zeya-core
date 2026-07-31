@@ -54,16 +54,83 @@ function safeStageLog(stage: ExperienceSessionFailureStage, code: string) {
   console.error("[experience-session]", { stage, code });
 }
 
+type DiagnosticError = {
+  name?: unknown;
+  message?: unknown;
+  stack?: unknown;
+  code?: unknown;
+  details?: unknown;
+  hint?: unknown;
+  status?: unknown;
+  cause?: unknown;
+};
+
+function serializeDiagnosticError(error: unknown, depth = 0): unknown {
+  if (depth > 3) return { truncated: true };
+  if (!(error instanceof Error) && (!error || typeof error !== "object")) {
+    return { value: String(error) };
+  }
+
+  const diagnostic = error as DiagnosticError;
+  return {
+    name: typeof diagnostic.name === "string" ? diagnostic.name : undefined,
+    message: typeof diagnostic.message === "string" ? diagnostic.message : undefined,
+    stack: typeof diagnostic.stack === "string" ? diagnostic.stack : undefined,
+    code: typeof diagnostic.code === "string" ? diagnostic.code : undefined,
+    details: typeof diagnostic.details === "string" ? diagnostic.details : undefined,
+    hint: typeof diagnostic.hint === "string" ? diagnostic.hint : undefined,
+    status:
+      typeof diagnostic.status === "number" || typeof diagnostic.status === "string"
+        ? diagnostic.status
+        : undefined,
+    cause:
+      diagnostic.cause === undefined
+        ? undefined
+        : serializeDiagnosticError(diagnostic.cause, depth + 1),
+  };
+}
+
+function diagnosticLog(
+  requestId: string,
+  step: string,
+  outcome: "start" | "success" | "failure",
+  error?: unknown,
+) {
+  const payload = {
+    requestId,
+    step,
+    outcome,
+    ...(error === undefined ? {} : { error: serializeDiagnosticError(error) }),
+  };
+
+  if (outcome === "failure") {
+    console.error("[experience-session-diagnostic]", payload);
+    return;
+  }
+  console.info("[experience-session-diagnostic]", payload);
+}
+
 export function buildPublicExperienceInstructions(governedContext: string): string {
   return `${PUBLIC_EXPERIENCE_INSTRUCTIONS}\n\n--- GOVERNED REPRESENTATION CONTEXT ---\n${governedContext}`;
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+  diagnosticLog(requestId, "route_entry", "start");
+
   const openAIKey = process.env.OPENAI_API_KEY;
+  diagnosticLog(requestId, "environment_validation", "start");
   if (!openAIKey) {
+    diagnosticLog(
+      requestId,
+      "environment_validation",
+      "failure",
+      new Error("OPENAI_API_KEY is unavailable"),
+    );
     safeStageLog("provider_configuration", "openai_key_unavailable");
     return experienceSessionFailure("provider_configuration");
   }
+  diagnosticLog(requestId, "environment_validation", "success");
 
   let businessId: string | undefined;
   let businessRepresentationId: string | undefined;
@@ -74,14 +141,31 @@ export async function POST(request: NextRequest) {
 
   const authorization = request.headers.get("authorization");
   const bearerSupplied = authorization?.startsWith("Bearer ") === true;
-  const auth = await createAuthenticatedRepresentationContext(request);
+  diagnosticLog(requestId, "auth_resolution", "start");
+  let auth: Awaited<ReturnType<typeof createAuthenticatedRepresentationContext>>;
+  try {
+    auth = await createAuthenticatedRepresentationContext(request);
+    diagnosticLog(requestId, "auth_resolution", "success");
+  } catch (error) {
+    diagnosticLog(requestId, "auth_resolution", "failure", error);
+    safeStageLog("authentication", "auth_resolution_exception");
+    return experienceSessionFailure("authentication", 500);
+  }
   if (auth instanceof NextResponse && bearerSupplied) {
     safeStageLog("authentication", "bearer_rejected");
     return experienceSessionFailure("authentication", 401);
   }
 
   try {
-    const db = createExperienceServiceClient();
+    diagnosticLog(requestId, "supabase_client_creation", "start");
+    let db: ReturnType<typeof createExperienceServiceClient>;
+    try {
+      db = createExperienceServiceClient();
+      diagnosticLog(requestId, "supabase_client_creation", "success");
+    } catch (error) {
+      diagnosticLog(requestId, "supabase_client_creation", "failure", error);
+      throw error;
+    }
     serviceDb = db;
 
     if (auth instanceof NextResponse) {
@@ -122,17 +206,32 @@ export async function POST(request: NextRequest) {
       businessRepresentationId = representation.data.id;
     } else {
       tenantUserId = auth.user.id;
+      diagnosticLog(requestId, "atomic_provisioning", "start");
+      diagnosticLog(requestId, "first_supabase_rpc", "start");
       const provisioned = await db.rpc("zeya_provision_owner_business", {
         p_owner_id: tenantUserId,
         p_business_id: null,
       });
       if (provisioned.error) {
+        diagnosticLog(
+          requestId,
+          "first_supabase_rpc",
+          "failure",
+          provisioned.error,
+        );
+        diagnosticLog(
+          requestId,
+          "atomic_provisioning",
+          "failure",
+          provisioned.error,
+        );
         safeStageLog(
           "atomic_provisioning",
           provisioned.error.code ?? "provisioning_failed",
         );
         return provisioningFailureResponse(provisioned.error);
       }
+      diagnosticLog(requestId, "first_supabase_rpc", "success");
 
       const provision = parseProvisionOwnerBusinessResult(provisioned.data);
       if (!provision) {
@@ -142,6 +241,7 @@ export async function POST(request: NextRequest) {
         );
         return experienceSessionFailure("provisioning_response_validation");
       }
+      diagnosticLog(requestId, "atomic_provisioning", "success");
 
       businessId = provision.business_id;
       businessRepresentationId = provision.business_representation_id;
@@ -346,6 +446,7 @@ export async function POST(request: NextRequest) {
       status: "waiting_for_zeya",
     });
   } catch (error) {
+    diagnosticLog(requestId, "route_failure", "failure", error);
     if (serviceDb && persistedTokenHash) {
       const compensation =
         process.env.PUBLIC_EXPERIENCE_TEST_FORCE_COMPENSATION_FAILURE === "true"
