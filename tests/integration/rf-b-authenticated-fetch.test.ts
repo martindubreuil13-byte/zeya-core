@@ -53,7 +53,10 @@ describe('RF-B Authenticated Fetch Tests', () => {
     const formationEntryContent = await fs.readFile(formationEntryPath, 'utf-8');
 
     expect(formationEntryContent).toContain("router.replace('/login')");
-    expect(formationEntryContent).toContain("router.replace('/representation/living')");
+    expect(formationEntryContent).toContain(
+      "resolveOwnerJourneyPath({ status: 'has_representation' })",
+    );
+    expect(formationEntryContent).toContain('router.replace(nextPath)');
   });
 
   it('should verify 401 error handling in FormationWorkflow', async () => {

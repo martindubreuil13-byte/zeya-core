@@ -145,7 +145,29 @@ export async function POST(request: NextRequest) {
 
       businessId = provision.business_id;
       businessRepresentationId = provision.business_representation_id;
-      representationContextMode = "pre_canonical";
+
+      const representation = await db
+        .from("business_representations")
+        .select("id,business_id,user_id,current_version_id")
+        .eq("id", businessRepresentationId)
+        .eq("business_id", businessId)
+        .eq("user_id", tenantUserId)
+        .maybeSingle();
+      if (
+        representation.error ||
+        representation.data?.id !== businessRepresentationId ||
+        representation.data.business_id !== businessId ||
+        representation.data.user_id !== tenantUserId
+      ) {
+        safeStageLog(
+          "voice_context",
+          representation.error?.code ?? "provisioned_representation_unavailable",
+        );
+        return experienceSessionFailure("voice_context");
+      }
+      representationContextMode = representation.data.current_version_id === null
+        ? "pre_canonical"
+        : "canonical";
     }
 
     if (

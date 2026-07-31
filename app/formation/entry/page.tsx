@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { OwnerOnboarding } from '@/components/owner/OwnerOnboarding';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
+import { resolveOwnerJourneyPath } from '@/lib/owner/owner-route';
 import { useEffect, useState } from 'react';
 
 type OwnerStatus =
@@ -132,13 +133,26 @@ export default function FormationEntryPage() {
             setOwnerState({ status: 'error' });
             return;
           }
-          router.replace(`/formation/sessions/${ownerData.formationSessionId}`);
+          const nextPath = resolveOwnerJourneyPath({
+            status: 'active_formation',
+            formationSessionId: ownerData.formationSessionId,
+          });
+          if (!nextPath) {
+            setOwnerState({ status: 'error' });
+            return;
+          }
+          router.replace(nextPath);
           return;
         }
 
         // If has Representation, redirect to workspace
         if (ownerData.status === 'has_representation') {
-          router.replace('/representation/living');
+          const nextPath = resolveOwnerJourneyPath({ status: 'has_representation' });
+          if (!nextPath) {
+            setOwnerState({ status: 'error' });
+            return;
+          }
+          router.replace(nextPath);
           return;
         }
 
@@ -169,7 +183,12 @@ export default function FormationEntryPage() {
       setOwnerState({ status: 'error' });
       return;
     }
-    router.push('/experience');
+    const nextPath = resolveOwnerJourneyPath({ status: 'new_owner' });
+    if (!nextPath) {
+      setOwnerState({ status: 'error' });
+      return;
+    }
+    router.push(nextPath);
   };
 
   // Loading state

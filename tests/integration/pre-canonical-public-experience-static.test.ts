@@ -113,7 +113,11 @@ describe("governed pre-canonical Public Experience", () => {
     expect(context).toContain("PRE-CANONICAL BUSINESS DISCOVERY");
     expect(route).toContain("assemblePreCanonicalVoiceContext");
     expect(route).toContain("assembleVoiceRepresentationContext");
-    expect(route).toContain('representationContextMode = "pre_canonical"');
+    expect(route).toContain(
+      'representation.data.current_version_id === null',
+    );
+    expect(route).toContain('? "pre_canonical"');
+    expect(route).toContain(': "canonical"');
     expect(route).toContain(
       "voiceContext.lineage.representationContextMode !==",
     );

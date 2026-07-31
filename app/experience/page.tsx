@@ -28,6 +28,10 @@ import { EXPERIENCE_DEBUG_ENABLED, experienceDebugLog, experienceDebugTable } fr
 import {generateCommercialBridge,type CommercialBridge} from "@/lib/experience/commercial-bridge-generator";
 import {speakText,stopSpeaking} from "@/lib/voice/text-to-speech";
 import { RealtimeSessionRequestError } from "@/lib/realtime/openai-realtime-client";
+import {
+  isOwnerExperiencePath,
+  OWNER_EXPERIENCE_PATH,
+} from "@/lib/owner/owner-route";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "brief_review" | "calibration" | "bridge_preparing" | "bridge_error" | "bridge_recognition" | "bridge_role" | "bridge_boundaries" | "hiring_decision" | "onboarding_preview" | "identity_confirmation" | "living_representation" | "completed" | "handoff_error";
 
@@ -82,6 +86,9 @@ export default function ExperiencePage() {
   const [correctedName, setCorrectedName] = useState("");
   const [formationLoading, setFormationLoading] = useState(false);
   const [formationError, setFormationError] = useState<string | null>(null);
+  const [entryContext, setEntryContext] = useState<
+    "resolving" | "public" | "owner"
+  >("resolving");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -142,7 +149,21 @@ export default function ExperiencePage() {
   },[bridgeReplayNonce,businessName,commercialBridge,extractedName,phase,representationBrief]);
 
   const router = useRouter();
-  const { user, session } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setEntryContext(
+        isOwnerExperiencePath(window.location.search) ? "owner" : "public",
+      );
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (entryContext !== "owner" || authLoading || user) return;
+    router.replace(`/login?next=${encodeURIComponent(OWNER_EXPERIENCE_PATH)}`);
+  }, [authLoading, entryContext, router, user]);
 
   const replayBridge=()=>{spokenBridgePhaseRef.current=null;setBridgeVoiceFailed(false);setBridgeReplayNonce(value=>value+1);};
   const startCommercialBridge=(brief:RepresentationBrief,correction?:string)=>{setPhase("bridge_preparing");window.setTimeout(()=>{try{setCommercialBridge(generateCommercialBridge(brief,correction));setPhase("bridge_recognition");}catch{setPhase("bridge_error");}},120);};
@@ -647,6 +668,21 @@ export default function ExperiencePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nameConfirmation.asking, phase, voiceTranscript]);
 
+  if (
+    entryContext === "resolving" ||
+    (entryContext === "owner" && (authLoading || !user || !session))
+  ) {
+    return (
+      <main className="flex h-screen items-center justify-center bg-zeya-void">
+        <p className="text-sm font-light text-zeya-taupe">
+          Preparing your Experience…
+        </p>
+      </main>
+    );
+  }
+
+  const ownerExperience = entryContext === "owner";
+
   return (
     <main className="relative w-full h-screen overflow-hidden bg-zeya-void flex flex-col">
       {phase === "initial" && (
@@ -657,13 +693,15 @@ export default function ExperiencePage() {
               className="font-serif text-lg sm:text-xl text-zeya-ivory font-light"
               style={{ letterSpacing: "0.08em", lineHeight: "1.6" }}
             >
-              Meet Zeya.
+              {ownerExperience ? "Begin with Zeya." : "Meet Zeya."}
             </p>
             <p
               className="text-sm text-zeya-taupe font-light max-w-md mx-auto"
               style={{ letterSpacing: "0.02em", lineHeight: "1.7" }}
             >
-              A brief conversation to see what&apos;s possible.
+              {ownerExperience
+                ? "A private first conversation to begin understanding your business."
+                : "A brief conversation to see what&apos;s possible."}
             </p>
             <VoiceButton
               onStart={handleStartExperience}
