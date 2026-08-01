@@ -1,7 +1,8 @@
 // RF-B Critical Path Tests
 // Tests the complete first working conversation + formation → representation workflow
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { describe, it, expect } from 'vitest';
 
 describe('RF-B Critical Path', () => {
   it('Formation preparation reuses existing Public Experience Business and Representation', () => {
@@ -15,9 +16,12 @@ describe('RF-B Critical Path', () => {
     expect(true).toBe(true);
   });
 
-  it('Confirmed brief is required for Formation preparation', () => {
-    // Verify: public_experience_representation_briefs.status must be 'confirmed'
-    expect(true).toBe(true);
+  it('A valid brief and separate confirm response are required for Formation preparation', async () => {
+    const route = await readFile('app/api/formation/prepare/route.ts', 'utf8');
+    expect(route).toContain('briefResult.data.status !== "valid"');
+    expect(route).toContain('response.response_type === "confirm"');
+    expect(route).toContain('"brief_refinement_not_confirmed"');
+    expect(route).not.toContain(".eq('status', 'confirmed')");
   });
 
   it('Expired Public Experience session is denied', () => {

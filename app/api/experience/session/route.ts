@@ -110,6 +110,37 @@ function diagnosticLog(
   console.info("[experience-session-diagnostic]", payload);
 }
 
+function serviceRoleKeyDiagnostic() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const isJwt = serviceRoleKey?.startsWith("eyJ") === true;
+  let jwtRole: string | null = null;
+
+  if (isJwt) {
+    try {
+      const payload = serviceRoleKey?.split(".")[1];
+      if (payload) {
+        const decoded = JSON.parse(
+          Buffer.from(payload, "base64url").toString("utf8"),
+        ) as { role?: unknown };
+        jwtRole = typeof decoded.role === "string" ? decoded.role : null;
+      }
+    } catch {
+      jwtRole = null;
+    }
+  }
+
+  console.info("[experience-owner-provisioning-supabase-role]", {
+    serviceRoleKeyPresent: Boolean(serviceRoleKey),
+    configuredKeyHasExpectedFormat:
+      isJwt || serviceRoleKey?.startsWith("sb_secret_") === true,
+    identicalToPublishableKey:
+      Boolean(serviceRoleKey && publishableKey && serviceRoleKey === publishableKey),
+    jwtRole,
+    clientFactory: "createExperienceServiceClient",
+  });
+}
+
 export function buildPublicExperienceInstructions(governedContext: string): string {
   return `${PUBLIC_EXPERIENCE_INSTRUCTIONS}\n\n--- GOVERNED REPRESENTATION CONTEXT ---\n${governedContext}`;
 }
@@ -208,6 +239,7 @@ export async function POST(request: NextRequest) {
       tenantUserId = auth.user.id;
       diagnosticLog(requestId, "atomic_provisioning", "start");
       diagnosticLog(requestId, "first_supabase_rpc", "start");
+      serviceRoleKeyDiagnostic();
       const provisioned = await db.rpc("zeya_provision_owner_business", {
         p_owner_id: tenantUserId,
         p_business_id: null,

@@ -135,10 +135,11 @@ describe('RF-B Public Experience to Formation Handoff', () => {
 
     // Verify endpoint exists
     expect(content).toContain('POST');
-    expect(content).toContain('/api/formation/prepare');
+    expect(content).toContain('export async function POST');
 
     // Verify it returns success and data.sessionId
-    expect(content).toContain('{ status: 201 }');
+    expect(content).toContain('{ status: existing ? 200 : 201 }');
+    expect(content).toContain('route: `/formation/sessions/${formation.id}`');
     expect(content).toContain('success: true');
 
     console.log('✓ Formation prepare endpoint returns proper structure');
@@ -178,10 +179,12 @@ describe('RF-B Public Experience to Formation Handoff', () => {
     const content = await fs.readFile(filePath, 'utf-8');
 
     // Verify session validation prevents duplicates
-    expect(content).toContain('if (publicExpSession.state !== \'reflection_ready\')');
+    expect(content).toContain('if (experience.state !== "reflection_ready")');
 
-    // Verify confirmed brief check
-    expect(content).toContain('confirmed');
+    // Verify the immutable brief and separate response contracts.
+    expect(content).toContain('briefResult.data.status !== "valid"');
+    expect(content).toContain('response.response_type === "confirm"');
+    expect(content).not.toContain(".eq('status', 'confirmed')");
 
     console.log('✓ Formation prepare validates preconditions for idempotency');
   });
@@ -237,5 +240,22 @@ describe('RF-B Public Experience to Formation Handoff', () => {
     expect(content).toContain('onClick={handleBeginFormation}');
 
     console.log('✓ Button correctly wired to handler');
+  });
+
+  it('awaits confirmation persistence before entering the commercial bridge', async () => {
+    const content = await fs.readFile('./app/experience/page.tsx', 'utf-8');
+    expect(content).toContain('if (await recordBriefResponse("confirm"))');
+    expect(content).toContain('startCommercialBridge(representationBrief);');
+    expect(content.indexOf('if (await recordBriefResponse("confirm"))')).toBeLessThan(
+      content.indexOf('startCommercialBridge(representationBrief);', content.indexOf('if (await recordBriefResponse("confirm"))')),
+    );
+    expect(content).toContain('disabled={briefResponsePending}');
+    expect(content).toContain('{briefResponseError&&');
+  });
+
+  it('uses the shared response pending guard for calibration', async () => {
+    const content = await fs.readFile('./app/experience/page.tsx', 'utf-8');
+    expect(content).toContain('disabled={briefResponsePending || !calibrationText.trim()}');
+    expect(content).not.toContain('calibrationPending');
   });
 });

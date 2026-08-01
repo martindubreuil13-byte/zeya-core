@@ -71,7 +71,6 @@ export default function ExperiencePage() {
   const [businessName,setBusinessName]=useState("");
   const [businessEmail,setBusinessEmail]=useState("");
   const [calibrationText,setCalibrationText]=useState("");
-  const [calibrationPending,setCalibrationPending]=useState(false);
   const [commercialBridge,setCommercialBridge]=useState<CommercialBridge|null>(null);
   const [bridgeTranscriptOpen,setBridgeTranscriptOpen]=useState(false);
   const [bridgeVoiceFailed,setBridgeVoiceFailed]=useState(false);
@@ -616,10 +615,18 @@ export default function ExperiencePage() {
   };
 
   const recordBriefResponse = async (responseType: RepresentationBriefResponseType, responseText = "") => {
+    if(briefResponsePending)return false;
     const token=experienceSession?.token,briefId=representationBrief?.id;if(!token||!briefId)return false;
     const key=briefResponseKeysRef.current[`${responseType}:${responseText}`]??crypto.randomUUID();
     briefResponseKeysRef.current[`${responseType}:${responseText}`]=key;setBriefResponsePending(true);setBriefResponseError(null);
     try{const response=await fetch("/api/experience/session/reflection/response",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({briefId,requestKey:key,responseType,responseText})});if(!response.ok)throw new Error("response_not_recorded");setBriefResponse(responseType);return true;}catch{setBriefResponseError("I couldn’t save that adjustment yet. Your conversation is still preserved.");return false;}finally{setBriefResponsePending(false);}
+  };
+
+  const confirmBriefAndContinue = async () => {
+    if (!representationBrief || briefResponsePending) return;
+    if (await recordBriefResponse("confirm")) {
+      startCommercialBridge(representationBrief);
+    }
   };
 
   // Process each final visitor turn exactly once. The greeting beat pauses here
@@ -1082,11 +1089,13 @@ export default function ExperiencePage() {
 
                 <div className="space-y-2">
                   <button
-                    onClick={() => {void recordBriefResponse("confirm");startCommercialBridge(representationBrief);}}
-                    className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors"
+                    onClick={() => { void confirmBriefAndContinue(); }}
+                    disabled={briefResponsePending}
+                    className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors disabled:opacity-50"
                   >
-                    Yes, that&apos;s right.
+                    {briefResponsePending ? "Saving…" : "Yes, that&apos;s right."}
                   </button>
+                  {briefResponseError&&<p className="text-xs text-red-300/80" role="alert">{briefResponseError}</p>}
                   <button
                     onClick={() => setPhase("calibration")}
                     className="w-full border border-zeya-taupe/30 px-4 py-3 text-sm text-zeya-ivory hover:border-zeya-champagne hover:text-zeya-champagne transition-colors"
@@ -1125,7 +1134,7 @@ export default function ExperiencePage() {
               />
               <button
                 type="submit"
-                disabled={calibrationPending || !calibrationText.trim()}
+                disabled={briefResponsePending || !calibrationText.trim()}
                 className="w-full border border-zeya-champagne/60 px-4 py-3 text-sm text-zeya-champagne hover:bg-zeya-champagne/5 transition-colors disabled:opacity-50"
               >
                 I understand. Continue.

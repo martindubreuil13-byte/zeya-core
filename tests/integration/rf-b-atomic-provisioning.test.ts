@@ -178,4 +178,26 @@ describe("RF-B atomic Public Experience provisioning", () => {
     expect(route).not.toContain("representation_versions");
     expect(route).not.toContain("version_number");
   });
+
+  it("uses the isolated service-role factory and emits only safe key diagnostics", async () => {
+    const route = await readFile(
+      "app/api/experience/session/route.ts",
+      "utf8",
+    );
+    const factory = await readFile(
+      "lib/experience/public-session-server.ts",
+      "utf8",
+    );
+
+    expect(factory).toContain("const key = process.env.SUPABASE_SERVICE_ROLE_KEY");
+    expect(factory).not.toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+    expect(factory).not.toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    expect(factory).not.toContain("global:");
+    expect(route.indexOf("serviceRoleKeyDiagnostic();")).toBeLessThan(
+      route.indexOf('db.rpc("zeya_provision_owner_business"'),
+    );
+    expect(route).toContain('clientFactory: "createExperienceServiceClient"');
+    expect(route).toContain('serviceRoleKey?.startsWith("sb_secret_")');
+    expect(route).not.toMatch(/console\.info\([^\n]*(?:serviceRoleKey|publishableKey)/);
+  });
 });
