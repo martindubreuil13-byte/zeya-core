@@ -11,21 +11,26 @@ import type { FormationSession, FormationSummary } from '@/types/formation';
 
 interface FormationWorkflowProps {
   sessionId: string;
+  screenLab?: {
+    uiState: UIState;
+    summary?: FormationSummary | null;
+    versionId?: string | null;
+  };
 }
 
-type UIState = 'loading' | 'entry' | 'getting_familiar' | 'conversation_ready' | 'conversation_active'
+export type UIState = 'loading' | 'entry' | 'getting_familiar' | 'conversation_ready' | 'conversation_active'
   | 'processing' | 'summary_review' | 'correction_entry' | 'approval_confirmation' | 'version_created' | 'error';
 
-export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
+export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowProps) {
   const router = useRouter();
   const { session: authSession, loading: authLoading } = useAuth();
   const [session, setSession] = useState<FormationSession | null>(null);
-  const [summary, setSummary] = useState<FormationSummary | null>(null);
-  const [uiState, setUiState] = useState<UIState>('loading');
+  const [summary, setSummary] = useState<FormationSummary | null>(screenLab?.summary ?? null);
+  const [uiState, setUiState] = useState<UIState>(screenLab?.uiState ?? 'loading');
   const [error, setError] = useState<string | null>(null);
   const [correctionText, setCorrectionText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [versionId, setVersionId] = useState<string | null>(null);
+  const [versionId, setVersionId] = useState<string | null>(screenLab?.versionId ?? null);
 
   const mapSessionToUIState = useCallback((sess: FormationSession) => {
     switch (sess.status) {
@@ -46,6 +51,7 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
 
   // Load Formation Session on mount
   useEffect(() => {
+    if (screenLab) return;
     if (authLoading || !authSession) return;
 
     const loadSession = async () => {
@@ -73,9 +79,10 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
       }
     };
     loadSession();
-  }, [sessionId, mapSessionToUIState, authLoading, authSession, router]);
+  }, [sessionId, mapSessionToUIState, authLoading, authSession, router, screenLab]);
 
   const advanceState = useCallback(async (nextStatus: string) => {
+    if (screenLab) return;
     if (!authSession) {
       setError('Not authenticated');
       return;
@@ -107,9 +114,10 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId, session, mapSessionToUIState, authSession, router]);
+  }, [sessionId, session, mapSessionToUIState, authSession, router, screenLab]);
 
   const generateSummary = useCallback(async () => {
+    if (screenLab) return;
     if (!authSession) {
       setError('Not authenticated');
       return;
@@ -142,9 +150,10 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId, authSession, router]);
+  }, [sessionId, authSession, router, screenLab]);
 
   const submitCorrection = useCallback(async () => {
+    if (screenLab) return;
     if (!correctionText.trim() || !authSession) return;
     try {
       setIsProcessing(true);
@@ -172,9 +181,10 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [correctionText, sessionId, generateSummary, authSession, router]);
+  }, [correctionText, sessionId, generateSummary, authSession, router, screenLab]);
 
   const approveSummary = useCallback(async () => {
+    if (screenLab) return;
     if (!summary || !authSession) return;
     try {
       setIsProcessing(true);
@@ -207,9 +217,10 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } finally {
       setIsProcessing(false);
     }
-  }, [summary, sessionId, authSession, router]);
+  }, [summary, sessionId, authSession, router, screenLab]);
 
   const requestMoreTime = useCallback(async () => {
+    if (screenLab) return;
     if (!authSession) return;
     try {
       const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/pause`, authSession, {
@@ -228,7 +239,7 @@ export function FormationWorkflow({ sessionId }: FormationWorkflowProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     }
-  }, [sessionId, authSession, router]);
+  }, [sessionId, authSession, router, screenLab]);
 
   if (uiState === 'loading') {
     return (

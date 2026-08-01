@@ -3,6 +3,7 @@
 // Handles 401 response with optional retry
 
 import type { Session } from '@supabase/supabase-js';
+import { rejectScreenLabFixturePersistence } from '@/lib/testing/screen-lab-guard';
 
 export interface AuthenticatedFetchOptions extends RequestInit {
   retryOn401?: boolean; // Default: true
@@ -18,6 +19,12 @@ export async function authenticatedFetch(
   options: AuthenticatedFetchOptions = {}
 ): Promise<Response> {
   const { retryOn401 = true, ...fetchOptions } = options;
+
+  const rejectedFixtureRequest = rejectScreenLabFixturePersistence(
+    url,
+    fetchOptions.body,
+  );
+  if (rejectedFixtureRequest) return rejectedFixtureRequest;
 
   if (!session?.access_token) {
     return new Response(

@@ -32,17 +32,26 @@ import {
   isOwnerExperiencePath,
   OWNER_EXPERIENCE_PATH,
 } from "@/lib/owner/owner-route";
+import {
+  SCREEN_LAB_BRIEF,
+  SCREEN_LAB_TRANSCRIPT,
+  type ExperienceScreenLabState,
+} from "@/lib/experience/screen-lab";
 
 type Phase = "initial" | "voice_active" | "handoff" | "collecting_phone" | "submitting_handoff" | "finalizing" | "dispatching_call" | "waiting_for_call" | "brief_review" | "calibration" | "bridge_preparing" | "bridge_error" | "bridge_recognition" | "bridge_role" | "bridge_boundaries" | "hiring_decision" | "onboarding_preview" | "identity_confirmation" | "living_representation" | "completed" | "handoff_error";
 
 const PHONE_HANDOFF =
   "I’d like to try something with you. In a moment, my colleague Veya will call you. I’ve already told her everything we discussed, so she won’t be starting from scratch. She’ll ask a few questions that help us understand how we could represent your business. Please keep this page open—I’ll be waiting for you when you’re back. What’s the best number to reach you on?";
 
-export default function ExperiencePage() {
-  const voice = usePublicExperienceVoiceConversation();
+type ExperienceScreenProps = {
+  screenLab?: ExperienceScreenLabState;
+};
+
+export function ExperienceScreen({ screenLab }: ExperienceScreenProps = {}) {
+  const voice = usePublicExperienceVoiceConversation({ disabled: Boolean(screenLab) });
   const {
-    state: voiceState,
-    transcript: voiceTranscript,
+    state: liveVoiceState,
+    transcript: liveVoiceTranscript,
     isConfigured,
     startConversation,
     stopConversation,
@@ -51,27 +60,32 @@ export default function ExperiencePage() {
     experienceSession,
   } = voice;
 
-  const [phase, setPhase] = useState<Phase>("initial");
+  const voiceState = screenLab
+    ? screenLab.phase === "voice_active" ? "listening" : "idle"
+    : liveVoiceState;
+  const voiceTranscript = screenLab ? SCREEN_LAB_TRANSCRIPT : liveVoiceTranscript;
+
+  const [phase, setPhase] = useState<Phase>(screenLab?.phase ?? "initial");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSubmittingPhone, setIsSubmittingPhone] = useState(false);
   const [dispatchRecord, setDispatchRecord] = useState<DispatchRecord | null>(null);
   const [delegationStatus, setDelegationStatus] =
-    useState<VeyaDelegationStatus>("preparing_brief");
+    useState<VeyaDelegationStatus>(screenLab?.phase === "waiting_for_call" ? "call_requested" : "preparing_brief");
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [voiceStartError, setVoiceStartError] = useState<string | null>(null);
-  const [durableCallStatus,setDurableCallStatus]=useState<string|null>(null);
+  const [durableCallStatus,setDurableCallStatus]=useState<string|null>(screenLab?.durableCallStatus ?? null);
   const [callOutcome,setCallOutcome]=useState<PublicExperienceCallOutcome|null>(null);
-  const [representationBrief,setRepresentationBrief]=useState<RepresentationBrief|null>(null);
+  const [representationBrief,setRepresentationBrief]=useState<RepresentationBrief|null>(screenLab?.includeBrief ? SCREEN_LAB_BRIEF : null);
   const [spokenBrief,setSpokenBrief]=useState<string|null>(null);
-  const [briefClarification,setBriefClarification]=useState<{message:string;question:string}|null>(null);
+  const [briefClarification,setBriefClarification]=useState<{message:string;question:string}|null>(screenLab?.includeClarification ? {message:"I understand the outline, but I do not yet have enough evidence to offer a useful representation direction.",question:"What is the most important result your business creates for the people it serves?"} : null);
   const [briefResponse,setBriefResponse]=useState<string|null>(null);
   const [briefResponseText,setBriefResponseText]=useState("");
   const [briefResponseError,setBriefResponseError]=useState<string|null>(null);
   const [briefResponsePending,setBriefResponsePending]=useState(false);
-  const [businessName,setBusinessName]=useState("");
-  const [businessEmail,setBusinessEmail]=useState("");
+  const [businessName,setBusinessName]=useState(screenLab ? "AI Architecture Academy for Small Businesses" : "");
+  const [businessEmail,setBusinessEmail]=useState(screenLab ? "martin@screenlab.invalid" : "");
   const [calibrationText,setCalibrationText]=useState("");
-  const [commercialBridge,setCommercialBridge]=useState<CommercialBridge|null>(null);
+  const [commercialBridge,setCommercialBridge]=useState<CommercialBridge|null>(screenLab?.includeBrief ? generateCommercialBridge(SCREEN_LAB_BRIEF) : null);
   const [bridgeTranscriptOpen,setBridgeTranscriptOpen]=useState(false);
   const [bridgeVoiceFailed,setBridgeVoiceFailed]=useState(false);
   const [bridgePhraseIndex,setBridgePhraseIndex]=useState(0);
@@ -81,13 +95,13 @@ export default function ExperiencePage() {
   const [nameConfirmation, setNameConfirmation] = useState<{ asking: boolean; name?: string }>({
     asking: false,
   });
-  const [extractedName, setExtractedName] = useState<string | null>(null);
+  const [extractedName, setExtractedName] = useState<string | null>(screenLab ? "Martin" : null);
   const [correctedName, setCorrectedName] = useState("");
   const [formationLoading, setFormationLoading] = useState(false);
-  const [formationError, setFormationError] = useState<string | null>(null);
+  const [formationError, setFormationError] = useState<string | null>(screenLab?.formationError ?? null);
   const [entryContext, setEntryContext] = useState<
     "resolving" | "public" | "owner"
-  >("resolving");
+  >(screenLab ? "owner" : "resolving");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BeatController | null>(null);
   const handoffHasStartedSpeakingRef = useRef(false);
@@ -106,12 +120,14 @@ export default function ExperiencePage() {
     || delegationStatus === "correlation_pending"
     || delegationStatus === "dispatch_resolution_pending";
   const recordExperienceEvent=useCallback((event:string)=>{
+    if(screenLab)return;
     const token=experienceSession?.token;
     if(!token)return;
     void fetch("/api/experience/session/telemetry",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({event}),keepalive:true}).catch(()=>undefined);
-  },[experienceSession?.token]);
+  },[experienceSession?.token,screenLab]);
 
   useEffect(() => {
+    if (screenLab) return;
     const saved = sessionStorage.getItem("zeyaCommercialBridgeResume");
     if (!saved) return;
     let state: {
@@ -135,9 +151,10 @@ export default function ExperiencePage() {
       setPhase("identity_confirmation");
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [screenLab]);
 
   useEffect(()=>{
+    if(screenLab)return;
     if(!commercialBridge||!["bridge_recognition","bridge_role","bridge_boundaries","onboarding_preview"].includes(phase)||spokenBridgePhaseRef.current===phase)return;
     spokenBridgePhaseRef.current=phase;setBridgeVoiceFailed(false);setBridgePhraseIndex(0);
     const copy=phase==="bridge_recognition"?commercialBridge.recognition:phase==="bridge_role"?commercialBridge.roleExplanation:phase==="bridge_boundaries"?`${commercialBridge.boundaries} ${commercialBridge.hiringInvitation}`:`${commercialBridge.onboardingIntroduction} ${commercialBridge.onboardingSteps.join(". ")}. ${commercialBridge.onboardingClose}`;
@@ -145,29 +162,32 @@ export default function ExperiencePage() {
     void speakText(copy).then(()=>{if(next==="identity_confirmation")sessionStorage.setItem("zeyaCommercialBridgeResume",JSON.stringify({phase:next,brief:representationBrief,name:extractedName,businessName}));setPhase(next as Phase);}).catch(()=>setBridgeVoiceFailed(true));
     const phrases=phase==="bridge_role"?commercialBridge.rolePhrases:phase==="bridge_boundaries"?commercialBridge.boundaryPhrases:phase==="onboarding_preview"?commercialBridge.onboardingSteps:[];const interval=phrases.length?window.setInterval(()=>setBridgePhraseIndex(index=>Math.min(index+1,phrases.length-1)),Math.max(1800,copy.length*45/phrases.length)):undefined;
     return()=>{if(interval)window.clearInterval(interval);stopSpeaking();};
-  },[bridgeReplayNonce,businessName,commercialBridge,extractedName,phase,representationBrief]);
+  },[bridgeReplayNonce,businessName,commercialBridge,extractedName,phase,representationBrief,screenLab]);
 
   const router = useRouter();
   const { user, session, loading: authLoading } = useAuth();
 
   useEffect(() => {
+    if (screenLab) return;
     const timeout = window.setTimeout(() => {
       setEntryContext(
         isOwnerExperiencePath(window.location.search) ? "owner" : "public",
       );
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [screenLab]);
 
   useEffect(() => {
+    if (screenLab) return;
     if (entryContext !== "owner" || authLoading || user) return;
     router.replace(`/login?next=${encodeURIComponent(OWNER_EXPERIENCE_PATH)}`);
-  }, [authLoading, entryContext, router, user]);
+  }, [authLoading, entryContext, router, screenLab, user]);
 
   const replayBridge=()=>{spokenBridgePhaseRef.current=null;setBridgeVoiceFailed(false);setBridgeReplayNonce(value=>value+1);};
   const startCommercialBridge=(brief:RepresentationBrief,correction?:string)=>{setPhase("bridge_preparing");window.setTimeout(()=>{try{setCommercialBridge(generateCommercialBridge(brief,correction));setPhase("bridge_recognition");}catch{setPhase("bridge_error");}},120);};
 
   const handleBeginFormation = useCallback(async () => {
+    if (screenLab) return;
     if (!user || !session || !experienceSession?.token) {
       setFormationError("Authentication required");
       return;
@@ -205,9 +225,10 @@ export default function ExperiencePage() {
       setFormationError('Failed to begin Formation. Please try again.');
       setFormationLoading(false);
     }
-  }, [user, session, experienceSession, router]);
-  useEffect(()=>{if(["bridge_recognition","bridge_role","bridge_boundaries","hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase))sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase,hiringExplanationViewed:["hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase),continued:["onboarding_preview","identity_confirmation","living_representation"].includes(phase),businessName}));},[businessName,phase]);
+  }, [user, session, experienceSession, router, screenLab]);
+  useEffect(()=>{if(!screenLab&&["bridge_recognition","bridge_role","bridge_boundaries","hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase))sessionStorage.setItem("zeyaCommercialBridgeState",JSON.stringify({phase,hiringExplanationViewed:["hiring_decision","onboarding_preview","identity_confirmation","living_representation"].includes(phase),continued:["onboarding_preview","identity_confirmation","living_representation"].includes(phase),businessName}));},[businessName,phase,screenLab]);
   useEffect(() => {
+    if (screenLab) return;
     if (phase !== "living_representation" || !representationBrief) return;
     const resetTimeout = window.setTimeout(
       () => setRepresentationSectionIndex(0),
@@ -225,7 +246,7 @@ export default function ExperiencePage() {
       window.clearInterval(interval);
       stopSpeaking();
     };
-  }, [phase, representationBrief]);
+  }, [phase, representationBrief, screenLab]);
 
   // Auto-scroll transcript to latest message
   useEffect(() => {
@@ -233,6 +254,7 @@ export default function ExperiencePage() {
   }, [voiceTranscript]);
 
   useEffect(()=>{
+    if(screenLab)return;
     const token=experienceSession?.token;
     if(phase!=="waiting_for_call"||!token||!callRequested)return;
     let stopped=false,inFlight=false,timer:number|undefined;
@@ -285,9 +307,10 @@ export default function ExperiencePage() {
     };
     void poll();
     return()=>{stopped=true;controller.abort();if(timer)window.clearTimeout(timer);};
-  },[callRequested,experienceSession?.token,phase,recordExperienceEvent]);
+  },[callRequested,experienceSession?.token,phase,recordExperienceEvent,screenLab]);
 
   useEffect(()=>{
+    if(screenLab)return;
     if(!EXPERIENCE_DEBUG_ENABLED||phase!=="completed"||!reflectionDebugRef.current)return;
     const debug=reflectionDebugRef.current,renderedAt=performance.now();
     experienceDebugLog("ui_rendered",{elapsedMs:Math.round(renderedAt-debug.startedAt),briefStatus:debug.briefStatus,validation:debug.validation});
@@ -297,12 +320,13 @@ export default function ExperiencePage() {
       "UI render":debug.responseAt?Math.round(renderedAt-debug.responseAt):"n/a",
       "Reflection TOTAL":Math.round(renderedAt-debug.startedAt),
     });
-  },[phase]);
+  },[phase,screenLab]);
 
 
   // Keep the voice session alive until the handoff has actually been spoken,
   // then stop microphone capture before revealing phone collection.
   useEffect(() => {
+    if (screenLab) return;
     if (phase !== "handoff") return;
 
     if (voiceState === "speaking") {
@@ -324,9 +348,10 @@ export default function ExperiencePage() {
     }, 20_000);
 
     return () => window.clearTimeout(fallback);
-  }, [phase, stopConversation, voiceState]);
+  }, [phase, screenLab, stopConversation, voiceState]);
 
   const handleStartExperience = async () => {
+    if (screenLab) return;
     if (!acquirePublicExperienceAction(startInFlightRef)) return;
     setVoiceStartError(null);
     const startTimestamp = performance.now();
@@ -416,6 +441,7 @@ export default function ExperiencePage() {
   };
 
   const handleEndConversation = () => {
+    if (screenLab) return;
     // Auto-transition to phone collection when conversation ends
     setTimeout(() => {
       stopConversation();
@@ -425,19 +451,21 @@ export default function ExperiencePage() {
 
   // Auto-trigger phone collection when user says yes to experiment
   useEffect(() => {
+    if (screenLab) return;
     if (voiceState === "disconnected" && phase === "voice_active" && voiceTranscript.length > 0) {
       // Conversation has ended naturally, move to phone capture
       setTimeout(() => {
         setPhase((current) => current === "voice_active" ? "collecting_phone" : current);
       }, 800);
     }
-  }, [voiceState, phase, voiceTranscript.length]);
+  }, [voiceState, phase, screenLab, voiceTranscript.length]);
 
   const submitExperienceHandoff = async (
     finalName: string | null,
     offer: string | null,
     buyer: string | null,
   ) => {
+    if (screenLab) return;
     const normalizedPhone = normalizePublicExperiencePhone(phoneNumber);
     if (!normalizedPhone) return;
     if (handoffCompletedRef.current || !acquirePublicExperienceAction(handoffInFlightRef)) return;
@@ -529,6 +557,7 @@ export default function ExperiencePage() {
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (screenLab) return;
     if (handoffInFlightRef.current || handoffCompletedRef.current || !phoneNumber.trim()) return;
 
     const normalizedPhone = normalizePublicExperiencePhone(phoneNumber);
@@ -552,6 +581,7 @@ export default function ExperiencePage() {
   };
 
   const handleReconnect = () => {
+    if (screenLab) return;
     console.info("[public-experience]", { event: "experience_reset", stage: "visitor_reconnect" });
     resetConversation();
     controllerRef.current = null;
@@ -582,6 +612,7 @@ export default function ExperiencePage() {
   };
 
   const startNameCorrectionVoice = () => {
+    if (screenLab) return;
     type Recognition = {
       lang: string;
       interimResults: boolean;
@@ -615,6 +646,7 @@ export default function ExperiencePage() {
   };
 
   const recordBriefResponse = async (responseType: RepresentationBriefResponseType, responseText = "") => {
+    if(screenLab)return false;
     if(briefResponsePending)return false;
     const token=experienceSession?.token,briefId=representationBrief?.id;if(!token||!briefId)return false;
     const key=briefResponseKeysRef.current[`${responseType}:${responseText}`]??crypto.randomUUID();
@@ -632,6 +664,7 @@ export default function ExperiencePage() {
   // Process each final visitor turn exactly once. The greeting beat pauses here
   // when identity needs confirmation; only resolution advances to PRODUCT.
   useEffect(() => {
+    if (screenLab) return;
     if (phase !== "voice_active" || !controllerRef.current?.beatStartedAt) return;
     const latest = voiceTranscript.filter((entry) => entry.role === "user" && entry.isFinal && entry.text.trim()).at(-1);
     if (!latest || sessionStorage.getItem("lastProcessedTranscriptId") === latest.id) return;
@@ -673,7 +706,7 @@ export default function ExperiencePage() {
     return () => window.clearTimeout(timer);
   // Transcript arrival is the trigger; callbacks intentionally read the current refs.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nameConfirmation.asking, phase, voiceTranscript]);
+  }, [nameConfirmation.asking, phase, screenLab, voiceTranscript]);
 
   if (
     entryContext === "resolving" ||
@@ -1406,4 +1439,8 @@ export default function ExperiencePage() {
       ) : null}
     </main>
   );
+}
+
+export default function ExperiencePage() {
+  return <ExperienceScreen />;
 }

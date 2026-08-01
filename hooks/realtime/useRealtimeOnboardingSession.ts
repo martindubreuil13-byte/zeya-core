@@ -48,7 +48,11 @@ function upsertTranscriptEntry(
 }
 
 export function useRealtimeOnboardingSession(
-  options: { publicExperience?: boolean; session?: Session | null } = {},
+  options: {
+    publicExperience?: boolean;
+    session?: Session | null;
+    disabled?: boolean;
+  } = {},
 ) {
   const clientRef = useRef<OpenAIRealtimeClient | null>(null);
   const memoryRef = useRef<OnboardingMemory>({});
@@ -110,6 +114,11 @@ export function useRealtimeOnboardingSession(
   }, []);
 
   useEffect(() => {
+    if (options.disabled) {
+      clientRef.current = null;
+      return;
+    }
+
     console.log("[HOOK] useRealtimeOnboardingSession: Creating OpenAIRealtimeClient", {
       timestamp: Math.round(performance.now()),
     });
@@ -196,7 +205,7 @@ export function useRealtimeOnboardingSession(
       client.close();
       clientRef.current = null;
     };
-  }, [appendTranscript, options.publicExperience, options.session]);
+  }, [appendTranscript, options.disabled, options.publicExperience, options.session]);
 
   // Safety net: if the session stays in "thinking" for more than 1500ms after the user
   // finishes speaking and no response has arrived, force a transition back to "listening".

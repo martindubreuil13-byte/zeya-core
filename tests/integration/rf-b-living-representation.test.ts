@@ -7,17 +7,20 @@ import fs from 'fs/promises';
  */
 
 describe('RF-B Living Representation Workspace', () => {
+  async function readWorkspace() {
+    return `${await fs.readFile('./app/representation/living/page.tsx', 'utf-8')}\n${await fs.readFile('./components/representation/LivingRepresentationView.tsx', 'utf-8')}`;
+  }
+
   it('should verify workspace page exists and requires authentication', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify file exists and has auth
-    expect(content).toContain("'use client'");
+    expect(content).toMatch(/["']use client["']/);
     expect(content).toContain('useAuth');
     expect(content).toContain('authenticatedFetch');
 
     // Verify redirect to login for unauthenticated
-    expect(content).toContain("router.replace('/login')");
+    expect(content).toMatch(/router\.replace\(["']\/login["']\)/);
 
     console.log('✓ Workspace page requires authentication');
   });
@@ -115,8 +118,7 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace page loads data on mount', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify data loading
     expect(content).toContain('loadRepresentation');
@@ -127,11 +129,10 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace page handles loading state', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify loading UI
-    expect(content).toContain("'loading'");
+    expect(content).toMatch(/["']loading["']/);
     expect(content).toContain('animate-spin');
     expect(content).toContain('Loading your Representation');
 
@@ -139,8 +140,7 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace page has timeout-safe loading', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify timeout handling
     expect(content).toContain('setLoadTimeout');
@@ -151,46 +151,42 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace page displays error states', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify error UI states
-    expect(content).toContain("state === 'error'");
-    expect(content).toContain("state === 'no_business'");
-    expect(content).toContain("state === 'no_representation'");
-    expect(content).toContain("state === 'multiple_businesses'");
+    expect(content).toMatch(/state === ["']error["']/);
+    expect(content).toMatch(/state === ["']no_business["']/);
+    expect(content).toMatch(/state === ["']no_representation["']/);
+    expect(content).toMatch(/state === ["']multiple_businesses["']/);
 
     console.log('✓ Workspace page displays all error states');
   });
 
   it('should verify workspace page displays representation content', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify content display
     expect(content).toContain('What we understand about your business');
     expect(content).toContain('elementValues');
-    expect(content).toContain('titleMap');
+    expect(content).toContain('TITLES');
 
     console.log('✓ Workspace page displays representation content');
   });
 
   it('should verify workspace page shows version metadata', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify metadata display
     expect(content).toContain('.version.number');
     expect(content).toContain('confidenceScore');
     expect(content).toContain('createdAt');
-    expect(content).toContain('formatDate');
+    expect(content).toContain('toLocaleDateString');
 
     console.log('✓ Workspace page shows version, confidence, and date');
   });
 
   it('should verify workspace page has primary action button', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify Talk with Zeya button
     expect(content).toContain('Talk with Zeya');
@@ -217,8 +213,7 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace page formatting is clean and minimal', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify Zeya design principles
     expect(content).toContain('Welcome back');
@@ -248,19 +243,17 @@ describe('RF-B Living Representation Workspace', () => {
   });
 
   it('should verify workspace handles unauthenticated access', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify auth check
     expect(content).toContain('if (!authLoading && !user)');
-    expect(content).toContain("router.replace('/login')");
+    expect(content).toMatch(/router\.replace\(["']\/login["']\)/);
 
     console.log('✓ Workspace redirects unauthenticated users to login');
   });
 
   it('should verify workspace has retry mechanism', async () => {
-    const filePath = './app/representation/living/page.tsx';
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readWorkspace();
 
     // Verify retry buttons
     expect(content).toContain('window.location.reload()');
