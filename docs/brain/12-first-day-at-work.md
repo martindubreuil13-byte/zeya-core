@@ -12,6 +12,17 @@
 
 ---
 
+> **Product lifecycle scope:** This protocol governs Zeya's preparation and
+> Formation behaviour. The
+> [Zeya Product Constitution — Customer Journey and Employment Lifecycle](../product-constitution-customer-journey.md)
+> is authoritative for the product-stage sequence and separates Pre-Employment
+> Preparation, Formation, Canonical Approval, Workplace Readiness, Operational
+> Training, and First Mission. “First Day” in this manual must not be interpreted
+> as permission to collapse those gates or begin external work before approval,
+> readiness, training, and mission authority exist.
+
+---
+
 ## Purpose
 
 Zeya's First Day at Work defines how Zeya prepares for, enters, and begins working inside a newly hired client's business.

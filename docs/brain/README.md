@@ -257,6 +257,18 @@ The clear structure and cross-references make it machine-readable and human-navi
 
 This is pure intelligence about representation, not operational details.
 
+## Companion Product Constitution
+
+Customer lifecycle, commercial Experience, hiring, Preparation, Formation,
+operational readiness, missions, specialist coordination, owner supervision, and
+product-stage gates are governed separately by the
+[Zeya Product Constitution — Customer Journey and Employment Lifecycle](../product-constitution-customer-journey.md).
+
+The Brain Constitution remains authoritative for how Zeya reasons and
+represents. The Product Constitution is authoritative for how customers
+experience, hire, prepare, govern, supervise, and expand Zeya. Historical
+implementation notes do not override either constitution.
+
 ---
 
 ## Index of Documents
