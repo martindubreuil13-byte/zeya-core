@@ -25,7 +25,19 @@ Preview database inspection confirmed one owner-linked Direct Hire onboarding se
 
 Manual security verification confirmed RLS, owner-authenticated `SELECT`, denied direct authenticated mutations, denied anonymous access, authenticated-only RPC execution, one policy, two triggers, and zero unexpected rows before the run. This validates only Direct Hire Vertical Slice 1: routing, authentication return, five-field persistence, durable resume, honest queued preparation, and Formation/canonical boundaries. It does not validate website research, preparation execution, research-derived Evidence or Observations, Formation handoff, second-owner isolation, concurrent duplicate submission, profile editing, voice, or Production deployment. The full Direct Hire journey and the Public Experience constitutional Stage-2 gap remain open.
 
-The next milestone, Vertical Slice 2, is limited to safe public website inspection, sourced non-canonical Evidence, cautious non-canonical Observations, truthful preparation progress, durable results, and error/retry handling. It must not initiate Formation, alter canonical state, use voice, or contact prospects.
+At the Slice 1 checkpoint, the approved next milestone was Vertical Slice 2: safe public website inspection, sourced non-canonical Evidence, cautious non-canonical Observations, truthful preparation progress, durable results, and error/retry handling, stopping before Formation or canonical change. The addendum below records its later validation.
+
+### Direct Hire Vertical Slice 2 validation addendum — 2026-08-04
+
+**DIRECT HIRE VERTICAL SLICE 2 — VALIDATED IN PREVIEW.** Commit `e2bdb89` was manually exercised in Vercel Preview project `zeya-core-wh6u` against Preview Supabase project `hdjojgvvlojbhgidirht`. An authenticated owner resumed the existing Direct Hire onboarding session, explicitly retried the earlier failed preparation attempt, observed truthful `running` progress, reached durable `ready`, refreshed, and returned to the same result.
+
+The first attempt failed safely as `request_failed` before creating website Evidence or Observations. A Node 24 custom-lookup contract defect was confirmed and repaired: ordinary lookup still returns one pinned address and family, while `all: true` returns an array containing exactly that one pinned address. The correction preserves HTTPS-only requests, the original TLS hostname, DNS pinning, mixed-address rejection, and every SSRF boundary. Its structured diagnostic records only a constant event and stage, a native error code, and an optional HTTP status class.
+
+Manual Preview inspection after the successful retry confirmed preparation `ready` on attempt 2; destination validation and homepage complete; About and Products/Services skipped; and Evidence and Observations complete. The linked Direct Hire lineage contained four sourced, non-canonical website Evidence records and one cautious deterministic website-derived Observation. The Representation remained in `surface`, its current Version pointer remained null, and it had zero Formation sessions. No Proposal, Approval, Confidence Assessment, Representation Version, canonical pointer change, voice call, prospect contact, or provider interaction was attributed to this slice.
+
+This validation is scoped only to the tested Direct Hire onboarding session and linked Representation. Older Preview Representations, Versions, Formation sessions, Public Experience sessions, Evidence, Observations, and Audit records are historical test data and are not Slice 2 output. The full Direct Hire and core journeys remain incomplete. Still unvalidated are a second-owner cross-tenant runtime test, concurrent lease contention, stale-lease recovery, partial results, terminal-failure retry beyond this successful retry, profile editing, voice, Formation handoff, Production, and compatibility beyond the single tested public site.
+
+The next milestone is **Direct Hire Vertical Slice 3 — Preparation to Formation Handoff**: Zeya brings the owner’s approved profile, sourced website Evidence, and cautious Observations into the first working session without treating any preliminary finding as canonical truth. It requires an explicit owner action, Direct Hire lineage, reviewable preliminary findings, correction/discussion, and durable handoff; it must create no canonical Version before the existing approval boundary. This addendum records the objective only and does not design or implement Slice 3.
 
 Immediate manual testing should therefore cover the authenticated clean-owner path through first canonical approval and Living Representation, plus failure/re-entry boundaries. It should not treat missing website research, workplace setup, training, or first-mission progression as regressions in the current slice; those are known constitutional gaps.
 
@@ -40,7 +52,7 @@ Immediate manual testing should therefore cover the authenticated clean-owner pa
 | 5 | Calibration | PARTIALLY IMPLEMENTED | Yes | Confirm/refine/redirect/continue persist; robust pause/reject/resume does not. |
 | 6 | Imagine Working Together | PARTIALLY IMPLEMENTED | Yes | Tailored three-step commercial bridge exists; scope/terms remain thin. |
 | 7 | Hiring Decision | PARTIALLY IMPLEMENTED | Yes | Positive path reaches Formation; decline is local-only; no governed follow-up consent. |
-| 8 | Pre-Employment Preparation | DOCUMENTED ONLY | No | Formation entry copy claims preparation, but no actual preparation lifecycle/package exists. |
+| 8 | Pre-Employment Preparation | PARTIALLY IMPLEMENTED — SLICE 2 PREVIEW VALIDATED | No | Direct Hire now has durable bounded website preparation, sourced non-canonical Evidence, cautious Observations, retry, and truthful progress; Formation handoff/package review remains absent. |
 | 9 | Formation | PARTIALLY IMPLEMENTED | Yes | Real session/summary/correction/approval path; conversation linkage and resume are incomplete. |
 | 10 | Canonical Approval | IMPLEMENTED — UNVALIDATED | Yes | Authenticated approval uses the atomic canonical-Version RPC and immutable model. |
 | 11 | Workplace Readiness | SCREEN LAB ONLY | No | Only exploratory Screen Lab concepts approximate the constitutional readiness stage. |
@@ -91,7 +103,7 @@ Each card answers the required fields in the same order: purpose; status; produc
 
 ### 8 — Pre-Employment Preparation
 
-1. **Purpose:** prepare evidence, contradictions, assumptions and opportunities before Formation. 2. **Status:** DOCUMENTED ONLY. 3. **Production:** no lifecycle implementation; `FormationWorkflow` contains “I reviewed…” entry copy only. 4. **Lab:** onboarding/Formation entry visuals do not execute preparation. 5. **Tests:** none for a preparation package. 6. **DB:** evidence/proposal primitives could support it but no preparation object/gate exists. 7. **Providers:** none wired. 8. **Auth:** would require hired owner scope; absent. 9. **Entry:** absent. 10. **Completion:** absent. 11. **Persisted:** none. 12. **Missing:** the entire deeper-research/package lifecycle. 13. **Boundary gaps:** pause/source failure/provenance/resume absent. 14. **Mismatch:** UI copy implies work the system has not performed. 15. **Validation:** not applicable. 16. **Immediate test:** no. 17. **Next:** remove ambiguity in copy or build the stage after Stage 2 and hiring governance.
+1. **Purpose:** prepare evidence, assumptions and opportunities before Formation. 2. **Status:** PARTIALLY IMPLEMENTED — DIRECT HIRE SLICE 2 VALIDATED IN PREVIEW. 3. **Production:** authenticated Direct Hire preparation route and executor, safe public-site fetch, deterministic extraction, durable onboarding progress, and Evidence/Observation persistence; generic `FormationWorkflow` remains a separate boundary. 4. **Lab:** Direct Hire preparation states remain local-only fixtures. 5. **Tests:** Direct Hire safe-fetch, extraction, preparation, migration and boundary suites. 6. **DB:** durable preparation status/progress/attempt/lease fields plus website provenance on Evidence and idempotency on Observations. 7. **Providers:** none; bounded HTTPS research is server-side and deterministic. 8. **Auth:** authenticated owner claim plus dedicated service finalization. 9. **Entry:** explicit owner preparation action on a persisted Direct Hire session. 10. **Completion:** durable `ready`, `partial`, or safe `failed` result. 11. **Persisted:** sourced non-canonical Evidence, cautious Observations, attempt and truthful per-step progress. 12. **Missing:** owner review package and Formation handoff. 13. **Boundary gaps:** second-owner isolation, live lease contention, stale-lease recovery and partial-result paths remain unvalidated. 14. **Mismatch:** generic Formation copy is not proof of a Direct Hire handoff. 15. **Validation:** one Preview site completed on explicit retry with four Evidence records and one Observation, no Formation or Version. 16. **Immediate test:** no additional automated execution; targeted runtime boundary tests remain. 17. **Next:** define and separately authorize Vertical Slice 3 preparation-to-Formation handoff.
 
 ### 9 — Formation
 
@@ -211,7 +223,7 @@ The Brief is persisted, not reconstructed: `public_experience_representation_bri
 
 ### H–J. Preparation, Formation, canonical approval and Living Representation
 
-Pre-Employment Preparation is not an actual stage. Existing evidence, reflection and proposal primitives are reusable, but there is no deeper research job, preparation package, state, completion gate or owner-visible progress. Formation entry copy currently implies preparation without proving it.
+Direct Hire now implements and Preview-validates a bounded part of Pre-Employment Preparation: explicit authorization, safe website research, durable progress/retry, sourced Evidence, and cautious Observations. It does not yet transfer a reviewable preparation package into Formation, so the full stage and its completion gate remain incomplete. Generic Formation entry copy is not evidence of that missing handoff.
 
 Formation’s DB states are `initiated → getting_familiar → working_conversation_pending → working_conversation_linked`. UI-only states add active conversation, processing, summary review/correction/approval and completion/error. The handoff correctly requires an authenticated clean pre-canonical owner, confirmed persisted brief and no existing canonical Version. Two defects require manual reproduction: the UI can advance directly to “linked” without the dedicated conversation-link endpoint, and a refresh at linked status does not retrieve a previously generated summary.
 
@@ -272,7 +284,7 @@ Do not use Production customer phone numbers, do not inspect or print secrets, a
 | P1 | Formation summary refresh/resume may render no summary | It can block approval after a normal reload. |
 | P1 | Hiring refusal/follow-up consent is not durable | Risks unauthorized follow-up or inability to prove refusal/permission. |
 | P2 | Living route selects `is_canonical` with `maybeSingle()` rather than current pointer | Multi-version history may fail or become ambiguous; reproduce against parity-safe data. |
-| P2 | Preparation copy implies work not actually performed | Product trust/constitutional accuracy issue. |
+| P2 | Formation preparation copy exceeds the validated Direct Hire handoff | Slice 2 performs bounded research, but no prepared-context transfer into Formation exists. |
 | P2 | Calibration pause/reject/resume is browser-local/incomplete | Owner governance is not durable enough. |
 | P2 | Screen Lab keyboard/sessionStorage boundary needs explicit regression proof | Pointer suppression alone does not block keyboard activation. |
 | Deferred | Stages 11–23 joined lifecycle | Known product work, not defects in the current Stages 1–10 slice unless advertised as operational. |
@@ -307,7 +319,7 @@ Run only as a separately approved, read-only deployment audit:
 | Unauthorized follow-up | Consent breach | Do not automate follow-up until a durable decision model exists. |
 | Screen Lab side effect | Fixture interaction touches real browser state/network | Existing guards plus identifier rejection; add keyboard/storage regression coverage. |
 | Legacy operational code overclaimed | False readiness/customer expectation | Keep Stages 11–23 disconnected and concept-labeled until gated end-to-end. |
-| Website-research SSRF/prompt injection | Network compromise or poisoned evidence | Apply the controls in section 5 before implementing research. |
+| Website-research SSRF/prompt injection | Network compromise or poisoned evidence | Direct Hire uses HTTPS, DNS pinning, mixed-address rejection, bounded extraction and non-canonical output; preserve these controls and validate broader sites before expansion. |
 
 ## 11. Recommended implementation sequence
 

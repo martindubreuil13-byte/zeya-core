@@ -1,12 +1,12 @@
 # Product Journey Manual Validation
 
-**Status:** Direct Hire Vertical Slice 1 validated in Preview; full core journey not yet run
+**Status:** Direct Hire Vertical Slices 1 and 2 validated in Preview; full Direct Hire and core journeys remain incomplete
 
 **Release verdict:** **CORE JOURNEY NOT YET VALIDATED**
 
 The verdict remains mandatory because the full Public Experience/provider/Formation/canonical journey was not run. Repository evidence also confirms that Formation can present a working conversation as linked without the governed linkage endpoint, and Formation summary durability after refresh is not implemented in the client.
 
-The verdict applies to the full Public Experience-to-Living Representation journey. It does not negate the separately completed Direct Hire Vertical Slice 1 validation recorded below.
+The verdict applies to the full Public Experience-to-Living Representation journey. It does not negate the separately completed Direct Hire Vertical Slice 1 and Slice 2 validations recorded below.
 
 ## Original preflight identity — 2026-08-03
 
@@ -108,13 +108,35 @@ The boundary inspection found zero Formation sessions, Evidence, Observations, P
 
 Manual post-migration security verification confirmed RLS enabled; authenticated `SELECT` allowed; authenticated `INSERT`, `UPDATE`, and `DELETE` denied; anonymous `SELECT` denied; authenticated RPC execution allowed; anonymous RPC execution denied; one policy; two triggers; and zero unexpected rows before the runtime test.
 
-Still unvalidated for Direct Hire are website research, preparation execution, research-derived sourced Evidence and cautious Observations, Formation handoff, a second-owner cross-tenant runtime test, concurrent duplicate submission, profile editing, voice interaction, and Production deployment. This is not validation of the full Direct Hire journey.
+At the Slice 1 checkpoint, website research, preparation execution, research-derived Evidence and Observations, Formation handoff, second-owner isolation, concurrency, profile editing, voice, and Production were still unvalidated. Gate 6 supersedes that statement only for the bounded Slice 2 preparation behaviors it proves.
 
-### Direct Hire Vertical Slice 2 — next milestone
+### Gate 6 — Direct Hire Vertical Slice 2 runtime validation
 
-> Zeya will perform real lightweight website research after profile submission, store findings as sourced non-canonical Evidence, create cautious Observations where appropriate, and update the preparation screen with truthful progress.
+**Status: DIRECT HIRE VERTICAL SLICE 2 — VALIDATED IN PREVIEW on 2026-08-04.**
 
-The milestone is limited to safe public website inspection, sourced Evidence, non-canonical Observations, truthful preparation-status progression, error/retry handling, and durable results. It must not initiate Formation, change canonical state, use voice, or contact a prospect. This record defines the objective only; it does not design or implement Vertical Slice 2.
+| Item | Validated result |
+|---|---|
+| Deployment | Vercel Preview project `zeya-core-wh6u`, branch `full-cycle-backend-integration`, fix commit `e2bdb89` |
+| Preview application | `https://zeya-core-wh6u-mneenjko0-martindubreuil13-bytes-projects.vercel.app` |
+| Supabase | Preview project `hdjojgvvlojbhgidirht` |
+| Entry and authorization | Authenticated owner resumed the existing Direct Hire session and explicitly selected `Try preparation again` |
+| State transition | Earlier `failed` attempt 1 → explicit retry → truthful `running` → durable `ready` on attempt 2 |
+| Page progress | Destination validation and homepage complete; About and Products/Services skipped |
+| Research output | Four sourced, non-canonical website Evidence records and one cautious deterministic website-derived Observation |
+| Resume | Refresh preserved the ready result and backend-derived progress |
+| Governance boundary | Representation remained `surface`; current Version pointer remained null; Formation sessions remained zero |
+
+The first attempt failed safely as `request_failed` in the Node 24 pinned-lookup path before creating Evidence or Observations. Commit `e2bdb89` corrected the custom lookup result shape for both ordinary mode and `all: true`, retaining HTTPS-only operation, TLS hostname verification, DNS pinning, mixed-address rejection, and the existing SSRF policy. The retry then completed without voice, provider interaction, Formation, Proposal, Approval, Confidence Assessment, Version creation, or canonical pointer change.
+
+These counts and boundary conclusions are scoped to the Direct Hire onboarding session and its linked Representation. Other Preview Representations, Versions, Formation sessions, Public Experience sessions, Evidence, Observations, and Audit records predate this run or belong to earlier tests and are not attributed to Slice 2. Extracted website text and owner identifiers are intentionally omitted.
+
+Still unvalidated are second-owner cross-tenant runtime isolation, concurrent lease contention, stale-lease recovery, partial-result handling, terminal-failure retry beyond the one successful retry, profile editing, voice, Formation handoff, Production, and website compatibility beyond the single validated site. This is not validation of the full Direct Hire journey.
+
+### Direct Hire Vertical Slice 3 — Preparation to Formation Handoff
+
+> Zeya brings the owner’s approved profile, sourced website Evidence, and cautious Observations into the first working session without treating any preliminary finding as canonical truth.
+
+The next slice is limited to explicit owner action to begin the first working session, Formation initiation with Direct Hire lineage, prepared-context transfer, reviewable preliminary findings, correction and owner discussion, and durable handoff. It must not create a canonical Version before the existing approval boundary. This record states the next objective only; it does not design or implement Slice 3.
 
 ## Controlled journey test log
 
@@ -156,7 +178,7 @@ Use one evidence row per real attempt. Screenshot filenames should contain only 
 - Stage 2 lacks business name, website and immediate research. The current product/service capture is the voice-derived offer, so the gap is business/website/research rather than total absence of an offer.
 - Calibration lacks durable reject/pause/resume state.
 - Hiring lacks durable not-ready, refusal, follow-up permission/timing and permanent no-contact records.
-- Pre-Employment Preparation is not an actual lifecycle stage.
+- Direct Hire has a validated bounded preparation slice, but prepared-context review and Formation handoff are not an end-to-end lifecycle stage yet.
 - Workplace Readiness onward remains outside this current journey validation.
 
 ## Exact human test sequence
@@ -309,9 +331,9 @@ The journey did not run to Living Representation in a verified deployment. Forma
 3. Retest the entire existing core journey and canonical boundary in Preview.
 4. Make hiring refusal, follow-up consent/timing and no-contact durable.
 5. Implement constitutional Stage-2 capture with business name and website while preserving the current offer field.
-6. Add bounded immediate website research with provenance and SSRF controls.
-7. Use the new evidence to further personalize the Zeya-to-Veya brief while preserving private/speech-safe separation.
-8. Complete the constitutional Imagine Working Together decision contract.
-9. Implement truthful Pre-Employment Preparation.
+6. Preserve the validated Direct Hire research provenance and SSRF controls; separately design the still-missing Public Experience Stage-2 contract.
+7. Implement Direct Hire Vertical Slice 3 prepared-context review and Formation handoff without canonicalizing preliminary findings.
+8. Use governed evidence to personalize later briefs while preserving private/speech-safe separation.
+9. Complete the constitutional Imagine Working Together decision contract.
 10. Define minimum phone-first Workplace/Operational Readiness.
 11. Execute the first governed telephone mission before CRM, email, WhatsApp, broad Settings, advanced analytics or multi-agent expansion.

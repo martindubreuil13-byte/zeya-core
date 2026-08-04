@@ -547,3 +547,19 @@ Before runtime implementation, the owner must confirm or replace every passage m
 - Formation is the first formal working session;
 - nothing becomes canonical before owner review and approval;
 - the close feels like “I’ll see you at our first working session,” not “Onboarding complete.”
+
+## 19. Preview validation status
+
+**DIRECT HIRE VERTICAL SLICE 2 — VALIDATED IN PREVIEW on 2026-08-04.** An authenticated owner resumed the existing Direct Hire state, explicitly retried a safely failed preparation attempt, observed backend-derived `running` progress, reached durable `ready`, and retained the same result after refresh. Homepage review completed; About and Products/Services were truthfully skipped; Evidence and Observations completed.
+
+The validated output was four sourced non-canonical website Evidence records and one cautious deterministic website-derived Observation. No extracted website text or owner identity belongs in this design record. The linked Representation remained `surface` with no current Version and no Formation session. No voice, provider interaction, Formation handoff, Proposal, Approval, Confidence Assessment, Version, or canonical pointer change occurred.
+
+The initial `request_failed` result was caused by the Node 24 `all: true` custom-lookup result contract. The corrected lookup returns one pinned address in either the ordinary or array form as required, while preserving HTTPS-only requests, the original TLS hostname, mixed-address rejection, and every SSRF safeguard. Safe diagnostics contain only the approved event, stage, native code, and optional HTTP status class.
+
+This proves the current preparation and resume experience for one Preview lineage and public site. It does not prove second-owner isolation, concurrent or stale leases, partial results, further terminal retry behavior, profile editing, voice, Formation handoff, Production, or broader site compatibility.
+
+## 20. Next milestone
+
+**Direct Hire Vertical Slice 3 — Preparation to Formation Handoff** has one objective: Zeya brings the owner’s approved profile, sourced website Evidence, and cautious Observations into the first working session without treating any preliminary finding as canonical truth.
+
+The future slice is limited to an explicit owner action, Formation initiation with Direct Hire lineage, prepared-context transfer, reviewable preliminary findings, correction and owner discussion, and durable handoff. It must create no canonical Version before the existing approval boundary. This section records the objective only; it does not design or implement Slice 3.

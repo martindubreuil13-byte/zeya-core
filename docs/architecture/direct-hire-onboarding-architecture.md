@@ -306,6 +306,14 @@ No timeline or earlier seven-week estimate is a constitutional commitment.
 
 ## 20. Implementation sequencing
 
+### Preview validation checkpoint — Vertical Slice 2
+
+**DIRECT HIRE VERTICAL SLICE 2 — VALIDATED IN PREVIEW on 2026-08-04.** The validated lineage demonstrated explicit owner authorization, durable preparation and retry state, bounded HTTPS website inspection with DNS pinning and TLS hostname preservation, sourced non-canonical Evidence, cautious deterministic Observations, truthful progress, and refresh resume. The successful second attempt produced four website Evidence records and one Observation. The Representation remained in `surface`, its current Version pointer remained null, and no Formation session was created.
+
+This checkpoint is limited to one Direct Hire lineage and one public site. Historical Preview data outside that lineage is unrelated. Second-owner isolation, concurrent and stale leases, partial results, further terminal retry behavior, Formation handoff, and broader website compatibility remain unvalidated.
+
+The next milestone is **Direct Hire Vertical Slice 3 — Preparation to Formation Handoff**: Zeya brings the owner’s approved profile, sourced website Evidence, and cautious Observations into the first working session without treating any preliminary finding as canonical truth. It requires an explicit owner action, Direct Hire Formation lineage, reviewable preliminary findings, correction and discussion, and durable handoff. Canonical Version creation remains exclusively behind the existing owner-approval boundary. This is an objective, not an implementation design.
+
 1. Characterize Public Experience, owner routing, authentication, Formation, canonical approval, Living Representation, and Screen Lab safety.
 2. Add the owner-scoped Direct Hire persistence and explicit Formation lineage through a reviewed migration.
 3. Add authenticated status/read/write contracts with tenant and idempotency tests.

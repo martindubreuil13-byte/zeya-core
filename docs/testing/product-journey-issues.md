@@ -90,14 +90,14 @@ This register separates runtime defects, constitutional gaps, deferred work and 
 - **Preconditions:** Start current Experience.
 - **Reproduction:** Observe production capture and repository research services.
 - **Expected:** Owner name, business name, website, phone, selected product/service, explicit consent, bounded website research and evidence provenance.
-- **Actual:** Public Experience captures name, offer/product and customer; UI later captures phone. It still lacks the constitutional business-name, website and immediate-research contract. The separate authenticated Direct Hire path now captures its approved five-field profile, including website, but its Preview-validated state stops honestly at `preparation/queued` and performs no research yet.
-- **Evidence:** `app/experience/page.tsx`, voice hooks and Experience API routes; Direct Hire onboarding implementation and 2026-08-04 Preview validation record; repository-wide website research search.
+- **Actual:** Public Experience captures name, offer/product and customer; UI later captures phone. It still lacks the constitutional business-name, website and immediate-research contract. The separate authenticated Direct Hire path now has Preview-validated five-field capture and bounded website preparation, but that does not repair or silently replace the Public Experience contract.
+- **Evidence:** `app/experience/page.tsx`, voice hooks and Experience API routes; Direct Hire Slice 1 and Slice 2 Preview validation records.
 - **Suspected code path:** Current journey preserves the older scripted capture.
-- **Database impact:** No website evidence bundle/provenance is persisted.
+- **Database impact:** Public Experience still persists no constitutional website evidence bundle; Direct Hire website Evidence is separate, owner-authorized lineage.
 - **Provider impact:** OpenAI voice begins without web evidence.
 - **Tenant/canonical risk:** Experience remains pre-canonical, reducing canonical risk; brief input is incomplete.
 - **Workaround:** Record as a known gap; do not fail the existing runtime test solely for absent future fields.
-- **Recommended fix:** Preserve the distinct journeys. Implement bounded Direct Hire research as its next approved slice and separately resolve the Public Experience constitutional capture/research contract with consent, partial failure and SSRF defenses.
+- **Recommended fix:** Preserve the distinct journeys and the validated Direct Hire safety boundaries; separately resolve the Public Experience constitutional capture/research contract with consent, partial failure and SSRF defenses.
 - **Retest:** Validation, provenance, unavailable/partial research, consent withdrawal and downstream private brief.
 
 ### PJ-102 — Calibration lacks durable reject, pause and resume
@@ -136,23 +136,23 @@ This register separates runtime defects, constitutional gaps, deferred work and 
 - **Recommended fix:** Add explicit owner-scoped decision model before any follow-up automation.
 - **Retest:** Hire, not-ready with/without permission, timing, refusal/no-contact and owner-initiated return.
 
-### PJ-104 — Direct Hire preparation is durably queued but not executed
+### PJ-104 — Direct Hire preparation executes; Formation handoff remains incomplete
 
-- **Classification:** CONSTITUTIONAL GAP — Required by the Product Constitution but not yet implemented
+- **Classification:** PARTIALLY RESOLVED CONSTITUTIONAL GAP — Slice 2 validated; full Stage 8 handoff remains incomplete
 - **Constitutional stage:** 8
 - **Environment:** All
 - **Preconditions:** Positive hiring path enters Formation.
 - **Reproduction:** Inspect Formation entry and preceding jobs/records.
 - **Expected:** Proven deeper research, evidence inventory, assumptions, contradictions, questions and preparation package.
-- **Actual:** Direct Hire Vertical Slice 1 now persists and truthfully renders `preparation/queued`, including pending website review, questions and first-working-session preparation. Preview validation proved durable resume and no premature Formation or Version, but no research job, sourced Evidence, Observations, or completed preparation package exists. The older Formation entry copy remains outside this proof.
-- **Evidence:** Direct Hire onboarding implementation and 2026-08-04 Preview validation record; `FormationWorkflow` entry copy; no approved Vertical Slice 2 executor exists.
-- **Suspected code path:** Aspirational first-day copy predates the constitutional stage.
-- **Database impact:** An owner-scoped Direct Hire onboarding/preparation state now exists; no research results, Evidence/Observation output, completed preparation package, or Formation completion gate has been validated.
+- **Actual:** Direct Hire Vertical Slice 2 now performs bounded HTTPS website preparation after explicit owner authorization, persists truthful progress and retry history, and stores sourced non-canonical Evidence plus cautious deterministic Observations. Preview validation reached durable `ready` on attempt 2 and survived refresh. Formation handoff and owner review of prepared context do not yet exist.
+- **Evidence:** 2026-08-04 Gate-6 Preview validation record, Direct Hire preparation implementation/tests, and fix commit `e2bdb89`.
+- **Suspected code path:** Slice 2 ends deliberately at preparation readiness; generic Formation entry is not linked to Direct Hire preparation lineage.
+- **Database impact:** The validated lineage contains four website Evidence records and one website-derived Observation; its Representation remains `surface`, current Version is null, and Formation session count is zero.
 - **Provider impact:** No research provider.
 - **Tenant/canonical risk:** Trust/accuracy risk; draft remains pre-canonical until approval.
-- **Workaround:** Treat `queued` and each pending item literally; do not claim research or preparation completion.
-- **Recommended fix:** Implement the bounded Vertical Slice 2 research/evidence progression before any Formation handoff; align older Formation copy when runtime changes are authorized.
-- **Retest:** Evidence provenance, partial/unavailable sources, pause/resume and Formation gate.
+- **Workaround:** Treat `ready` as preparation readiness only, not onboarding completion, Formation, or canonical truth.
+- **Recommended fix:** Implement a separately reviewed Vertical Slice 3 handoff with explicit owner action, Direct Hire lineage, preliminary-finding review/correction, and the existing canonical approval boundary.
+- **Retest:** Second-owner isolation, concurrent and stale leases, partial/unavailable results, terminal retry, prepared-context handoff, and no Version before approval.
 
 ## Deferred features
 
@@ -256,4 +256,17 @@ This register separates runtime defects, constitutional gaps, deferred work and 
 - **Security:** RLS and grants behaved as designed: owner-authenticated read and RPC execution only; direct authenticated mutations and anonymous access were denied.
 - **Historical data:** Two Public Experience sessions and one `representation_initialized` audit event predated the test and are not classified as Direct Hire contamination.
 - **Resolution:** Routing, authentication return, exact five-field capture, persistence, refresh/sign-in resume, honest queued preparation, and the Formation/canonical boundaries are validated for Vertical Slice 1 only.
-- **Still open:** Website research/execution, research Evidence/Observations, Formation handoff, second-owner isolation, concurrent duplicate submission, profile editing, voice, and Production deployment.
+- **Still open at this checkpoint:** Website research/execution, research Evidence/Observations, Formation handoff, second-owner isolation, concurrent duplicate submission, profile editing, voice, and Production deployment. PJ-T06 supersedes only the Slice 2 research items after its later run.
+
+### PJ-T06 — Direct Hire Vertical Slice 2 runtime validation and Node 24 lookup defect — RESOLVED
+
+- **Classification:** Test validation record and resolved runtime defect
+- **Constitutional stage:** Direct Hire preparation before Formation
+- **Environment:** Vercel Preview project `zeya-core-wh6u` and Supabase project `hdjojgvvlojbhgidirht`
+- **Preconditions:** Existing authenticated Direct Hire session, applied Slice 2 migration, explicit owner retry, fix commit `e2bdb89`.
+- **Expected:** Safe bounded website preparation reaches a durable truthful result, creates only sourced non-canonical output, and stops before Formation and canonical Version creation.
+- **Actual:** Attempt 1 failed safely as `request_failed` with zero website Evidence and Observations. The custom DNS lookup was incompatible with Node 24 `all: true`; the corrected pinned lookup preserved TLS hostname verification, DNS pinning, mixed-address rejection, and SSRF rules. Attempt 2 reached `ready`, persisted four Evidence records and one cautious Observation, and survived refresh.
+- **Boundary:** The linked Representation remained `surface`, current Version was null, and Formation sessions were zero. No voice or provider interaction occurred.
+- **Historical data:** Other Preview Representations, Versions, Formation sessions, Public Experience sessions, Evidence, Observations, and Audit records are historical test data and are not attributed to Slice 2.
+- **Resolution:** Preparation execution, successful explicit retry, truthful durable progress, website Evidence creation, cautious Observation creation, and the no-Formation/no-canonical boundary are validated for this single Preview lineage and site.
+- **Still open:** Second-owner isolation, real concurrent lease contention, stale-lease recovery, partial results, additional terminal-failure retry, profile editing, voice, Formation handoff, broader website compatibility, and Production.
