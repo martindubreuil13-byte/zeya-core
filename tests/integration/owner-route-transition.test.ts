@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  DIRECT_HIRE_ONBOARDING_PATH,
   isOwnerExperiencePath,
-  OWNER_EXPERIENCE_PATH,
   resolveOwnerJourneyPath,
 } from "../../lib/owner/owner-route";
 
@@ -17,7 +17,7 @@ describe("owner route and state transitions", () => {
   it("resolves every persisted owner state deterministically", () => {
     const formationId = "11111111-1111-4111-8111-111111111111";
     expect(resolveOwnerJourneyPath({ status: "new_owner" })).toBe(
-      OWNER_EXPERIENCE_PATH,
+      DIRECT_HIRE_ONBOARDING_PATH,
     );
     expect(resolveOwnerJourneyPath({
       status: "active_formation",
@@ -32,9 +32,10 @@ describe("owner route and state transitions", () => {
     );
   });
 
-  it("does not discard clean-owner entry state at the start action", () => {
+  it("routes a clean owner to Direct Hire without changing the public Experience", () => {
     expect(formationEntry).toContain("resolveOwnerJourneyPath({ status: 'new_owner' })");
     expect(formationEntry).not.toContain("router.push('/experience')");
+    expect(DIRECT_HIRE_ONBOARDING_PATH).toBe("/onboarding");
     expect(isOwnerExperiencePath("?entry=owner")).toBe(true);
     expect(isOwnerExperiencePath("")).toBe(false);
     expect(experience).toContain('entryContext !== "owner" || authLoading || user');

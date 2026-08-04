@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
-import { OwnerOnboarding } from '@/components/owner/OwnerOnboarding';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { resolveOwnerJourneyPath } from '@/lib/owner/owner-route';
 import { useEffect, useState } from 'react';
@@ -33,9 +32,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export default function FormationEntryPage() {
   const router = useRouter();
-  const { user, loading, signOut, session } = useAuth();
+  const { user, loading, session } = useAuth();
   const [ownerState, setOwnerState] = useState<OwnerState>({ status: 'loading' });
-  const [showLogout, setShowLogout] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [statusRequest, setStatusRequest] = useState(0);
 
@@ -156,8 +154,17 @@ export default function FormationEntryPage() {
           return;
         }
 
-        // New owner - show onboarding (Representation Experience)
-        setOwnerState({ status: 'new_owner' });
+        if (ownerData.status === 'new_owner') {
+          const nextPath = resolveOwnerJourneyPath({ status: 'new_owner' });
+          if (!nextPath) {
+            setOwnerState({ status: 'error' });
+            return;
+          }
+          router.replace(nextPath);
+          return;
+        }
+
+        setOwnerState({ status: 'error' });
       } catch (err) {
         console.error('[formation-entry] Failed to check status:', err);
         setOwnerState({ status: 'error' });
@@ -171,24 +178,6 @@ export default function FormationEntryPage() {
     setLoadingTimeout(false);
     setOwnerState({ status: 'loading' });
     setStatusRequest((request) => request + 1);
-  };
-
-  const handleLogout = async () => {
-    await signOut();
-    router.replace('/login');
-  };
-
-  const handleStartExperience = () => {
-    if (!user || !session) {
-      setOwnerState({ status: 'error' });
-      return;
-    }
-    const nextPath = resolveOwnerJourneyPath({ status: 'new_owner' });
-    if (!nextPath) {
-      setOwnerState({ status: 'error' });
-      return;
-    }
-    router.push(nextPath);
   };
 
   // Loading state
@@ -261,30 +250,9 @@ export default function FormationEntryPage() {
     );
   }
 
-  // New owner - show Representation Experience onboarding
+  // A new owner is redirected to the distinct Direct Hire route by the status effect.
   if (ownerState.status === 'new_owner') {
-    return (
-      <div>
-        <div className="absolute top-4 right-4">
-          <button
-            onClick={() => setShowLogout(!showLogout)}
-            className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2 rounded hover:bg-gray-200"
-          >
-            Menu
-          </button>
-          {showLogout && (
-            <button
-              onClick={handleLogout}
-              className="absolute right-0 mt-2 px-3 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Sign Out
-            </button>
-          )}
-        </div>
-
-        <OwnerOnboarding onStartExperience={handleStartExperience} />
-      </div>
-    );
+    return null;
   }
 
   return null;

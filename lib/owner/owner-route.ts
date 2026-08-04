@@ -1,5 +1,6 @@
 export const OWNER_ENTRY_PATH = "/formation/entry";
 export const OWNER_EXPERIENCE_PATH = "/experience?entry=owner";
+export const DIRECT_HIRE_ONBOARDING_PATH = "/onboarding";
 export const LIVING_REPRESENTATION_PATH = "/representation/living";
 
 export type OwnerJourneyState =
@@ -11,7 +12,7 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function resolveOwnerJourneyPath(state: OwnerJourneyState): string | null {
-  if (state.status === "new_owner") return OWNER_EXPERIENCE_PATH;
+  if (state.status === "new_owner") return DIRECT_HIRE_ONBOARDING_PATH;
   if (state.status === "has_representation") {
     return LIVING_REPRESENTATION_PATH;
   }

@@ -2,26 +2,23 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs/promises';
 
 /**
- * RF-B Representation Experience (Safe Path) Tests
- * Verifies that new owners only use the Representation Experience flow
- * Confirms no unsafe automatic Business/Representation provisioning
+ * RF-B Direct Hire (Safe Path) Tests
+ * Verifies that new owners use the authenticated Direct Hire flow
+ * Confirms Formation initiation does not independently provision owner state
  */
 
-describe('RF-B Representation Experience (Safe Path)', () => {
-  it('should verify new owners are directed to Representation Experience', async () => {
+describe('RF-B Direct Hire (Safe Path)', () => {
+  it('should verify new owners are directed to Direct Hire onboarding', async () => {
     const filePath = './app/formation/entry/page.tsx';
     const content = await fs.readFile(filePath, 'utf-8');
+    const ownerRoute = await fs.readFile('./lib/owner/owner-route.ts', 'utf-8');
 
-    // Verify OwnerOnboarding is rendered for new_owner status
-    expect(content).toContain("ownerState.status === 'new_owner'");
-    expect(content).toContain('<OwnerOnboarding');
+    expect(content).toContain("ownerData.status === 'new_owner'");
+    expect(content).toContain("resolveOwnerJourneyPath({ status: 'new_owner' })");
+    expect(ownerRoute).toContain('DIRECT_HIRE_ONBOARDING_PATH = "/onboarding"');
+    expect(ownerRoute).toContain('return DIRECT_HIRE_ONBOARDING_PATH');
 
-    // Verify OwnerOnboarding component exists
-    const onboardingPath = './components/owner/OwnerOnboarding.tsx';
-    const onboardingContent = await fs.readFile(onboardingPath, 'utf-8');
-    expect(onboardingContent).toContain('Representation Experience');
-
-    console.log('✓ New owners shown Representation Experience');
+    console.log('✓ New owners route to Direct Hire onboarding');
   });
 
   it('should verify initiate endpoint requires explicit businessId', async () => {
@@ -77,8 +74,8 @@ describe('RF-B Representation Experience (Safe Path)', () => {
     expect(content).toContain('active_formation');
     expect(content).toContain('formationSessionId');
 
-    // Verify shows FormationEntry for active Formation
-    expect(content).toContain("<FormationEntry onComplete={() => {}} />");
+    expect(content).toContain("status: 'active_formation'");
+    expect(content).toContain('router.replace(nextPath)');
 
     console.log('✓ Active Formation resumes correctly');
   });
@@ -90,8 +87,7 @@ describe('RF-B Representation Experience (Safe Path)', () => {
     // Verify representation check
     expect(content).toContain('has_representation');
 
-    // Verify redirect to Living Representation
-    expect(content).toContain("router.replace('/representation/living')");
+    expect(content).toContain("resolveOwnerJourneyPath({ status: 'has_representation' })");
 
     console.log('✓ Existing Representation redirects to Living Representation');
   });
@@ -108,26 +104,16 @@ describe('RF-B Representation Experience (Safe Path)', () => {
     console.log('✓ Session ID validation prevents unsafe redirects');
   });
 
-  it('should verify OwnerOnboarding shows Representation Experience language', async () => {
-    const filePath = './components/owner/OwnerOnboarding.tsx';
+  it('should verify Direct Hire uses first-meeting rather than persuasive language', async () => {
+    const filePath = './components/onboarding/DirectHireOnboarding.tsx';
     const content = await fs.readFile(filePath, 'utf-8');
 
-    // Verify premium language, not SaaS cards
-    expect(content).toContain('Begin with Zeya');
-    expect(content).toContain('understand what you do');
-    expect(content).toContain('Representation Experience');
+    expect(content).toContain('I noticed we’ve never spoken before.');
+    expect(content).toContain('Before my first day');
+    expect(content).not.toContain('Hire Zeya');
+    expect(content).not.toContain('Representation Experience');
 
-    // Verify no SaaS comparison language
-    expect(content).not.toContain('Recommended');
-    expect(content).not.toContain('Guided first conversation');
-    expect(content).not.toContain('Full control');
-    expect(content).not.toContain('Create Directly');
-
-    // Verify single button, not dual cards
-    expect(content).not.toContain('blue/purple');
-    expect(content).not.toContain('two options');
-
-    console.log('✓ OwnerOnboarding uses premium Representation Experience language');
+    console.log('✓ Direct Hire uses approved first-meeting language');
   });
 
   it('should verify bearer token required for all authenticated calls', async () => {
