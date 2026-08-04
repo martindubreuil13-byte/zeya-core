@@ -17,6 +17,16 @@ This is a meaningful governed vertical slice through Stages 1–10. It is not th
 
 The executable path stops at Living Representation. Stages 11–23 have varying amounts of older operational UI, mission, specialist, voice, evidence, reflection and governance infrastructure, but they are not joined to the constitutional post-hire lifecycle. They must not be represented as an operationally complete first-day journey.
 
+### Direct Hire Vertical Slice 1 validation addendum — 2026-08-04
+
+**VALIDATED IN PREVIEW.** Commit `7b095b61fb1834f17266261ac40882e07c81ceb4` was manually exercised against Preview Supabase project `hdjojgvvlojbhgidirht`. A clean authenticated owner routed from `/formation/entry` to the distinct `/onboarding` journey rather than Public Experience, saw the First Meeting, submitted exactly five profile fields, and reached the truthful `preparation/queued` state. Refresh and sign-out/sign-in restored preparation without repeating the meeting or profile.
+
+Preview database inspection confirmed one owner-linked Direct Hire onboarding session, Business, and Business Representation; durable profile, website, and growth-priority data; normalized phone storage; Representation phase `surface`; and no current Version. It also confirmed zero Formation sessions, Evidence, Observations, Proposals, or Representation Versions created by the slice. The real phone value is not recorded. Two Public Experience sessions and one `representation_initialized` audit event were historical 2026-08-03 Preview leftovers and were not created by this validation.
+
+Manual security verification confirmed RLS, owner-authenticated `SELECT`, denied direct authenticated mutations, denied anonymous access, authenticated-only RPC execution, one policy, two triggers, and zero unexpected rows before the run. This validates only Direct Hire Vertical Slice 1: routing, authentication return, five-field persistence, durable resume, honest queued preparation, and Formation/canonical boundaries. It does not validate website research, preparation execution, research-derived Evidence or Observations, Formation handoff, second-owner isolation, concurrent duplicate submission, profile editing, voice, or Production deployment. The full Direct Hire journey and the Public Experience constitutional Stage-2 gap remain open.
+
+The next milestone, Vertical Slice 2, is limited to safe public website inspection, sourced non-canonical Evidence, cautious non-canonical Observations, truthful preparation progress, durable results, and error/retry handling. It must not initiate Formation, alter canonical state, use voice, or contact prospects.
+
 Immediate manual testing should therefore cover the authenticated clean-owner path through first canonical approval and Living Representation, plus failure/re-entry boundaries. It should not treat missing website research, workplace setup, training, or first-mission progression as regressions in the current slice; those are known constitutional gaps.
 
 ## 2. Stage implementation matrix
