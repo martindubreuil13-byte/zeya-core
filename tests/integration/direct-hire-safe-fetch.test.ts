@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createPinnedLookup,
   isGlobalPublicAddress,
   normalizeResearchUrl,
   robotsAllowsPath,
@@ -44,7 +45,205 @@ function requestSequence(replies: MockReply[], pinned: string[] = []) {
   }) as never;
 }
 
+function node24LookupRequest(pinned: string[]) {
+  return ((options: Record<string, unknown>, callback: (response: PassThrough & {
+    statusCode: number;
+    headers: Record<string, string>;
+  }) => void) => {
+    const request = new EventEmitter() as EventEmitter & {
+      end: () => void;
+      destroy: (error: Error) => void;
+    };
+    request.destroy = (error) => queueMicrotask(() => request.emit("error", error));
+    request.end = () => {
+      const lookup = options.lookup as (
+        hostname: string,
+        lookupOptions: { all: true },
+        callback: (
+          error: NodeJS.ErrnoException | null,
+          addresses: Array<{ address: string; family: number }>,
+        ) => void,
+      ) => void;
+      lookup(String(options.hostname), { all: true }, (error, addresses) => {
+        if (error) {
+          request.emit("error", error);
+          return;
+        }
+        if (!Array.isArray(addresses)) {
+          request.emit("error", Object.assign(new Error("invalid lookup result"), {
+            code: "ERR_INVALID_IP_ADDRESS",
+          }));
+          return;
+        }
+        pinned.push(...addresses.map(({ address }) => address));
+        const response = new PassThrough() as PassThrough & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        response.statusCode = 200;
+        response.headers = { "content-type": "text/html" };
+        callback(response);
+        response.end("<html><title>Safe</title></html>");
+      });
+    };
+    return request;
+  }) as never;
+}
+
 describe("Direct Hire safe public-site fetch", () => {
+  it("returns the pinned address in the ordinary single-address lookup shape", () => {
+    const lookup = createPinnedLookup({ address: "93.184.216.34", family: 4 });
+    lookup("not-observed.example", {}, (error, address, family) => {
+      expect(error).toBeNull();
+      expect(address).toBe("93.184.216.34");
+      expect(family).toBe(4);
+    });
+  });
+
+  it("returns one pinned address record when Node 24 requests all addresses", () => {
+    const lookup = createPinnedLookup({ address: "2606:2800:220:1:248:1893:25c8:1946", family: 6 });
+    lookup("not-observed.example", { all: true }, (error, addresses) => {
+      expect(error).toBeNull();
+      expect(addresses).toEqual([{
+        address: "2606:2800:220:1:248:1893:25c8:1946",
+        family: 6,
+      }]);
+    });
+  });
+
+  it("reproduces the pre-patch malformed shape under Node 24 automatic-family lookup", () => {
+    let result: unknown;
+    const legacyLookup = (
+      _hostname: string,
+      _options: { all: true },
+      callback: (error: null, address: string, family: number) => void,
+    ) => callback(null, "93.184.216.34", 4);
+    legacyLookup("not-observed.example", { all: true }, (_error, addresses) => {
+      result = addresses;
+    });
+    expect(Array.isArray(result)).toBe(false);
+  });
+
+  it("satisfies Node 24 automatic-family lookup without weakening address pinning", async () => {
+    const pinned: string[] = [];
+    await expect(safeFetchPublicSite("https://example.com", {
+      dependencies: {
+        resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+        request: node24LookupRequest(pinned),
+      },
+    })).resolves.toMatchObject({ status: 200 });
+    expect(pinned).toEqual(["93.184.216.34"]);
+  });
+
+  it("logs only the safe native code and construction stage", async () => {
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sensitive = "https://secret.example/private?token=credential owner-email-value 203.0.113.8";
+    const constructionFailure = (() => {
+      throw Object.assign(new Error(sensitive), { code: "ERR_INVALID_IP_ADDRESS" });
+    }) as never;
+    try {
+      await expect(safeFetchPublicSite("https://example.com", {
+        dependencies: {
+          resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+          request: constructionFailure,
+        },
+      })).rejects.toMatchObject({ code: "request_failed" });
+      expect(diagnostic).toHaveBeenCalledWith({
+        event: "direct_hire_safe_fetch_failure",
+        stage: "request_construction",
+        nativeErrorCode: "ERR_INVALID_IP_ADDRESS",
+      });
+      const logged = JSON.stringify(diagnostic.mock.calls);
+      for (const forbidden of ["secret.example", "token=", "credential", "owner-email-value", "203.0.113.8"]) {
+        expect(logged).not.toContain(forbidden);
+      }
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
+  it("distinguishes DNS, socket, response-stream, and HTTP-status failures", async () => {
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const pinned = async () => [{ address: "93.184.216.34", family: 4 as const }];
+    const socketFailure = (() => {
+      const request = new EventEmitter() as EventEmitter & {
+        end: () => void;
+        destroy: (error: Error) => void;
+      };
+      request.destroy = (error) => queueMicrotask(() => request.emit("error", error));
+      request.end = () => queueMicrotask(() => request.emit("error", Object.assign(
+        new Error("must not be logged"),
+        { code: "ECONNRESET" },
+      )));
+      return request;
+    }) as never;
+    const responseFailure = ((_options: unknown, callback: (response: PassThrough & {
+      statusCode: number;
+      headers: Record<string, string>;
+    }) => void) => {
+      const request = new EventEmitter() as EventEmitter & {
+        end: () => void;
+        destroy: (error: Error) => void;
+      };
+      request.destroy = (error) => queueMicrotask(() => request.emit("error", error));
+      request.end = () => {
+        const response = new PassThrough() as PassThrough & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        response.statusCode = 200;
+        response.headers = { "content-type": "text/html" };
+        callback(response);
+        response.emit("error", Object.assign(new Error("must not be logged"), { code: "EPROTO" }));
+      };
+      return request;
+    }) as never;
+    try {
+      await expect(safeFetchPublicSite("https://example.com", {
+        dependencies: {
+          resolve: async () => {
+            throw Object.assign(new Error("must not be logged"), { code: "EAI_AGAIN" });
+          },
+        },
+      })).rejects.toMatchObject({ code: "dns_failed" });
+      expect(diagnostic).toHaveBeenLastCalledWith({
+        event: "direct_hire_safe_fetch_failure",
+        stage: "dns",
+        nativeErrorCode: "EAI_AGAIN",
+      });
+
+      await expect(safeFetchPublicSite("https://example.com", {
+        dependencies: { resolve: pinned, request: socketFailure },
+      })).rejects.toMatchObject({ code: "request_failed" });
+      expect(diagnostic).toHaveBeenLastCalledWith({
+        event: "direct_hire_safe_fetch_failure",
+        stage: "request_socket",
+        nativeErrorCode: "ECONNRESET",
+      });
+
+      await expect(safeFetchPublicSite("https://example.com", {
+        dependencies: { resolve: pinned, request: responseFailure },
+      })).rejects.toMatchObject({ code: "request_failed" });
+      expect(diagnostic).toHaveBeenLastCalledWith({
+        event: "direct_hire_safe_fetch_failure",
+        stage: "response_stream",
+        nativeErrorCode: "EPROTO",
+      });
+
+      await expect(safeFetchPublicSite("https://example.com", {
+        dependencies: { resolve: pinned, request: requestSequence([{ status: 503 }]) },
+      })).rejects.toMatchObject({ code: "request_failed" });
+      expect(diagnostic).toHaveBeenLastCalledWith({
+        event: "direct_hire_safe_fetch_failure",
+        stage: "http_status",
+        nativeErrorCode: "unknown",
+        statusClass: "5xx",
+      });
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain("must not be logged");
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
   it("freezes the approved page, byte, redirect, and timeout limits", () => {
     expect(WEBSITE_RESEARCH_LIMITS).toMatchObject({
       maxPages: 3,

@@ -1,6 +1,6 @@
 import { resolve4, resolve6 } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 
 export const WEBSITE_RESEARCH_LIMITS = {
   maxPages: 3,
@@ -35,7 +35,45 @@ export class SafeFetchError extends Error {
   }
 }
 
+type SafeFetchDiagnosticStage =
+  | "dns"
+  | "request_construction"
+  | "request_socket"
+  | "response_stream"
+  | "http_status"
+  | "unknown";
+
+function nativeErrorCode(error: unknown): string {
+  return error && typeof error === "object" && "code" in error
+    && typeof error.code === "string"
+    ? error.code
+    : "unknown";
+}
+
+function logSafeFetchFailure(
+  stage: SafeFetchDiagnosticStage,
+  error: unknown,
+  statusClass?: "4xx" | "5xx" | "other",
+): void {
+  console.error({
+    event: "direct_hire_safe_fetch_failure",
+    stage,
+    nativeErrorCode: nativeErrorCode(error),
+    ...(statusClass ? { statusClass } : {}),
+  });
+}
+
 export type ResolvedAddress = { address: string; family: 4 | 6 };
+
+export function createPinnedLookup(pinned: ResolvedAddress): LookupFunction {
+  return (_hostname, lookupOptions, callback) => {
+    if (lookupOptions.all === true) {
+      callback(null, [{ address: pinned.address, family: pinned.family }]);
+      return;
+    }
+    callback(null, pinned.address, pinned.family);
+  };
+}
 
 export type SafeFetchDependencies = {
   resolve?: (hostname: string) => Promise<ResolvedAddress[]>;
@@ -188,7 +226,7 @@ async function defaultResolve(hostname: string): Promise<ResolvedAddress[]> {
         ? String(error.code)
         : "";
       if (code === "ENODATA" || code === "ENOTFOUND") return [];
-      throw new SafeFetchError("dns_failed");
+      throw error;
     }
   };
   const [v4, v6] = await Promise.all([
@@ -223,8 +261,14 @@ async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
   headers: Record<string, string | string[] | undefined>;
   body: Buffer;
 }> {
-  const addresses = await (options.dependencies.resolve ?? defaultResolve)(url.hostname);
-  const pinned = validateResolvedAddresses(addresses);
+  let pinned: ResolvedAddress;
+  try {
+    const addresses = await (options.dependencies.resolve ?? defaultResolve)(url.hostname);
+    pinned = validateResolvedAddresses(addresses);
+  } catch (error) {
+    logSafeFetchFailure("dns", error);
+    throw error instanceof SafeFetchError ? error : new SafeFetchError("dns_failed");
+  }
   const requestImpl = options.dependencies.request ?? httpsRequest;
 
   return new Promise<{
@@ -233,6 +277,10 @@ async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
     body: Buffer;
   }>((resolve, reject) => {
     let settled = false;
+    let headerTimer: ReturnType<typeof setTimeout> | undefined;
+    let pageTimer: ReturnType<typeof setTimeout> | undefined;
+    let request: ReturnType<typeof httpsRequest>;
+    const onAbort = () => request.destroy(new SafeFetchError("request_timeout"));
     const finish = (error?: Error, value?: { status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }) => {
       if (settled) return;
       settled = true;
@@ -242,70 +290,75 @@ async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
       if (error) reject(error);
       else resolve(value!);
     };
-    const request = requestImpl({
-      protocol: "https:",
-      hostname: url.hostname,
-      servername: url.hostname,
-      port: 443,
-      method: "GET",
-      path: `${url.pathname}${url.search}`,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,text/plain;q=0.5",
-        "Accept-Encoding": "identity",
-        "User-Agent": "ZeyaWebsiteResearch/1.0",
-      },
-      lookup: (_hostname, _lookupOptions, callback) => {
-        callback(null, pinned.address, pinned.family);
-      },
-    }, (response) => {
-      clearTimeout(headerTimer);
-      const encoding = String(response.headers["content-encoding"] ?? "identity").toLowerCase();
-      if (encoding !== "identity") {
-        response.destroy();
-        finish(new SafeFetchError("response_compressed"));
-        return;
-      }
-      if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
-        const contentType = String(response.headers["content-type"] ?? "").toLowerCase();
-        if (!options.acceptedContentTypes.test(contentType)) {
+    try {
+      request = requestImpl({
+        protocol: "https:",
+        hostname: url.hostname,
+        servername: url.hostname,
+        port: 443,
+        method: "GET",
+        path: `${url.pathname}${url.search}`,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,text/plain;q=0.5",
+          "Accept-Encoding": "identity",
+          "User-Agent": "ZeyaWebsiteResearch/1.0",
+        },
+        lookup: createPinnedLookup(pinned),
+      }, (response) => {
+        clearTimeout(headerTimer);
+        const encoding = String(response.headers["content-encoding"] ?? "identity").toLowerCase();
+        if (encoding !== "identity") {
           response.destroy();
-          finish(new SafeFetchError("unsupported_content_type"));
+          finish(new SafeFetchError("response_compressed"));
           return;
         }
-      }
-      const declaredLength = Number(response.headers["content-length"]);
-      if (Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
-        response.destroy();
-        finish(new SafeFetchError("response_too_large"));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      response.on("data", (chunk: Buffer | string) => {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        bytes += buffer.length;
-        if (bytes > options.maxBytes) {
-          response.destroy(new SafeFetchError("response_too_large"));
+        if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+          const contentType = String(response.headers["content-type"] ?? "").toLowerCase();
+          if (!options.acceptedContentTypes.test(contentType)) {
+            response.destroy();
+            finish(new SafeFetchError("unsupported_content_type"));
+            return;
+          }
+        }
+        const declaredLength = Number(response.headers["content-length"]);
+        if (Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
+          response.destroy();
+          finish(new SafeFetchError("response_too_large"));
           return;
         }
-        chunks.push(buffer);
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        response.on("data", (chunk: Buffer | string) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          bytes += buffer.length;
+          if (bytes > options.maxBytes) {
+            response.destroy(new SafeFetchError("response_too_large"));
+            return;
+          }
+          chunks.push(buffer);
+        });
+        response.on("end", () => finish(undefined, {
+          status: response.statusCode ?? 0,
+          headers: response.headers,
+          body: Buffer.concat(chunks),
+        }));
+        response.on("error", (error) => {
+          logSafeFetchFailure("response_stream", error);
+          finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
+        });
       });
-      response.on("end", () => finish(undefined, {
-        status: response.statusCode ?? 0,
-        headers: response.headers,
-        body: Buffer.concat(chunks),
-      }));
-      response.on("error", (error) => finish(
-        error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"),
-      ));
+    } catch (error) {
+      logSafeFetchFailure("request_construction", error);
+      finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
+      return;
+    }
+    request.on("error", (error) => {
+      logSafeFetchFailure("request_socket", error);
+      finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
     });
-    request.on("error", (error) => finish(
-      error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"),
-    ));
-    const onAbort = () => request.destroy(new SafeFetchError("request_timeout"));
     options.signal?.addEventListener("abort", onAbort, { once: true });
-    const headerTimer = setTimeout(() => request.destroy(new SafeFetchError("request_timeout")), WEBSITE_RESEARCH_LIMITS.headerTimeoutMs);
-    const pageTimer = setTimeout(() => request.destroy(new SafeFetchError("request_timeout")), WEBSITE_RESEARCH_LIMITS.pageTimeoutMs);
+    headerTimer = setTimeout(() => request.destroy(new SafeFetchError("request_timeout")), WEBSITE_RESEARCH_LIMITS.headerTimeoutMs);
+    pageTimer = setTimeout(() => request.destroy(new SafeFetchError("request_timeout")), WEBSITE_RESEARCH_LIMITS.pageTimeoutMs);
     if (options.signal?.aborted) {
       onAbort();
       return;
@@ -359,6 +412,12 @@ export async function safeFetchPublicSite(
       continue;
     }
     if (response.status < 200 || response.status >= 300) {
+      const statusClass = response.status >= 400 && response.status < 500
+        ? "4xx"
+        : response.status >= 500 && response.status < 600
+          ? "5xx"
+          : "other";
+      logSafeFetchFailure("http_status", null, statusClass);
       throw new SafeFetchError("request_failed");
     }
     return {
