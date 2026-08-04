@@ -7,6 +7,8 @@ import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 import {
   DIRECT_HIRE_ONBOARDING_PATH,
   type DirectHireOnboardingStatus,
+  type DirectHirePreparationView,
+  type DirectHirePreparationStatus,
   type DirectHireProfileErrors,
   type DirectHireProfileField,
   type DirectHireProfileInput,
@@ -21,6 +23,17 @@ const EMPTY_PROFILE: DirectHireProfileInput = {
   website: "",
   phone: "",
   growthPriority: "",
+};
+
+const EMPTY_PREPARATION: DirectHirePreparationView = {
+  authorized: false,
+  progress: {},
+  successfulPageCount: 0,
+  failedPageCount: 0,
+  attemptCount: 0,
+  retryAvailable: false,
+  failureCode: null,
+  completedAt: null,
 };
 
 const FIELD_ORDER: DirectHireProfileField[] = [
@@ -50,6 +63,9 @@ export function DirectHireOnboarding() {
   const [errors, setErrors] = useState<DirectHireProfileErrors>({});
   const [requestError, setRequestError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [preparationStatus, setPreparationStatus] = useState<DirectHirePreparationStatus>("not_started");
+  const [preparation, setPreparation] = useState<DirectHirePreparationView>(EMPTY_PREPARATION);
+  const [preparing, setPreparing] = useState(false);
   const fieldRefs = useRef<Partial<Record<DirectHireProfileField, HTMLInputElement | HTMLTextAreaElement | null>>>({});
 
   const loadStatus = useCallback(async () => {
@@ -81,12 +97,78 @@ export function DirectHireOnboarding() {
         setSurface("error");
         return;
       }
+      setPreparationStatus(body.data.preparationStatus);
+      setPreparation(body.data.preparation);
       setSurface(body.data.state === "preparation" ? "preparation" : "first_meeting");
     } catch {
       setRequestError("I couldn’t load our first meeting. Try again when you’re ready.");
       setSurface("error");
     }
   }, [router, session]);
+
+  useEffect(() => {
+    if (surface !== "preparation" || preparationStatus !== "running") return;
+    const interval = window.setInterval(() => void loadStatus(), 3_000);
+    return () => window.clearInterval(interval);
+  }, [loadStatus, preparationStatus, surface]);
+
+  const startPreparation = useCallback(async () => {
+    if (!session || preparing || preparation.attemptCount >= 3) return;
+    setPreparing(true);
+    setPreparationStatus("running");
+    setPreparation((current) => ({
+      ...current,
+      authorized: true,
+      progress: { ...current.progress, validating_destination: "running" },
+      retryAvailable: false,
+    }));
+    setRequestError(null);
+    try {
+      const response = await authenticatedFetch(
+        "/api/onboarding/direct-hire/preparation",
+        session,
+        { method: "POST" },
+      );
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent(DIRECT_HIRE_ONBOARDING_PATH)}`);
+        return;
+      }
+      const body = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        data?: {
+          preparationStatus?: DirectHirePreparationStatus;
+          progress?: DirectHirePreparationView["progress"];
+          attemptCount?: number;
+          retryAvailable?: boolean;
+          successfulPageCount?: number;
+          failedPageCount?: number;
+          failureCode?: DirectHirePreparationView["failureCode"];
+          completedAt?: string | null;
+        };
+      };
+      if (!response.ok || !body.success || !body.data?.preparationStatus) {
+        await loadStatus();
+        setRequestError("I couldn’t confirm the preparation result yet. Your progress is still preserved.");
+        return;
+      }
+      setPreparationStatus(body.data.preparationStatus);
+      setPreparation((current) => ({
+        authorized: true,
+        progress: body.data?.progress ?? current.progress,
+        attemptCount: body.data?.attemptCount ?? current.attemptCount,
+        retryAvailable: body.data?.retryAvailable ?? false,
+        successfulPageCount: body.data?.successfulPageCount ?? current.successfulPageCount,
+        failedPageCount: body.data?.failedPageCount ?? current.failedPageCount,
+        failureCode: body.data?.failureCode ?? null,
+        completedAt: body.data?.completedAt ?? current.completedAt,
+      }));
+    } catch {
+      await loadStatus();
+      setRequestError("I couldn’t confirm the preparation result yet. Your progress is still preserved.");
+    } finally {
+      setPreparing(false);
+    }
+  }, [loadStatus, preparation.attemptCount, preparing, router, session]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -156,6 +238,9 @@ export function DirectHireOnboarding() {
         return;
       }
       setSurface("preparation");
+      setPreparationStatus(body.data.preparationStatus);
+      setPreparation(body.data.preparation ?? EMPTY_PREPARATION);
+      await startPreparation();
     } catch {
       setRequestError("I couldn’t save this yet. Your answers are still here. Try again when you’re ready.");
     } finally {
@@ -285,24 +370,73 @@ export function DirectHireOnboarding() {
           <section aria-labelledby="preparation-title" className="w-full">
             <p className="mb-6 text-xs uppercase tracking-[0.28em] text-zeya-champagne">Before my first day</p>
             <h1 id="preparation-title" className="font-serif text-4xl leading-tight sm:text-5xl">
-              I have what I need to begin preparing.
+              {preparationStatus === "ready"
+                ? "I’ve completed a preliminary public review."
+                : preparationStatus === "partial"
+                  ? "I found useful public material, with some gaps."
+                  : preparationStatus === "failed"
+                    ? "I couldn’t safely complete the website review."
+                    : preparationStatus === "running"
+                      ? "I’m preparing now."
+                      : "I have what I need to begin preparing."}
             </h1>
             <div className="mt-7 max-w-xl space-y-4 leading-7 text-zeya-taupe">
-              <p>I’ll review the public information available to me, separate what appears supported from what I’m assuming, and prepare the questions that matter for our first working session.</p>
+              {preparationStatus === "queued" && (
+                <p>Preparation has not started. When you begin, I’ll review only the public website you provided.</p>
+              )}
+              {preparationStatus === "running" && (
+                <p>I’m reviewing a small number of public pages and preserving only sourced, preliminary evidence.</p>
+              )}
+              {preparationStatus === "ready" && (
+                <p>I found usable public evidence. It remains preliminary until we review it together.</p>
+              )}
+              {preparationStatus === "partial" && (
+                <p>Some useful public evidence is preserved, but one or more optional pages or extraction steps could not be completed.</p>
+              )}
+              {preparationStatus === "failed" && (
+                <p>{preparationFailureMessage(preparation.failureCode)}</p>
+              )}
               <p>Nothing I find becomes the truth about your business until we review it together.</p>
             </div>
 
             <dl className="mt-10 divide-y divide-zeya-ivory/10 border-y border-zeya-ivory/10">
               <PreparationItem label="Business profile" status="Received" />
-              <PreparationItem label="Preparation" status="Queued" />
-              <PreparationItem label="Website review" status="Pending" />
-              <PreparationItem label="Questions" status="Pending" />
-              <PreparationItem label="First working-session preparation" status="Pending" />
+              <PreparationItem
+                label="Preparation"
+                status={preparing && preparation.attemptCount > 0
+                  ? "Retrying"
+                  : displayStatus(preparationStatus)}
+              />
+              <PreparationItem label="Website destination" status={displayProgress(preparation.progress.validating_destination)} />
+              <PreparationItem label="Homepage" status={displayProgress(preparation.progress.homepage)} />
+              <PreparationItem label="About page" status={displayProgress(preparation.progress.about)} />
+              <PreparationItem label="Products or services page" status={displayProgress(preparation.progress.products_services)} />
+              <PreparationItem label="Sourced evidence" status={displayProgress(preparation.progress.evidence)} />
+              <PreparationItem label="Cautious observations" status={displayProgress(preparation.progress.observations)} />
             </dl>
 
-            <p className="mt-8 max-w-xl text-sm leading-6 text-zeya-taupe">
-              Preparation has not started yet. I won’t show research as complete until the underlying work has actually happened.
-            </p>
+            {requestError && <p role="alert" className="mt-6 text-sm leading-6 text-red-200">{requestError}</p>}
+            {preparationStatus === "queued" && (
+              <button type="button" onClick={() => void startPreparation()} disabled={preparing}
+                className="mt-8 rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-ivory">
+                Begin preparation
+              </button>
+            )}
+            {(preparationStatus === "failed" || preparationStatus === "partial") && preparation.attemptCount < 3 && (
+              <button type="button" onClick={() => void startPreparation()} disabled={preparing}
+                className="mt-8 rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm text-zeya-ivory disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-champagne">
+                {preparing ? "Retrying…" : "Try preparation again"}
+              </button>
+            )}
+            {preparationStatus === "running" && preparation.retryAvailable && (
+              <button type="button" onClick={() => void startPreparation()} disabled={preparing}
+                className="mt-8 rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm text-zeya-ivory disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-champagne">
+                Retry expired preparation
+              </button>
+            )}
+            {preparation.attemptCount >= 3 && preparationStatus !== "ready" && (
+              <p className="mt-8 max-w-xl text-sm leading-6 text-zeya-taupe">The safe retry limit has been reached. Your profile and any sourced evidence remain preserved.</p>
+            )}
           </section>
         )}
 
@@ -398,4 +532,24 @@ function PreparationItem({ label, status }: { label: string; status: string }) {
       <dd className="text-xs uppercase tracking-[0.18em] text-zeya-taupe">{status}</dd>
     </div>
   );
+}
+
+function displayStatus(status: DirectHirePreparationStatus): string {
+  return status === "not_started" ? "Not started" : status[0].toUpperCase() + status.slice(1);
+}
+
+function displayProgress(status: DirectHirePreparationView["progress"][keyof DirectHirePreparationView["progress"]]): string {
+  if (!status) return "Pending";
+  return status[0].toUpperCase() + status.slice(1);
+}
+
+function preparationFailureMessage(code: DirectHirePreparationView["failureCode"]): string {
+  switch (code) {
+    case "unsupported_site": return "The website could not be reached safely over HTTPS.";
+    case "unsafe_destination": return "The website destination did not pass the public-network safety checks.";
+    case "unsupported_content_type": return "The website did not return a supported HTML page.";
+    case "response_too_large": return "The public page was larger than the safe review limit.";
+    case "request_timeout": return "The public website did not respond within the safe review time.";
+    default: return "I could not safely obtain usable public website evidence. I have not filled the gaps with guesses.";
+  }
 }

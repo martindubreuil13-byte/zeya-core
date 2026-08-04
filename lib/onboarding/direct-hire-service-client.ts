@@ -1,0 +1,12 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { assertCurrentPreviewEnvironmentIsolation } from "@/lib/experience/preview-environment-guard";
+
+export function createDirectHireServiceClient(): SupabaseClient {
+  assertCurrentPreviewEnvironmentIsolation();
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Direct Hire preparation service is unavailable");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}

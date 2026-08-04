@@ -62,16 +62,16 @@ describe("Direct Hire Vertical Slice 1", () => {
     expect(component).not.toContain("sessionStorage");
   });
 
-  it("shows only truthful received, queued, and pending preparation states", async () => {
+  it("shows only truthful backend-derived preparation states", async () => {
     const component = await readFile(
       "components/onboarding/DirectHireOnboarding.tsx",
       "utf8",
     );
     expect(component).toContain('label="Business profile" status="Received"');
-    expect(component).toContain('label="Preparation" status="Queued"');
-    expect(component).toContain('label="Website review" status="Pending"');
-    expect(component).toContain('label="Questions" status="Pending"');
-    expect(component).toContain("Preparation has not started yet");
+    expect(component).toContain(': displayStatus(preparationStatus)}');
+    expect(component).toContain('status={displayProgress(preparation.progress.homepage)}');
+    expect(component).toContain('status={displayProgress(preparation.progress.evidence)}');
+    expect(component).toContain("Preparation has not started");
     expect(component).not.toContain("Research complete");
   });
 

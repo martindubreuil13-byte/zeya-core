@@ -3,8 +3,13 @@ import { createAuthenticatedRepresentationContext } from "@/lib/representation/a
 import {
   DIRECT_HIRE_ONBOARDING_STATES,
   DIRECT_HIRE_PREPARATION_STATUSES,
+  DIRECT_HIRE_PROGRESS_STEPS,
   type DirectHireOnboardingState,
+  type DirectHirePreparationView,
   type DirectHirePreparationStatus,
+  type DirectHireProgress,
+  type DirectHireProgressValue,
+  type DirectHireSafeFailureCode,
 } from "@/lib/onboarding/direct-hire-contract";
 import { validateDirectHireProfile } from "@/lib/onboarding/direct-hire-validation";
 
@@ -14,6 +19,14 @@ type DirectHireRow = {
   business_representation_id: string;
   onboarding_state: string;
   preparation_status: string;
+  research_authorized_at: string | null;
+  preparation_attempt_count: number;
+  preparation_lease_expires_at: string | null;
+  preparation_completed_at: string | null;
+  preparation_failure_code: string | null;
+  preparation_progress: unknown;
+  preparation_successful_page_count: number;
+  preparation_failed_page_count: number;
 };
 
 function failure(error: string, status: number, details?: unknown) {
@@ -31,12 +44,48 @@ function isPreparationStatus(value: string): value is DirectHirePreparationStatu
   return DIRECT_HIRE_PREPARATION_STATUSES.some((status) => status === value);
 }
 
-function success(state: DirectHireOnboardingState, preparationStatus: DirectHirePreparationStatus) {
+const PROGRESS_VALUES: DirectHireProgressValue[] = [
+  "pending", "running", "complete", "skipped", "failed",
+];
+
+function safeProgress(value: unknown): DirectHireProgress {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(DIRECT_HIRE_PROGRESS_STEPS.flatMap((step) => {
+    const candidate = source[step];
+    return typeof candidate === "string" && PROGRESS_VALUES.includes(candidate as DirectHireProgressValue)
+      ? [[step, candidate]]
+      : [];
+  })) as DirectHireProgress;
+}
+
+function safeCount(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3
+    ? value
+    : 0;
+}
+
+function success(
+  state: DirectHireOnboardingState,
+  preparationStatus: DirectHirePreparationStatus,
+  preparation: DirectHirePreparationView,
+) {
   return NextResponse.json({
     success: true,
-    data: { state, preparationStatus },
+    data: { state, preparationStatus, preparation },
   });
 }
+
+const EMPTY_PREPARATION: DirectHirePreparationView = {
+  authorized: false,
+  progress: {},
+  successfulPageCount: 0,
+  failedPageCount: 0,
+  attemptCount: 0,
+  retryAvailable: false,
+  failureCode: null,
+  completedAt: null,
+};
 
 export async function GET(request: NextRequest) {
   const auth = await createAuthenticatedRepresentationContext(request);
@@ -47,7 +96,7 @@ export async function GET(request: NextRequest) {
     const onboardingResult = await auth.supabase
       .from("direct_hire_onboarding_sessions")
       .select(
-        "owner_id,business_id,business_representation_id,onboarding_state,preparation_status",
+        "owner_id,business_id,business_representation_id,onboarding_state,preparation_status,research_authorized_at,preparation_attempt_count,preparation_completed_at,preparation_failure_code,preparation_progress,preparation_successful_page_count,preparation_failed_page_count,preparation_lease_expires_at",
       )
       .eq("owner_id", ownerId)
       .limit(2);
@@ -90,7 +139,7 @@ export async function GET(request: NextRequest) {
           if ((formation.count ?? 0) > 0) return failure("owner_journey_conflict", 409);
         }
       }
-      return success("first_meeting", "not_started");
+      return success("first_meeting", "not_started", EMPTY_PREPARATION);
     }
 
     if (
@@ -135,7 +184,21 @@ export async function GET(request: NextRequest) {
     if (formation.error) return failure("formation_lookup_failed", 500);
     if ((formation.count ?? 0) > 0) return failure("owner_journey_conflict", 409);
 
-    return success(onboarding.onboarding_state, onboarding.preparation_status);
+    return success(onboarding.onboarding_state, onboarding.preparation_status, {
+      authorized: Boolean(onboarding.research_authorized_at),
+      progress: safeProgress(onboarding.preparation_progress),
+      successfulPageCount: safeCount(onboarding.preparation_successful_page_count),
+      failedPageCount: safeCount(onboarding.preparation_failed_page_count),
+      attemptCount: safeCount(onboarding.preparation_attempt_count),
+      retryAvailable: onboarding.preparation_status === "running"
+        && safeCount(onboarding.preparation_attempt_count) < 3
+        && typeof onboarding.preparation_lease_expires_at === "string"
+        && Date.parse(onboarding.preparation_lease_expires_at) <= Date.now(),
+      failureCode: typeof onboarding.preparation_failure_code === "string"
+        ? onboarding.preparation_failure_code as DirectHireSafeFailureCode
+        : null,
+      completedAt: onboarding.preparation_completed_at,
+    });
   } catch {
     return failure("onboarding_lookup_failed", 500);
   }
@@ -190,7 +253,7 @@ export async function POST(request: NextRequest) {
       return failure("profile_persistence_invalid", 500);
     }
 
-    return success(state, preparationStatus);
+    return success(state, preparationStatus, EMPTY_PREPARATION);
   } catch {
     return failure("profile_persistence_failed", 500);
   }
