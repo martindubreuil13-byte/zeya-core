@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
+import { safeInternalPath } from '@/lib/auth/safe-next-path';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,7 +13,8 @@ export default function LoginPage() {
   // Use router.replace to avoid history stack issues with auth flow
   useEffect(() => {
     if (user && !loading) {
-      router.replace('/formation/entry');
+      const requestedPath = new URLSearchParams(window.location.search).get('next');
+      router.replace(safeInternalPath(requestedPath));
     }
   }, [user, loading, router]);
 

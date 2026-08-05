@@ -8,6 +8,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { FormationSessionStatusResponse, FormationSummary } from '@/types/formation';
+import {
+  FormationSessionLoadError,
+  loadFormationWorkflowState,
+  resolveFormationAuthGate,
+  resolveFormationWorkflowState,
+  type FormationWorkflowUIState,
+} from '@/lib/formation/workflow-state';
 
 interface FormationWorkflowProps {
   sessionId: string;
@@ -18,8 +25,7 @@ interface FormationWorkflowProps {
   };
 }
 
-export type UIState = 'loading' | 'entry' | 'getting_familiar' | 'conversation_ready' | 'conversation_active'
-  | 'processing' | 'summary_pending' | 'summary_review' | 'correction_entry' | 'approval_confirmation' | 'version_created' | 'error';
+export type UIState = FormationWorkflowUIState;
 
 export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowProps) {
   const router = useRouter();
@@ -34,60 +40,58 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
   const correctionRequestKey = useRef<string>(crypto.randomUUID());
 
   const mapSessionToUIState = useCallback((sess: FormationSessionStatusResponse) => {
-    switch (sess.status) {
-      case 'initiated':
-        setUiState('entry');
-        break;
-      case 'getting_familiar':
-        setUiState('getting_familiar');
-        break;
-      case 'working_conversation_pending':
-        setUiState('conversation_ready');
-        break;
-      case 'working_conversation_linked':
-        if (!sess.firstWorkingConversationId) {
-          setError('The governed conversation lineage is incomplete.');
-          setUiState('error');
-        } else if (sess.summary) {
-          setSummary(sess.summary);
-          setUiState('summary_review');
-        } else {
-          setUiState('summary_pending');
-        }
-        break;
-    }
+    const resolution = resolveFormationWorkflowState(sess);
+    setSummary(resolution.summary);
+    setError(resolution.error);
+    setUiState(resolution.uiState);
   }, []);
 
   // Load Formation Session on mount
   useEffect(() => {
     if (screenLab) return;
-    if (authLoading || !authSession) return;
+    const authGate = resolveFormationAuthGate(authLoading, !!authSession);
+    if (authGate === 'loading') return;
+    let cancelled = false;
+
+    if (authGate === 'unauthenticated') {
+      const redirectToLogin = async () => {
+        await Promise.resolve();
+        if (cancelled) return;
+        setError('Please sign in to continue your Formation.');
+        setUiState('error');
+        router.replace(`/login?next=${encodeURIComponent(`/formation/sessions/${sessionId}`)}`);
+      };
+      void redirectToLogin();
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const loadSession = async () => {
       try {
         setUiState('loading');
-        const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}`, authSession);
-
-        if (res.status === 401) {
-          router.replace('/login');
-          return;
-        }
-
-        if (!res.ok) throw new Error(`Session not found`);
-        const data = await res.json();
-        if (data.success) {
-          setSession(data.data);
-          mapSessionToUIState(data.data);
-        } else {
-          setError(data.error);
-          setUiState('error');
-        }
+        setError(null);
+        const loaded = await loadFormationWorkflowState(() =>
+          authenticatedFetch(`/api/formation/sessions/${sessionId}`, authSession),
+        );
+        if (cancelled) return;
+        setSession(loaded.session);
+        setSummary(loaded.summary);
+        setError(loaded.error);
+        setUiState(loaded.uiState);
       } catch (err) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load session');
         setUiState('error');
+        if (err instanceof FormationSessionLoadError && err.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent(`/formation/sessions/${sessionId}`)}`);
+        }
       }
     };
-    loadSession();
+    void loadSession();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, mapSessionToUIState, authLoading, authSession, router, screenLab]);
 
   const advanceState = useCallback(async (nextStatus: string) => {
@@ -355,8 +359,9 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       {uiState === 'summary_pending' && (
         <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <p className="font-semibold text-blue-900">Your governed conversation is ready for review.</p>
-          <p className="text-sm text-blue-800">Create the durable review before continuing. Refreshing will return to this same persisted state.</p>
+          <h2 className="text-xl font-semibold text-blue-900">Preparing your Representation</h2>
+          <p className="text-sm text-blue-800">Your working conversation is complete. Its governed summary is not ready yet, and nothing needs your approval until that review exists.</p>
+          <p className="text-sm text-blue-800">Refreshing or signing in again will return you to this saved state.</p>
           <button
             onClick={generateSummary}
             disabled={isProcessing}

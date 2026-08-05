@@ -50,10 +50,11 @@ describe('Formation P1 stabilization', () => {
   });
 
   it('restores only a durable persisted summary projection', async () => {
-    const [sessionRoute, summaryRoute, workflow] = await Promise.all([
+    const [sessionRoute, summaryRoute, workflow, workflowState] = await Promise.all([
       read('app/api/formation/sessions/[sessionId]/route.ts'),
       read('app/api/formation/sessions/[sessionId]/summary/route.ts'),
       read('components/formation/FormationWorkflow.tsx'),
+      read('lib/formation/workflow-state.ts'),
     ]);
     expect(sessionRoute).toContain('projectFormationSummary');
     expect(sessionRoute).toContain('summary,');
@@ -61,9 +62,10 @@ describe('Formation P1 stabilization', () => {
     expect(summaryRoute).toContain(".eq('status', 'draft')");
     expect(summaryRoute).toContain("if (existing?.isCurrent)");
     expect(summaryRoute).toContain("status: 'superseded'");
-    expect(workflow).toContain('if (sess.summary)');
-    expect(workflow).toContain("setUiState('summary_pending')");
-    expect(workflow).toContain("setError(data.error);\n        setUiState('error')");
+    expect(workflow).toContain('resolveFormationWorkflowState(sess)');
+    expect(workflowState).toContain("uiState: 'summary_pending'");
+    expect(workflowState).toContain("uiState: 'summary_review'");
+    expect(workflowState).toContain('Failed to load Formation session.');
   });
 
   it('records corrections through an owner-scoped idempotent immutable Evidence RPC', async () => {
