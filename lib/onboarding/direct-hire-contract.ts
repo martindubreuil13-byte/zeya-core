@@ -3,7 +3,33 @@ export const DIRECT_HIRE_ONBOARDING_PATH = "/onboarding";
 export const DIRECT_HIRE_ONBOARDING_STATES = [
   "first_meeting",
   "preparation",
+  "employment_accepted",
+  "induction_material_requested",
+  "induction_material_received",
+  "preparation_pending",
 ] as const;
+
+export const DIRECT_HIRE_INDUCTION_STATES = [
+  "not_started",
+  "material_requested",
+  "material_received",
+  "preparation_pending",
+] as const;
+
+export type DirectHireInductionState =
+  (typeof DIRECT_HIRE_INDUCTION_STATES)[number];
+
+export type InductionMaterialType =
+  | "description"
+  | "link"
+  | "note";
+
+export type InductionMaterial = {
+  type: InductionMaterialType;
+  label?: string;
+  url?: string;
+  content?: string;
+};
 
 export const DIRECT_HIRE_PREPARATION_STATUSES = [
   "not_started",

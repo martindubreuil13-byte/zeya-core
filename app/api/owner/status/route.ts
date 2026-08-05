@@ -5,6 +5,7 @@ type OwnerStatusFailureStage =
   | 'authentication'
   | 'business_lookup'
   | 'representation_lookup'
+  | 'direct_hire_lookup'
   | 'formation_lookup'
   | 'version_lookup'
   | 'response_validation';
@@ -179,6 +180,49 @@ export async function GET(request: NextRequest) {
             status: 'active_formation',
             formationSessionId: activeFormation.id,
             formationStatus: activeFormation.status,
+            businessRepresentationId: representation.id,
+            businessId,
+          },
+        },
+        { status: 200 },
+      );
+    }
+
+    // Check for active Direct Hire onboarding session.
+    // Employed owners without canonical Representation must resume onboarding at the correct surface.
+    const directHireResult = await auth.supabase
+      .from('direct_hire_onboarding_sessions')
+      .select('id, onboarding_state')
+      .eq('owner_id', ownerId)
+      .eq('business_id', businessId)
+      .eq('business_representation_id', representation.id)
+      .maybeSingle();
+
+    if (directHireResult.error) {
+      console.error('[owner-status]', {
+        stage: 'direct_hire_lookup',
+        code: directHireResult.error.code,
+      });
+      return ownerStatusFailure('direct_hire_lookup');
+    }
+
+    const directHireSession = directHireResult.data;
+    if (directHireSession) {
+      if (
+        typeof directHireSession.id !== 'string' ||
+        !UUID.test(directHireSession.id) ||
+        typeof directHireSession.onboarding_state !== 'string'
+      ) {
+        return ownerStatusFailure('response_validation');
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            status: 'direct_hire_employed',
+            directHireSessionId: directHireSession.id,
+            onboardingState: directHireSession.onboarding_state,
             businessRepresentationId: representation.id,
             businessId,
           },
