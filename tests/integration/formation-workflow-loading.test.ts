@@ -87,9 +87,9 @@ describe('Formation workflow loading resolution', () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(pendingPanel).toContain('Preparing your Representation');
-    expect(pendingPanel).toContain('nothing needs your approval');
-    expect(pendingPanel).toContain('Refreshing or signing in again');
+    expect(pendingPanel).toContain("I&apos;m preparing what I understood");
+    expect(pendingPanel).toContain('Nothing becomes part of your business Representation');
+    expect(pendingPanel).toContain('You can leave and return');
     expect(pendingPanel).not.toMatch(/approveSummary|submitCorrection|setTimeout|setInterval/);
   });
 

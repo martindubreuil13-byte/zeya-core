@@ -261,10 +261,10 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
   if (uiState === 'loading') {
     return (
-      <div className="flex items-center justify-center p-12">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border border-gray-300 border-t-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Preparing Formation...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border border-slate-700 border-t-slate-400 mx-auto mb-6"></div>
+          <p className="text-slate-300 text-sm tracking-wide">Preparing Formation…</p>
         </div>
       </div>
     );
@@ -272,157 +272,218 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
   if (uiState === 'error') {
     return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded">
-        <h3 className="font-semibold text-red-900 mb-2">Error</h3>
-        <p className="text-red-700 text-sm">{error}</p>
+      <div className="p-8 max-w-2xl mx-auto my-12">
+        <div className="border border-slate-700 bg-slate-900 rounded p-6 space-y-2">
+          <h3 className="font-semibold text-slate-100 text-sm">Error</h3>
+          <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6 max-w-2xl">
-      <div>
-        <h1 className="text-3xl font-bold mb-1">First Working Conversation</h1>
-        <p className="text-gray-600 text-sm">Building your Representation together</p>
-      </div>
+    <div className="min-h-screen bg-slate-950">
+      <div className="space-y-0 max-w-4xl mx-auto">
+        {/* Header - hidden in summary pending/review states, shown in other states */}
+        {!['summary_pending', 'summary_review', 'approval_confirmation', 'correction_entry', 'version_created', 'processing'].includes(uiState) && (
+          <div className="p-6 pb-4">
+            <h1 className="text-3xl font-serif font-light leading-tight text-slate-100 mb-1">First Working Conversation</h1>
+            <p className="text-slate-400 text-sm">Building your Representation together</p>
+          </div>
+        )}
 
       {/* Entry: Formation starts */}
       {uiState === 'entry' && (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-blue-900">Before we begin, I&apos;d like to tell you how I prepared for today.</p>
-            <p className="text-blue-800 text-sm mt-2">I reviewed everything from your introduction, thought about what I&apos;ve learned, and prepared some thoughts on how I can best represent you.</p>
+        <div className="space-y-8 py-12 px-6">
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div className="space-y-4">
+              <p className="text-base text-slate-300 leading-relaxed">Before we begin, I&apos;d like to tell you how I prepared for today.</p>
+              <p className="text-base text-slate-300 leading-relaxed">I reviewed everything from your introduction, thought about what I&apos;ve learned, and prepared some thoughts on how I can best represent you.</p>
+            </div>
+            <button
+              onClick={() => advanceState('getting_familiar')}
+              disabled={isProcessing}
+              className="px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+            >
+              I&apos;m ready to listen
+            </button>
           </div>
-          <button
-            onClick={() => advanceState('getting_familiar')}
-            disabled={isProcessing}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            I&apos;m ready to listen
-          </button>
         </div>
       )}
 
       {/* Getting Familiar: Zeya speaks intro */}
       {uiState === 'getting_familiar' && (
-        <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <p className="text-amber-900 font-semibold">Getting to know you better</p>
-            <p className="text-amber-800 text-sm mt-2">Zeya is preparing to listen and learn.</p>
+        <div className="space-y-8 py-12 px-6">
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <h2 className="text-2xl font-serif font-light text-slate-100">Getting to know you better</h2>
+            <p className="text-base text-slate-300 leading-relaxed">Zeya is preparing to listen and learn.</p>
+            <button
+              onClick={() => advanceState('working_conversation_pending')}
+              disabled={isProcessing}
+              className="inline-block px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950 mt-2"
+            >
+              Begin conversation
+            </button>
           </div>
-          <button
-            onClick={() => advanceState('working_conversation_pending')}
-            disabled={isProcessing}
-            className="px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
-          >
-            Begin conversation
-          </button>
         </div>
       )}
 
       {/* Conversation Ready: About to speak */}
       {uiState === 'conversation_ready' && (
-        <div className="space-y-4">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-yellow-900 font-semibold">Ready to listen deeply</p>
-            <p className="text-yellow-800 text-sm mt-2">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
+        <div className="space-y-8 py-12 px-6">
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <h2 className="text-2xl font-serif font-light text-slate-100">Ready to listen deeply</h2>
+            <p className="text-base text-slate-300 leading-relaxed">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
+            {screenLab ? (
+              <button
+                onClick={() => setUiState('conversation_active')}
+                className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-2"
+              >
+                Start first working conversation
+              </button>
+            ) : (
+              <p className="text-sm text-slate-400">This session will remain pending until a completed governed conversation is linked.</p>
+            )}
           </div>
-          {screenLab ? (
-            <button
-              onClick={() => setUiState('conversation_active')}
-              className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-            >
-              Start first working conversation
-            </button>
-          ) : (
-            <p className="text-sm text-yellow-800">This session will remain pending until a completed governed conversation is linked.</p>
-          )}
         </div>
       )}
 
       {/* Conversation Active: Voice is live */}
       {uiState === 'conversation_active' && screenLab && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <div className="mb-4">
-            <div className="inline-block w-4 h-4 bg-red-600 rounded-full animate-pulse"></div>
+        <div className="space-y-8 py-12 px-6">
+          <div className="max-w-2xl mx-auto text-center space-y-8">
+            <div className="flex justify-center pt-4">
+              <div className="w-20 h-20 rounded-full border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+                <div className="w-3 h-3 bg-slate-400 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <p className="text-2xl font-serif font-light text-slate-100">Listening…</p>
+              <p className="text-base text-slate-300 leading-relaxed">Share your thoughts, plans, and what drives your business.</p>
+            </div>
+            <button
+              onClick={() => setUiState('summary_pending')}
+              className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-2"
+            >
+              Conversation complete
+            </button>
           </div>
-          <p className="text-red-900 font-semibold text-lg mb-2">Listening...</p>
-          <p className="text-red-700 text-sm mb-4">Share your thoughts, plans, and what drives your business.</p>
-          <button
-            onClick={() => setUiState('summary_pending')}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Conversation complete
-          </button>
         </div>
       )}
 
       {uiState === 'summary_pending' && (
-        <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <h2 className="text-xl font-semibold text-blue-900">Preparing your Representation</h2>
-          <p className="text-sm text-blue-800">Your working conversation is complete. Its governed summary is not ready yet, and nothing needs your approval until that review exists.</p>
-          <p className="text-sm text-blue-800">Refreshing or signing in again will return you to this saved state.</p>
-          <button
-            onClick={generateSummary}
-            disabled={isProcessing}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            Prepare review
-          </button>
+        <div className="space-y-8 py-12 px-6">
+          {/* Eyebrow */}
+          <div className="text-center">
+            <p className="text-xs font-semibold tracking-widest text-slate-500 uppercase mb-8">Our First Working Session</p>
+          </div>
+
+          {/* Heading */}
+          <div className="space-y-6 max-w-2xl mx-auto text-center">
+            <h2 className="text-4xl font-serif font-light leading-tight text-slate-100">I&apos;m preparing what I understood.</h2>
+            <p className="text-base text-slate-300 leading-relaxed">
+              Our conversation is complete. I&apos;m organizing what I heard into a Representation review for you.
+            </p>
+            <p className="text-base text-slate-300 leading-relaxed">
+              Nothing becomes part of your business Representation until you review and approve it.
+            </p>
+          </div>
+
+          {/* Voice presence placeholder */}
+          <div className="flex justify-center my-12">
+            <div className="w-20 h-20 rounded-full border border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+              <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Primary action */}
+          <div className="flex justify-center pt-4">
+            <button
+              onClick={generateSummary}
+              disabled={isProcessing}
+              className="px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+            >
+              Prepare my review
+            </button>
+          </div>
+
+          {/* Secondary text */}
+          <div className="text-center pt-6">
+            <p className="text-sm text-slate-400">You can leave and return. I&apos;ll keep this state.</p>
+          </div>
         </div>
       )}
 
       {/* Processing: Synthesizing summary */}
       {uiState === 'processing' && (
-        <div className="flex items-center justify-center p-8 bg-gray-50 rounded-lg">
+        <div className="flex items-center justify-center py-16">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border border-gray-300 border-t-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Synthesizing what I&apos;ve learned...</p>
+            <div className="inline-block">
+              <div className="animate-spin rounded-full h-10 w-10 border border-slate-700 border-t-slate-400 mb-6"></div>
+            </div>
+            <p className="text-slate-300 text-sm tracking-wide">Synthesizing what I&apos;ve learned…</p>
           </div>
         </div>
       )}
 
       {/* Summary Review */}
       {uiState === 'summary_review' && summary && (
-        <div className="space-y-4">
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">What I&apos;ve Understood</h2>
-            <div className="space-y-4">
-              {summary.sections.map((section, idx) => (
-                <div key={idx}>
-                  <h3 className="font-semibold text-gray-900 mb-1">{section.title}</h3>
-                  <p className="text-gray-700 text-sm">{section.content}</p>
-                </div>
-              ))}
-            </div>
+        <div className="space-y-8 py-12 px-6">
+          {/* Eyebrow */}
+          <div className="text-center">
+            <p className="text-xs font-semibold tracking-widest text-slate-500 uppercase mb-8">What I Understood</p>
+          </div>
+
+          {/* Heading */}
+          <div className="space-y-6 max-w-2xl mx-auto text-center mb-8">
+            <h2 className="text-4xl font-serif font-light leading-tight text-slate-100">Here is the Representation I would begin with.</h2>
+          </div>
+
+          {/* Review Content */}
+          <div className="max-w-3xl mx-auto space-y-10">
+            {summary.sections.map((section, idx) => (
+              <div key={idx} className="space-y-3 pb-10 border-b border-slate-700 last:border-b-0 last:pb-0">
+                <h3 className="text-lg font-serif font-light text-slate-200">{section.title}</h3>
+                <p className="text-base text-slate-300 leading-relaxed">{section.content}</p>
+              </div>
+            ))}
+
             {!summary.isCurrent && (
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-yellow-700 text-sm">
-                This summary may be stale. Refresh to regenerate.
+              <div className="mt-8 p-4 border border-slate-700 bg-slate-900 rounded">
+                <p className="text-sm text-slate-400">This summary may be stale. Refresh to regenerate.</p>
               </div>
             )}
           </div>
 
-          <div className="space-y-2">
-            <button
-              onClick={() => setUiState('correction_entry')}
-              disabled={isProcessing}
-              className="w-full px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-            >
-              Close, but let me adjust something
-            </button>
-            <button
-              onClick={requestMoreTime}
-              disabled={isProcessing}
-              className="w-full px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-            >
-              I need more time
-            </button>
+          {/* Actions */}
+          <div className="space-y-3 max-w-2xl mx-auto mt-12 pt-6 border-t border-slate-700">
+            {/* Primary action */}
             <button
               onClick={() => setUiState('approval_confirmation')}
               disabled={isProcessing || !summary.isCurrent}
-              className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
             >
-              This looks right
+              This is right
+            </button>
+
+            {/* Secondary action */}
+            <button
+              onClick={() => setUiState('correction_entry')}
+              disabled={isProcessing}
+              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+            >
+              Close, but let me adjust something
+            </button>
+
+            {/* Tertiary action */}
+            <button
+              onClick={requestMoreTime}
+              disabled={isProcessing}
+              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+            >
+              I need more time
             </button>
           </div>
         </div>
@@ -430,29 +491,36 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       {/* Correction Entry */}
       {uiState === 'correction_entry' && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold mb-2">What should I correct or add?</label>
+        <div className="space-y-8 py-12 px-6">
+          {/* Heading */}
+          <div className="max-w-2xl mx-auto text-center">
+            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100 mb-6">What should I correct or adjust?</h2>
+          </div>
+
+          {/* Input */}
+          <div className="max-w-2xl mx-auto">
             <textarea
               value={correctionText}
               onChange={(e) => setCorrectionText(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Tell me what I got wrong or what I'm missing..."
-              rows={4}
+              className="w-full p-4 border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-700 rounded text-sm leading-relaxed"
+              placeholder="Tell me what I got wrong or what I&apos;m missing…"
+              rows={6}
             />
           </div>
-          <div className="flex gap-2">
+
+          {/* Actions */}
+          <div className="space-y-3 max-w-2xl mx-auto">
             <button
               onClick={submitCorrection}
               disabled={isProcessing || !correctionText.trim()}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
             >
               Submit correction
             </button>
             <button
               onClick={() => setUiState('summary_review')}
               disabled={isProcessing}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
             >
               Cancel
             </button>
@@ -462,23 +530,26 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       {/* Approval Confirmation */}
       {uiState === 'approval_confirmation' && summary && (
-        <div className="space-y-4">
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-green-900 font-semibold">Ready to create your first Representation?</p>
-            <p className="text-green-800 text-sm mt-2">Once approved, this becomes your official Representation Version 0.1.</p>
+        <div className="space-y-8 py-12 px-6">
+          {/* Confirmation content */}
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100">Ready to create your first Representation?</h2>
+            <p className="text-base text-slate-300 leading-relaxed">Once approved, this becomes your official Representation Version 0.1.</p>
           </div>
-          <div className="flex gap-2">
+
+          {/* Actions */}
+          <div className="space-y-3 max-w-2xl mx-auto">
             <button
               onClick={approveSummary}
               disabled={isProcessing}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
             >
               Approve & create Representation
             </button>
             <button
               onClick={() => setUiState('summary_review')}
               disabled={isProcessing}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
             >
               Review again
             </button>
@@ -488,23 +559,23 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       {/* Version Created: Success */}
       {uiState === 'version_created' && versionId && (
-        <div className="space-y-4">
-          <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
-            <div className="text-3xl mb-3">✓</div>
-            <p className="text-green-900 font-semibold text-lg mb-2">Representation Created</p>
-            <p className="text-green-700 text-sm mb-4">Your first canonical Representation Version 0.1 is ready.</p>
+        <div className="space-y-8 py-12 px-6">
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <div className="text-5xl mb-4">✓</div>
+            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100">Representation Created</h2>
+            <p className="text-base text-slate-300 leading-relaxed">Your first canonical Representation Version 0.1 is ready.</p>
             <button
               onClick={() => {
-                // Navigate to Living Representation workspace
                 router.replace('/representation/living');
               }}
-              className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-6"
             >
               Enter your Workspace
             </button>
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
