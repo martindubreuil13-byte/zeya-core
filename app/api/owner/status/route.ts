@@ -110,6 +110,38 @@ export async function GET(request: NextRequest) {
       return ownerStatusFailure('response_validation');
     }
 
+    // Canonical truth takes precedence over any historical Formation row.
+    if (representation.current_version_id) {
+      if (
+        typeof representation.current_version_id !== 'string'
+        || !UUID.test(representation.current_version_id)
+      ) {
+        return ownerStatusFailure('response_validation');
+      }
+      const versionResult = await auth.supabase
+        .from('representation_versions')
+        .select('id, version_number, business_representation_id')
+        .eq('id', representation.current_version_id)
+        .eq('business_representation_id', representation.id)
+        .maybeSingle();
+      if (versionResult.error || !versionResult.data) {
+        console.error('[owner-status]', {
+          stage: 'version_lookup',
+          code: versionResult.error?.code ?? 'current_version_missing',
+        });
+        return ownerStatusFailure('version_lookup');
+      }
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'has_representation',
+          businessRepresentationId: representation.id,
+          businessId,
+          versionNumber: versionResult.data.version_number,
+        },
+      }, { status: 200 });
+    }
+
     const formationResult = await auth.supabase
       .from('representation_formation_sessions')
       .select('id, status, business_id, business_representation_id, owner_id')
@@ -155,43 +187,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!representation.current_version_id) return newOwnerResponse();
-    if (
-      typeof representation.current_version_id !== 'string' ||
-      !UUID.test(representation.current_version_id)
-    ) {
-      return ownerStatusFailure('response_validation');
-    }
-
-    const versionResult = await auth.supabase
-      .from('representation_versions')
-      .select('id, version_number, business_representation_id')
-      .eq('id', representation.current_version_id)
-      .eq('business_representation_id', representation.id)
-      .maybeSingle();
-
-    if (versionResult.error) {
-      console.error('[owner-status]', {
-        stage: 'version_lookup',
-        code: versionResult.error.code,
-      });
-      return ownerStatusFailure('version_lookup');
-    }
-
-    if (!versionResult.data) return ownerStatusFailure('version_lookup');
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          status: 'has_representation',
-          businessRepresentationId: representation.id,
-          businessId,
-          versionNumber: versionResult.data.version_number,
-        },
-      },
-      { status: 200 },
-    );
+    return newOwnerResponse();
   } catch {
     console.error('[owner-status]', {
       stage: 'response_validation',

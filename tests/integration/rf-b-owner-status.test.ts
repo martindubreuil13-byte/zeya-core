@@ -29,13 +29,12 @@ describe('RF-B owner status contract', () => {
     expect(route).toContain('{ status: 409 }');
   });
 
-  it('treats expected missing Representation and Version pointer as new-owner state', async () => {
+  it('treats a missing Representation or both missing canonical and Formation state as new-owner state', async () => {
     const route = await readFile('app/api/owner/status/route.ts', 'utf8');
 
     expect(route).toContain('if (!representation) return newOwnerResponse()');
-    expect(route).toContain(
-      'if (!representation.current_version_id) return newOwnerResponse()',
-    );
+    expect(route).toContain('if (representation.current_version_id)');
+    expect(route).toContain('return newOwnerResponse();');
   });
 
   it('returns the exact active Formation identity with full tenant scope', async () => {

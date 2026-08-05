@@ -79,6 +79,8 @@ export interface FormationSessionStatusResponse {
   businessRepresentationId: string;
   status: FormationSessionStatus;
   initiatedAt: string;
+  firstWorkingConversationId: string | null;
+  summary: FormationSummary | null;
   linkedContextSummary?: {
     fromPublicExperience?: boolean;
     fromRepresentationBrief?: boolean;
@@ -146,15 +148,24 @@ export interface FormationSummaryMetadata {
 
 export interface FormationSummary {
   proposalId: string;
+  formationSessionId: string;
   sourceFingerprint: string;
   generatorVersion: string;
   isCurrent: boolean;
+  createdAt: string;
+  correctionState: 'none' | 'superseded';
   sections: FormationSummarySection[];
 }
 
 export interface FormationSummaryRequest {
   proposalId?: string;
   sourceFingerprint?: string;
+}
+
+export interface FormationCorrectionRequest {
+  proposalId: string;
+  requestKey: string;
+  correctionStatement: string;
 }
 
 export interface FormationApprovalRequest {

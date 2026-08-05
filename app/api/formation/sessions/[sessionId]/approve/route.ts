@@ -3,10 +3,10 @@
 // Verifies: ownership, formation lineage, fingerprint, no version exists, recomputes to match
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
-import { computeSourceFingerprint, verifySourceFingerprint } from '@/lib/formation/fingerprint';
+import { computeFormationSummaryFingerprint } from '@/lib/formation/summary-contract';
 import type { FormationApprovalRequest, FormationApprovalResponse } from '@/types/formation';
+import { createExperienceServiceClient } from '@/lib/experience/public-session-server';
 
 export async function POST(
   request: NextRequest,
@@ -43,7 +43,7 @@ export async function POST(
     const { data: formationSession, error: sessError } = await auth.supabase
       .from('representation_formation_sessions')
       .select(
-        'id, business_id, business_representation_id, owner_id, status, public_experience_session_id'
+        'id, business_id, business_representation_id, owner_id, status, initiated_from, initiated_from_id, first_working_conversation_id'
       )
       .eq('id', sessionId)
       .eq('owner_id', ownerId)
@@ -56,14 +56,22 @@ export async function POST(
       );
     }
 
+    if (formationSession.status !== 'working_conversation_linked'
+      || !formationSession.first_working_conversation_id) {
+      return NextResponse.json(
+        { success: false, error: 'Formation is not linked to a governed conversation' },
+        { status: 409 },
+      );
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // VALIDATION 3: VERIFY PUBLIC EXPERIENCE LINEAGE (if from public experience)
     // ─────────────────────────────────────────────────────────────────────────────
-    if (formationSession.public_experience_session_id) {
+    if (formationSession.initiated_from === 'public_experience_session') {
       const { data: pubExpSession, error: pubExpError } = await auth.supabase
         .from('public_experience_sessions')
         .select('id, state, expires_at, business_id, business_representation_id')
-        .eq('id', formationSession.public_experience_session_id)
+        .eq('id', formationSession.initiated_from_id)
         .maybeSingle();
 
       if (pubExpError || !pubExpSession) {
@@ -104,7 +112,7 @@ export async function POST(
     const { data: proposal, error: propError } = await auth.supabase
       .from('representation_proposals')
       .select(
-        'id, business_representation_id, proposed_changes, status, supporting_evidence_ids, supporting_observation_ids, created_at'
+        'id, business_representation_id, formation_session_id, proposed_changes, status, supporting_evidence_ids, supporting_observation_ids, created_at'
       )
       .eq('id', body.proposalId)
       .eq('business_representation_id', formationSession.business_representation_id)
@@ -114,6 +122,12 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: 'Proposal not found or does not belong to this representation' },
         { status: 404 }
+      );
+    }
+    if (proposal.formation_session_id !== sessionId) {
+      return NextResponse.json(
+        { success: false, error: 'Proposal belongs to different Formation session' },
+        { status: 409 },
       );
     }
 
@@ -224,11 +238,11 @@ export async function POST(
       auth.supabase
         .from('evidence')
         .select('id, statement_hash')
-        .in('id', proposal.supporting_evidence_ids || []),
+        .eq('business_representation_id', formationSession.business_representation_id),
       auth.supabase
         .from('observations')
-        .select('id, relevant_content')
-        .in('id', proposal.supporting_observation_ids || []),
+        .select('id, interpreted_meaning')
+        .eq('business_representation_id', formationSession.business_representation_id),
     ]);
 
     if (evidenceResult.error || observationsResult.error) {
@@ -238,17 +252,13 @@ export async function POST(
       );
     }
 
-    const recomputedFingerprint = computeSourceFingerprint({
+    const recomputedFingerprint = computeFormationSummaryFingerprint({
       generatorVersion: metadata.generatorVersion,
       formationSessionId: sessionId,
       proposalId: body.proposalId,
-      evidence: (evidenceResult.data || []).map((e) => ({ id: e.id, statement_hash: e.statement_hash })),
-      observations: (observationsResult.data || []).map((o) => ({
-        id: o.id,
-        content: o.relevant_content,
-      })),
-      proposedChanges: proposal.proposed_changes.elementUpdates || { elementUpdates: {} },
-      reflectionIdentity: null,
+      evidence: evidenceResult.data || [],
+      observations: observationsResult.data || [],
+      elementUpdates: proposal.proposed_changes.elementUpdates || {},
     });
 
     if (recomputedFingerprint !== metadata.sourceFingerprint) {
@@ -299,10 +309,7 @@ export async function POST(
       const { RepresentationStateService } = await import('@/lib/representation/representation-service');
 
       // Create service role client for atomic operations
-      const supabaseServiceRole = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-      );
+      const supabaseServiceRole = createExperienceServiceClient();
 
       // Instantiate service with service role (required for atomic Version creation)
       const representationService = new RepresentationStateService(supabaseServiceRole);

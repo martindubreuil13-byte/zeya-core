@@ -7,7 +7,7 @@ import fs from 'fs/promises';
  */
 
 describe('RF-B Routing Fixes', () => {
-  it('routes a new authenticated owner to the authenticated Experience', async () => {
+  it('routes a new authenticated owner through the current owner journey resolver', async () => {
     const filePath = './components/owner/OwnerOnboarding.tsx';
     const content = await fs.readFile(filePath, 'utf-8');
     const entry = await fs.readFile('./app/formation/entry/page.tsx', 'utf-8');
@@ -15,8 +15,9 @@ describe('RF-B Routing Fixes', () => {
     expect(content).toContain('handleStartExperience');
     expect(content).toContain('onClick={handleStartExperience}');
     expect(content).toContain('await onStartExperience()');
-    expect(entry).toContain("router.push('/experience')");
-    expect(entry).toContain('if (!user || !session)');
+    expect(entry).toContain("resolveOwnerJourneyPath({ status: 'new_owner' })");
+    expect(entry).toContain('router.replace(nextPath)');
+    expect(entry).toContain('if (!user || loading || !session)');
     expect(entry).not.toContain("router.push('/')");
     expect(entry).not.toContain("router.replace('/')");
   });
@@ -133,7 +134,7 @@ describe('RF-B Routing Fixes', () => {
     // ✓ Unauthenticated visit to /formation/entry → redirect to /login
     expect(entryContent).toContain("'/login'");
 
-    expect(entryContent).toContain("router.push('/experience')");
+    expect(entryContent).toContain("resolveOwnerJourneyPath({ status: 'new_owner' })");
 
     console.log('✓ Final routing map:');
     console.log('  - / → stays (no auth redirect)');
@@ -142,7 +143,7 @@ describe('RF-B Routing Fixes', () => {
     console.log('  - /experience → stays (no auth interception)');
   });
 
-  it('should verify CTA routes to /experience without intermediate state', async () => {
+  it('should verify the legacy CTA remains explicit while owner status uses the resolver', async () => {
     const onboardingFile = './components/owner/OwnerOnboarding.tsx';
     const onboardingContent = await fs.readFile(onboardingFile, 'utf-8');
 
@@ -150,17 +151,16 @@ describe('RF-B Routing Fixes', () => {
     const entryContent = await fs.readFile(entryFile, 'utf-8');
 
     expect(onboardingContent).toContain('await onStartExperience()');
-    expect(entryContent).toContain("router.push('/experience')");
+    expect(entryContent).toContain("resolveOwnerJourneyPath({ status: 'new_owner' })");
     expect(entryContent).not.toContain("router.push('/')");
   });
 
   it('routes active Formation and canonical Representation to exact destinations', async () => {
     const entryContent = await fs.readFile('./app/formation/entry/page.tsx', 'utf-8');
 
-    expect(entryContent).toContain(
-      'router.replace(`/formation/sessions/${ownerData.formationSessionId}`)',
-    );
-    expect(entryContent).toContain("router.replace('/representation/living')");
+    expect(entryContent).toContain("status: 'active_formation'");
+    expect(entryContent).toContain("resolveOwnerJourneyPath({ status: 'has_representation' })");
+    expect(entryContent).toContain('router.replace(nextPath)');
     expect(entryContent).not.toContain('<FormationEntry');
   });
 

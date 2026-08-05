@@ -6,6 +6,7 @@ import {
   createAuthenticatedRepresentationContext,
 } from '@/lib/representation/api-auth';
 import type { FormationSessionStatusResponse } from '@/types/formation';
+import { projectFormationSummary } from '@/lib/formation/summary-contract';
 
 export async function GET(
   request: NextRequest,
@@ -46,15 +47,55 @@ export async function GET(
       );
     }
 
+    if (session.status === 'working_conversation_linked' && !session.first_working_conversation_id) {
+      return NextResponse.json(
+        { success: false, error: 'Formation conversation lineage is incomplete' },
+        { status: 409 },
+      );
+    }
+
+    let summary: FormationSessionStatusResponse['summary'] = null;
+    if (session.status === 'working_conversation_linked') {
+      const [proposalResult, evidenceResult, observationsResult] = await Promise.all([
+        auth.supabase.from('representation_proposals')
+          .select('id,formation_session_id,proposed_changes,status,created_at')
+          .eq('formation_session_id', session.id)
+          .eq('status', 'draft')
+          .maybeSingle(),
+        auth.supabase.from('evidence')
+          .select('id,statement_hash')
+          .eq('business_representation_id', session.business_representation_id),
+        auth.supabase.from('observations')
+          .select('id,interpreted_meaning')
+          .eq('business_representation_id', session.business_representation_id),
+      ]);
+      if (proposalResult.error || evidenceResult.error || observationsResult.error) {
+        return NextResponse.json(
+          { success: false, error: 'Failed to retrieve formation review' },
+          { status: 500 },
+        );
+      }
+      if (proposalResult.data) {
+        summary = projectFormationSummary({
+          formationSessionId: session.id,
+          proposal: proposalResult.data,
+          evidence: evidenceResult.data ?? [],
+          observations: observationsResult.data ?? [],
+        });
+      }
+    }
+
     // Build safe owner-facing response
     const response: FormationSessionStatusResponse = {
       sessionId: session.id,
       businessRepresentationId: session.business_representation_id,
       status: session.status,
       initiatedAt: session.formation_started_at,
+      firstWorkingConversationId: session.first_working_conversation_id,
+      summary,
       linkedContextSummary: {
-        fromPublicExperience: !!session.public_experience_session_id,
-        fromRepresentationBrief: !!session.representation_brief_id,
+        fromPublicExperience: session.initiated_from === 'public_experience_session',
+        fromRepresentationBrief: session.initiated_from === 'representation_brief',
         workingConversationLinked: !!session.first_working_conversation_id,
       },
       nextAction: getNextAction(session.status),

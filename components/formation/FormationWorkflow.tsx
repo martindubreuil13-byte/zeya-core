@@ -3,11 +3,11 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
-import type { FormationSession, FormationSummary } from '@/types/formation';
+import type { FormationSessionStatusResponse, FormationSummary } from '@/types/formation';
 
 interface FormationWorkflowProps {
   sessionId: string;
@@ -19,20 +19,21 @@ interface FormationWorkflowProps {
 }
 
 export type UIState = 'loading' | 'entry' | 'getting_familiar' | 'conversation_ready' | 'conversation_active'
-  | 'processing' | 'summary_review' | 'correction_entry' | 'approval_confirmation' | 'version_created' | 'error';
+  | 'processing' | 'summary_pending' | 'summary_review' | 'correction_entry' | 'approval_confirmation' | 'version_created' | 'error';
 
 export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowProps) {
   const router = useRouter();
   const { session: authSession, loading: authLoading } = useAuth();
-  const [session, setSession] = useState<FormationSession | null>(null);
+  const [session, setSession] = useState<FormationSessionStatusResponse | null>(null);
   const [summary, setSummary] = useState<FormationSummary | null>(screenLab?.summary ?? null);
   const [uiState, setUiState] = useState<UIState>(screenLab?.uiState ?? 'loading');
   const [error, setError] = useState<string | null>(null);
   const [correctionText, setCorrectionText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [versionId, setVersionId] = useState<string | null>(screenLab?.versionId ?? null);
+  const correctionRequestKey = useRef<string>(crypto.randomUUID());
 
-  const mapSessionToUIState = useCallback((sess: FormationSession) => {
+  const mapSessionToUIState = useCallback((sess: FormationSessionStatusResponse) => {
     switch (sess.status) {
       case 'initiated':
         setUiState('entry');
@@ -44,7 +45,15 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         setUiState('conversation_ready');
         break;
       case 'working_conversation_linked':
-        setUiState('summary_review');
+        if (!sess.firstWorkingConversationId) {
+          setError('The governed conversation lineage is incomplete.');
+          setUiState('error');
+        } else if (sess.summary) {
+          setSummary(sess.summary);
+          setUiState('summary_review');
+        } else {
+          setUiState('summary_pending');
+        }
         break;
     }
   }, []);
@@ -103,7 +112,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       const data = await res.json();
       if (data.success) {
-        const updatedSession = { ...session!, status: nextStatus as any };
+        const updatedSession = { ...session!, status: nextStatus as FormationSessionStatusResponse['status'] };
         setSession(updatedSession);
         mapSessionToUIState(updatedSession);
       } else {
@@ -142,7 +151,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         setUiState('summary_review');
       } else {
         setError(data.error);
-        setUiState('summary_review');
+        setUiState('error');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Summary generation failed');
@@ -160,7 +169,11 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       const res = await authenticatedFetch(`/api/formation/sessions/${sessionId}/correct`, authSession, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ correctionStatement: correctionText }),
+        body: JSON.stringify({
+          proposalId: summary?.proposalId,
+          requestKey: correctionRequestKey.current,
+          correctionStatement: correctionText,
+        }),
       });
 
       if (res.status === 401) {
@@ -171,6 +184,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       const data = await res.json();
       if (data.success) {
         setCorrectionText('');
+        correctionRequestKey.current = crypto.randomUUID();
         // Regenerate summary with correction
         await generateSummary();
       } else {
@@ -181,7 +195,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     } finally {
       setIsProcessing(false);
     }
-  }, [correctionText, sessionId, generateSummary, authSession, router, screenLab]);
+  }, [correctionText, sessionId, generateSummary, authSession, router, screenLab, summary]);
 
   const approveSummary = useCallback(async () => {
     if (screenLab) return;
@@ -309,18 +323,21 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <p className="text-yellow-900 font-semibold">Ready to listen deeply</p>
             <p className="text-yellow-800 text-sm mt-2">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
           </div>
-          <button
-            onClick={() => setUiState('conversation_active')}
-            disabled={isProcessing}
-            className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
-          >
-            Start first working conversation
-          </button>
+          {screenLab ? (
+            <button
+              onClick={() => setUiState('conversation_active')}
+              className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+            >
+              Start first working conversation
+            </button>
+          ) : (
+            <p className="text-sm text-yellow-800">This session will remain pending until a completed governed conversation is linked.</p>
+          )}
         </div>
       )}
 
       {/* Conversation Active: Voice is live */}
-      {uiState === 'conversation_active' && (
+      {uiState === 'conversation_active' && screenLab && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
           <div className="mb-4">
             <div className="inline-block w-4 h-4 bg-red-600 rounded-full animate-pulse"></div>
@@ -328,10 +345,24 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
           <p className="text-red-900 font-semibold text-lg mb-2">Listening...</p>
           <p className="text-red-700 text-sm mb-4">Share your thoughts, plans, and what drives your business.</p>
           <button
-            onClick={() => advanceState('working_conversation_linked')}
+            onClick={() => setUiState('summary_pending')}
             className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
           >
             Conversation complete
+          </button>
+        </div>
+      )}
+
+      {uiState === 'summary_pending' && (
+        <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-6">
+          <p className="font-semibold text-blue-900">Your governed conversation is ready for review.</p>
+          <p className="text-sm text-blue-800">Create the durable review before continuing. Refreshing will return to this same persisted state.</p>
+          <button
+            onClick={generateSummary}
+            disabled={isProcessing}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            Prepare review
           </button>
         </div>
       )}

@@ -1,12 +1,14 @@
 // POST /api/formation/sessions/[sessionId]/link-conversation
 // Link first working conversation to Formation session
 
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   createAuthenticatedRepresentationContext,
 } from '@/lib/representation/api-auth';
 import type { LinkConversationRequest, LinkConversationResponse } from '@/types/formation';
+import { createExperienceServiceClient } from '@/lib/experience/public-session-server';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(
   request: NextRequest,
@@ -19,7 +21,7 @@ export async function POST(
     const sessionId = (await params).sessionId;
     const body: LinkConversationRequest = await request.json();
 
-    if (!sessionId || !body.conversationId) {
+    if (!UUID.test(sessionId) || !UUID.test(body.conversationId)) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: sessionId, conversationId' },
         { status: 400 }
@@ -29,8 +31,9 @@ export async function POST(
     // Verify session exists and belongs to owner
     const { data: session, error: sessionError } = await auth.supabase
       .from('representation_formation_sessions')
-      .select('id, business_representation_id, status')
+      .select('id, business_representation_id, owner_id, status, first_working_conversation_id')
       .eq('id', sessionId)
+      .eq('owner_id', auth.user.id)
       .maybeSingle();
 
     if (sessionError) {
@@ -58,10 +61,7 @@ export async function POST(
     }
 
     // Link conversation via service role function
-    const supabaseServiceRole = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    );
+    const supabaseServiceRole = createExperienceServiceClient();
 
     const { data: result, error: linkError } = await supabaseServiceRole.rpc('zeya_link_formation_conversation', {
       p_session_id: sessionId,
@@ -71,12 +71,7 @@ export async function POST(
     });
 
     if (linkError) {
-      console.error('[formation] link conversation failed - RPC error:');
-      console.error('  Code:', linkError.code);
-      console.error('  Message:', linkError.message);
-      console.error('  Details:', linkError.details);
-      console.error('  Hint:', linkError.hint);
-      console.error('  Full error:', JSON.stringify(linkError, null, 2));
+      console.error('[formation] link conversation failed', { code: linkError.code ?? 'unknown' });
       const errorCode = linkError.code || '';
       if (['23505', '23503', '22023', 'PZ409'].includes(errorCode)) {
         return NextResponse.json(

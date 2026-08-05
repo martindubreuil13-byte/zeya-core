@@ -139,8 +139,8 @@ describe("RF-B atomic Public Experience provisioning", () => {
       "authenticatedFetch(endpoint, options.session ?? null, init)",
     );
     expect(publicHook).toContain("useAuth()");
-    expect(publicHook).toContain(
-      "useRealtimeOnboardingSession({ publicExperience: true, session })",
+    expect(publicHook).toMatch(
+      /useRealtimeOnboardingSession\(\{\s*publicExperience:\s*true,\s*session,/,
     );
   });
 

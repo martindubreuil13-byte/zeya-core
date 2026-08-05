@@ -1,88 +1,88 @@
-// POST /api/formation/sessions/[sessionId]/correct
-// Owner submits correction to Formation review
-// Creates new Evidence from correction statement
-// Next POST /summary will automatically generate fresh Proposal with updated Evidence
-// Old draft Proposal naturally abandoned (stale fingerprint)
-
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
+import { createExperienceServiceClient } from '@/lib/experience/public-session-server';
+import type { FormationCorrectionRequest } from '@/types/formation';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> }
-): Promise<NextResponse<any>> {
+  { params }: { params: Promise<{ sessionId: string }> },
+) {
+  const auth = await createAuthenticatedRepresentationContext(request);
+  if (auth instanceof NextResponse) return auth;
+
   try {
-    const auth = await createAuthenticatedRepresentationContext(request);
-    if (auth instanceof NextResponse) return auth;
-
     const sessionId = (await params).sessionId;
-    const ownerId = auth.user.id;
-    const body = await request.json();
-    const { correctionStatement } = body;
-
-    if (!correctionStatement || typeof correctionStatement !== 'string') {
-      return NextResponse.json(
-        { success: false, error: 'Missing or invalid correctionStatement' },
-        { status: 400 }
-      );
+    const body = await request.json() as Partial<FormationCorrectionRequest>;
+    if (
+      !UUID.test(sessionId)
+      || typeof body.proposalId !== 'string'
+      || !UUID.test(body.proposalId)
+      || typeof body.requestKey !== 'string'
+      || !UUID.test(body.requestKey)
+      || typeof body.correctionStatement !== 'string'
+      || body.correctionStatement.trim().length < 1
+      || body.correctionStatement.trim().length > 4000
+    ) {
+      return NextResponse.json({ success: false, error: 'Invalid correction request' }, { status: 400 });
     }
 
-    // Verify Formation Session ownership
-    const { data: formationSession, error: sessError } = await auth.supabase
+    const sessionResult = await auth.supabase
       .from('representation_formation_sessions')
-      .select('id, business_representation_id, status')
+      .select('id,business_representation_id,status')
       .eq('id', sessionId)
-      .eq('owner_id', ownerId)
+      .eq('owner_id', auth.user.id)
       .maybeSingle();
-
-    if (sessError || !formationSession) {
-      return NextResponse.json(
-        { success: false, error: 'Formation session not found' },
-        { status: 404 }
-      );
+    if (sessionResult.error || !sessionResult.data) {
+      return NextResponse.json({ success: false, error: 'Formation session not found' }, { status: 404 });
+    }
+    if (sessionResult.data.status !== 'working_conversation_linked') {
+      return NextResponse.json({ success: false, error: 'Formation review is not ready' }, { status: 409 });
     }
 
-    // Create Evidence directly from correction statement via service role
-    const supabaseServiceRole = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    );
-
-    // Create Evidence from correction statement
-    const { data: newEvidence, error: evidenceError } = await supabaseServiceRole
-      .from('evidence')
-      .insert({
-        business_representation_id: formationSession.business_representation_id,
-        statement_content: correctionStatement,
-        source: 'formation_owner_correction',
-        confidence: 0.9,
-      })
-      .select('id')
-      .single();
-
-    if (evidenceError || !newEvidence) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to record correction as evidence' },
-        { status: 500 }
-      );
+    const proposalResult = await auth.supabase
+      .from('representation_proposals')
+      .select('id,business_representation_id,formation_session_id,status')
+      .eq('id', body.proposalId)
+      .eq('business_representation_id', sessionResult.data.business_representation_id)
+      .eq('formation_session_id', sessionId)
+      .maybeSingle();
+    if (proposalResult.error || !proposalResult.data) {
+      return NextResponse.json({ success: false, error: 'Formation summary not found' }, { status: 404 });
     }
 
-    // Prior draft Proposal naturally abandoned: next POST /summary will detect stale fingerprint
-    // and generate fresh Proposal with updated Evidence. No Proposal mutation needed.
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          evidenceId: newEvidence.id,
-          message: 'Correction recorded. Summary will be regenerated with updated evidence.',
-        },
+    const service = createExperienceServiceClient();
+    const result = await service.rpc('zeya_record_formation_owner_correction', {
+      p_session_id: sessionId,
+      p_proposal_id: body.proposalId,
+      p_owner_id: auth.user.id,
+      p_request_key: body.requestKey,
+      p_raw_statement: body.correctionStatement.trim(),
+    });
+    if (result.error) {
+      const status = result.error.code === 'PZ404' ? 404
+        : ['PZ409', '23505'].includes(result.error.code ?? '') ? 409
+          : 500;
+      console.error('[formation] correction failed', { code: result.error.code ?? 'unknown' });
+      return NextResponse.json(
+        { success: false, error: status === 409 ? 'Formation summary changed; refresh and review again' : 'Failed to record correction' },
+        { status },
+      );
+    }
+    const row = Array.isArray(result.data) ? result.data[0] : null;
+    if (!row?.evidence_id) {
+      return NextResponse.json({ success: false, error: 'Correction persistence returned no data' }, { status: 500 });
+    }
+    return NextResponse.json({
+      success: true,
+      data: {
+        evidenceId: row.evidence_id,
+        replayed: Boolean(row.replayed),
+        message: 'Correction recorded as non-canonical Evidence.',
       },
-      { status: 201 }
-    );
-  } catch (error) {
-    console.error('[formation] POST /api/formation/sessions/[sessionId]/correct failed:', error);
-    return NextResponse.json({ success: false, error: 'Request failed' }, { status: 500 });
+    }, { status: row.replayed ? 200 : 201 });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Correction request failed' }, { status: 500 });
   }
 }

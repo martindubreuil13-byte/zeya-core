@@ -93,9 +93,12 @@ export const ACADEMY_TRANSCRIPT: VoiceTranscriptEntry[] = deepFreeze([
 
 export const ACADEMY_FORMATION_SUMMARY: FormationSummary = deepFreeze({
   proposalId: "screenlab:academy:formation:proposal",
+  formationSessionId: ACADEMY_IDS.formation,
   sourceFingerprint: "screenlab:academy:formation:fingerprint",
   generatorVersion: "screenlab-fixture-v1",
   isCurrent: true,
+  createdAt: "2026-01-15T10:00:00.000Z",
+  correctionState: "none",
   sections: [
     {
       title: "Purpose",
