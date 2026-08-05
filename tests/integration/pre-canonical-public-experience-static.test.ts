@@ -126,12 +126,30 @@ describe("governed pre-canonical Public Experience", () => {
     );
   });
 
-  it("keeps the manually installed contract out of the migration chain", () => {
-    expect(() =>
-      readFileSync(
-        "supabase/migrations/20260730100000_pre_canonical_public_experience.sql",
-        "utf8",
-      ),
-    ).toThrow();
+  it("restores the deployed pre-canonical voice contract to the migration chain", () => {
+    const migration = readFileSync(
+      "supabase/migrations/20260730100000_pre_canonical_public_experience.sql",
+      "utf8",
+    );
+    expect(migration).toContain(
+      "CREATE OR REPLACE FUNCTION public.zeya_create_pre_canonical_voice_representation_lineage",
+    );
+    expect(migration).toContain("ADD COLUMN representation_context_mode");
+    expect(migration).toContain("ALTER COLUMN canonical_version_id DROP NOT NULL");
+    expect(migration).toContain("voice_lineage_context_mode_check");
+    expect(migration).toContain("voice_output_context_mode_check");
+    expect(migration).toContain("v_lineage.representation_context_mode");
+    expect(migration).toContain("invalid voice lineage Representation context");
+    expect(migration).toContain(
+      "v_existing.canonical_version_id IS NOT DISTINCT FROM v_lineage.canonical_version_id",
+    );
+    expect(migration).toContain(
+      "v_existing.representation_context_mode = v_lineage.representation_context_mode",
+    );
+    expect(migration).toContain("SET search_path TO ''");
+    expect(migration).toContain(") FROM PUBLIC, anon, authenticated, service_role;");
+    expect(migration).toContain(") TO service_role;");
+    expect(migration).not.toMatch(/INSERT INTO public\.representation_versions/i);
+    expect(migration).not.toMatch(/UPDATE public\.business_representations/i);
   });
 });
