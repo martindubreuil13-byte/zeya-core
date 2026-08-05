@@ -261,10 +261,10 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
   if (uiState === 'loading') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border border-slate-700 border-t-slate-400 mx-auto mb-6"></div>
-          <p className="text-slate-300 text-sm tracking-wide">Preparing Formation…</p>
+          <div className="animate-spin rounded-full h-10 w-10 border border-purple-800 border-t-amber-600 mx-auto mb-6"></div>
+          <p className="text-stone-300 text-sm tracking-wide">Preparing Formation…</p>
         </div>
       </div>
     );
@@ -273,22 +273,22 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
   if (uiState === 'error') {
     return (
       <div className="p-8 max-w-2xl mx-auto my-12">
-        <div className="border border-slate-700 bg-slate-900 rounded p-6 space-y-2">
-          <h3 className="font-semibold text-slate-100 text-sm">Error</h3>
-          <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
+        <div className="border border-purple-800 bg-stone-900 rounded p-6 space-y-2">
+          <h3 className="font-semibold text-amber-50 text-sm">Error</h3>
+          <p className="text-stone-300 text-sm leading-relaxed">{error}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-stone-950">
       <div className="space-y-0 max-w-4xl mx-auto">
         {/* Header - hidden in summary pending/review states, shown in other states */}
         {!['summary_pending', 'summary_review', 'approval_confirmation', 'correction_entry', 'version_created', 'processing'].includes(uiState) && (
           <div className="p-6 pb-4">
-            <h1 className="text-3xl font-serif font-light leading-tight text-slate-100 mb-1">First Working Conversation</h1>
-            <p className="text-slate-400 text-sm">Building your Representation together</p>
+            <h1 className="text-3xl font-serif font-light leading-tight text-amber-50 mb-1">First Working Conversation</h1>
+            <p className="text-stone-400 text-sm">Building your Representation together</p>
           </div>
         )}
 
@@ -297,13 +297,13 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto space-y-6">
             <div className="space-y-4">
-              <p className="text-base text-slate-300 leading-relaxed">Before we begin, I&apos;d like to tell you how I prepared for today.</p>
-              <p className="text-base text-slate-300 leading-relaxed">I reviewed everything from your introduction, thought about what I&apos;ve learned, and prepared some thoughts on how I can best represent you.</p>
+              <p className="text-base text-stone-300 leading-relaxed">Before we begin, I&apos;d like to tell you how I prepared for today.</p>
+              <p className="text-base text-stone-300 leading-relaxed">I reviewed everything from your introduction, thought about what I&apos;ve learned, and prepared some thoughts on how I can best represent you.</p>
             </div>
             <button
               onClick={() => advanceState('getting_familiar')}
               disabled={isProcessing}
-              className="px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               I&apos;m ready to listen
             </button>
@@ -315,12 +315,12 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       {uiState === 'getting_familiar' && (
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-6">
-            <h2 className="text-2xl font-serif font-light text-slate-100">Getting to know you better</h2>
-            <p className="text-base text-slate-300 leading-relaxed">Zeya is preparing to listen and learn.</p>
+            <h2 className="text-2xl font-serif font-light text-amber-50">Getting to know you better</h2>
+            <p className="text-base text-stone-300 leading-relaxed">Zeya is preparing to listen and learn.</p>
             <button
               onClick={() => advanceState('working_conversation_pending')}
               disabled={isProcessing}
-              className="inline-block px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950 mt-2"
+              className="inline-block px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950 mt-2"
             >
               Begin conversation
             </button>
@@ -332,17 +332,17 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       {uiState === 'conversation_ready' && (
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-6">
-            <h2 className="text-2xl font-serif font-light text-slate-100">Ready to listen deeply</h2>
-            <p className="text-base text-slate-300 leading-relaxed">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
+            <h2 className="text-2xl font-serif font-light text-amber-50">Ready to listen deeply</h2>
+            <p className="text-base text-stone-300 leading-relaxed">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
             {screenLab ? (
               <button
                 onClick={() => setUiState('conversation_active')}
-                className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-2"
+                className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-2"
               >
                 Start first working conversation
               </button>
             ) : (
-              <p className="text-sm text-slate-400">This session will remain pending until a completed governed conversation is linked.</p>
+              <p className="text-sm text-stone-400">This session will remain pending until a completed governed conversation is linked.</p>
             )}
           </div>
         </div>
@@ -353,17 +353,17 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-8">
             <div className="flex justify-center pt-4">
-              <div className="w-20 h-20 rounded-full border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
-                <div className="w-3 h-3 bg-slate-400 rounded-full animate-pulse"></div>
+              <div className="w-20 h-20 rounded-full border-2 border-purple-800 bg-gradient-to-br from-stone-800 to-stone-900 flex items-center justify-center">
+                <div className="w-3 h-3 bg-amber-600 rounded-full animate-pulse"></div>
               </div>
             </div>
             <div className="space-y-4">
-              <p className="text-2xl font-serif font-light text-slate-100">Listening…</p>
-              <p className="text-base text-slate-300 leading-relaxed">Share your thoughts, plans, and what drives your business.</p>
+              <p className="text-2xl font-serif font-light text-amber-50">Listening…</p>
+              <p className="text-base text-stone-300 leading-relaxed">Share your thoughts, plans, and what drives your business.</p>
             </div>
             <button
               onClick={() => setUiState('summary_pending')}
-              className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-2"
+              className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-2"
             >
               Conversation complete
             </button>
@@ -375,24 +375,24 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           {/* Eyebrow */}
           <div className="text-center">
-            <p className="text-xs font-semibold tracking-widest text-slate-500 uppercase mb-8">Our First Working Session</p>
+            <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase mb-8">Our First Working Session</p>
           </div>
 
           {/* Heading */}
           <div className="space-y-6 max-w-2xl mx-auto text-center">
-            <h2 className="text-4xl font-serif font-light leading-tight text-slate-100">I&apos;m preparing what I understood.</h2>
-            <p className="text-base text-slate-300 leading-relaxed">
+            <h2 className="text-4xl font-serif font-light leading-tight text-amber-50">I&apos;m preparing what I understood.</h2>
+            <p className="text-base text-stone-300 leading-relaxed">
               Our conversation is complete. I&apos;m organizing what I heard into a Representation review for you.
             </p>
-            <p className="text-base text-slate-300 leading-relaxed">
+            <p className="text-base text-stone-300 leading-relaxed">
               Nothing becomes part of your business Representation until you review and approve it.
             </p>
           </div>
 
           {/* Voice presence placeholder */}
           <div className="flex justify-center my-12">
-            <div className="w-20 h-20 rounded-full border border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
-              <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-20 h-20 rounded-full border border-purple-800 bg-gradient-to-br from-stone-800 to-stone-900 flex items-center justify-center">
+              <svg className="w-6 h-6 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4" />
               </svg>
             </div>
@@ -403,7 +403,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <button
               onClick={generateSummary}
               disabled={isProcessing}
-              className="px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Prepare my review
             </button>
@@ -411,7 +411,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
           {/* Secondary text */}
           <div className="text-center pt-6">
-            <p className="text-sm text-slate-400">You can leave and return. I&apos;ll keep this state.</p>
+            <p className="text-sm text-stone-400">You can leave and return. I&apos;ll keep this state.</p>
           </div>
         </div>
       )}
@@ -421,9 +421,9 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="inline-block">
-              <div className="animate-spin rounded-full h-10 w-10 border border-slate-700 border-t-slate-400 mb-6"></div>
+              <div className="animate-spin rounded-full h-10 w-10 border border-purple-800 border-t-amber-600 mb-6"></div>
             </div>
-            <p className="text-slate-300 text-sm tracking-wide">Synthesizing what I&apos;ve learned…</p>
+            <p className="text-stone-300 text-sm tracking-wide">Synthesizing what I&apos;ve learned…</p>
           </div>
         </div>
       )}
@@ -433,37 +433,37 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           {/* Eyebrow */}
           <div className="text-center">
-            <p className="text-xs font-semibold tracking-widest text-slate-500 uppercase mb-8">What I Understood</p>
+            <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase mb-8">What I Understood</p>
           </div>
 
           {/* Heading */}
           <div className="space-y-6 max-w-2xl mx-auto text-center mb-8">
-            <h2 className="text-4xl font-serif font-light leading-tight text-slate-100">Here is the Representation I would begin with.</h2>
+            <h2 className="text-4xl font-serif font-light leading-tight text-amber-50">Here is the Representation I would begin with.</h2>
           </div>
 
           {/* Review Content */}
           <div className="max-w-3xl mx-auto space-y-10">
             {summary.sections.map((section, idx) => (
-              <div key={idx} className="space-y-3 pb-10 border-b border-slate-700 last:border-b-0 last:pb-0">
-                <h3 className="text-lg font-serif font-light text-slate-200">{section.title}</h3>
-                <p className="text-base text-slate-300 leading-relaxed">{section.content}</p>
+              <div key={idx} className="space-y-3 pb-10 border-b border-purple-800 last:border-b-0 last:pb-0">
+                <h3 className="text-lg font-serif font-light text-amber-100">{section.title}</h3>
+                <p className="text-base text-stone-300 leading-relaxed">{section.content}</p>
               </div>
             ))}
 
             {!summary.isCurrent && (
-              <div className="mt-8 p-4 border border-slate-700 bg-slate-900 rounded">
-                <p className="text-sm text-slate-400">This summary may be stale. Refresh to regenerate.</p>
+              <div className="mt-8 p-4 border border-purple-800 bg-stone-900 rounded">
+                <p className="text-sm text-stone-400">This summary may be stale. Refresh to regenerate.</p>
               </div>
             )}
           </div>
 
           {/* Actions */}
-          <div className="space-y-3 max-w-2xl mx-auto mt-12 pt-6 border-t border-slate-700">
+          <div className="space-y-3 max-w-2xl mx-auto mt-12 pt-6 border-t border-purple-800">
             {/* Primary action */}
             <button
               onClick={() => setUiState('approval_confirmation')}
               disabled={isProcessing || !summary.isCurrent}
-              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               This is right
             </button>
@@ -472,7 +472,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <button
               onClick={() => setUiState('correction_entry')}
               disabled={isProcessing}
-              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 border border-purple-800 text-stone-300 hover:bg-purple-950 hover:text-amber-50 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Close, but let me adjust something
             </button>
@@ -481,7 +481,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <button
               onClick={requestMoreTime}
               disabled={isProcessing}
-              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 border border-purple-800 text-stone-300 hover:bg-purple-950 hover:text-amber-50 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               I need more time
             </button>
@@ -494,7 +494,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           {/* Heading */}
           <div className="max-w-2xl mx-auto text-center">
-            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100 mb-6">What should I correct or adjust?</h2>
+            <h2 className="text-3xl font-serif font-light leading-tight text-amber-50 mb-6">What should I correct or adjust?</h2>
           </div>
 
           {/* Input */}
@@ -502,7 +502,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <textarea
               value={correctionText}
               onChange={(e) => setCorrectionText(e.target.value)}
-              className="w-full p-4 border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-700 rounded text-sm leading-relaxed"
+              className="w-full p-4 border border-purple-800 bg-stone-900 text-amber-50 placeholder-stone-500 focus:outline-none focus:border-purple-700 focus:ring-1 focus:ring-purple-800 rounded text-sm leading-relaxed"
               placeholder="Tell me what I got wrong or what I&apos;m missing…"
               rows={6}
             />
@@ -513,14 +513,14 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <button
               onClick={submitCorrection}
               disabled={isProcessing || !correctionText.trim()}
-              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Submit correction
             </button>
             <button
               onClick={() => setUiState('summary_review')}
               disabled={isProcessing}
-              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 border border-purple-800 text-stone-300 hover:bg-purple-950 hover:text-amber-50 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Cancel
             </button>
@@ -533,8 +533,8 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           {/* Confirmation content */}
           <div className="max-w-2xl mx-auto text-center space-y-6">
-            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100">Ready to create your first Representation?</h2>
-            <p className="text-base text-slate-300 leading-relaxed">Once approved, this becomes your official Representation Version 0.1.</p>
+            <h2 className="text-3xl font-serif font-light leading-tight text-amber-50">Ready to create your first Representation?</h2>
+            <p className="text-base text-stone-300 leading-relaxed">Once approved, this becomes your official Representation Version 0.1.</p>
           </div>
 
           {/* Actions */}
@@ -542,14 +542,14 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             <button
               onClick={approveSummary}
               disabled={isProcessing}
-              className="w-full px-6 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Approve & create Representation
             </button>
             <button
               onClick={() => setUiState('summary_review')}
               disabled={isProcessing}
-              className="w-full px-6 py-3 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-slate-950"
+              className="w-full px-6 py-3 border border-purple-800 text-stone-300 hover:bg-purple-950 hover:text-amber-50 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
               Review again
             </button>
@@ -562,13 +562,13 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <div className="text-5xl mb-4">✓</div>
-            <h2 className="text-3xl font-serif font-light leading-tight text-slate-100">Representation Created</h2>
-            <p className="text-base text-slate-300 leading-relaxed">Your first canonical Representation Version 0.1 is ready.</p>
+            <h2 className="text-3xl font-serif font-light leading-tight text-amber-50">Representation Created</h2>
+            <p className="text-base text-stone-300 leading-relaxed">Your first canonical Representation Version 0.1 is ready.</p>
             <button
               onClick={() => {
                 router.replace('/representation/living');
               }}
-              className="inline-block px-8 py-3 bg-slate-700 text-slate-50 hover:bg-slate-600 transition-colors rounded text-sm font-medium mt-6"
+              className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-6"
             >
               Enter your Workspace
             </button>
