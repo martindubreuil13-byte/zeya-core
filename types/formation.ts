@@ -84,6 +84,7 @@ export interface FormationSessionStatusResponse {
   linkedContextSummary?: {
     fromPublicExperience?: boolean;
     fromRepresentationBrief?: boolean;
+    fromDirectHireOnboarding?: boolean;
     workingConversationLinked?: boolean;
   };
   nextAction?: string;

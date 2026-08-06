@@ -96,6 +96,7 @@ export async function GET(
       linkedContextSummary: {
         fromPublicExperience: session.initiated_from === 'public_experience_session',
         fromRepresentationBrief: session.initiated_from === 'representation_brief',
+        fromDirectHireOnboarding: session.initiated_from === 'direct_hire_onboarding',
         workingConversationLinked: !!session.first_working_conversation_id,
       },
       nextAction: getNextAction(session.status),

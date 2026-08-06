@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { FormationSessionStatusResponse, FormationSummary } from '@/types/formation';
+import { DirectHirePreparationContext } from '@/components/formation/DirectHirePreparationContext';
 import {
   FormationSessionLoadError,
   loadFormationWorkflowState,
@@ -37,6 +38,8 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
   const [correctionText, setCorrectionText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [versionId, setVersionId] = useState<string | null>(screenLab?.versionId ?? null);
+  const [preparedContext, setPreparedContext] = useState<any>(null);
+  const [preparedContextLoading, setPreparedContextLoading] = useState(false);
   const correctionRequestKey = useRef<string>(crypto.randomUUID());
 
   const mapSessionToUIState = useCallback((sess: FormationSessionStatusResponse) => {
@@ -93,6 +96,37 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       cancelled = true;
     };
   }, [sessionId, mapSessionToUIState, authLoading, authSession, router, screenLab]);
+
+  // Load prepared context for Direct Hire sessions
+  useEffect(() => {
+    if (screenLab || !session || !authSession) return;
+    if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
+    if (preparedContext) return; // Already loaded
+
+    const loadContext = async () => {
+      try {
+        setPreparedContextLoading(true);
+        const res = await authenticatedFetch(
+          `/api/formation/sessions/${sessionId}/prepared-context`,
+          authSession,
+        );
+        const data = await res.json();
+        if (data.success && data.data) {
+          setPreparedContext(data.data);
+          // If we're in entry state and just loaded the context, show preparation review
+          if (uiState === 'entry') {
+            setUiState('reviewing_preparation' as any);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load prepared context:', err);
+      } finally {
+        setPreparedContextLoading(false);
+      }
+    };
+
+    void loadContext();
+  }, [session, sessionId, authSession, screenLab, uiState, preparedContext]);
 
   const advanceState = useCallback(async (nextStatus: string) => {
     if (screenLab) return;
@@ -307,6 +341,18 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
             >
               I&apos;m ready to listen
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reviewing Preparation: Direct Hire prepared context display */}
+      {(uiState as string) === 'reviewing_preparation' && preparedContext && (
+        <div className="py-8 px-6">
+          <div className="max-w-3xl mx-auto">
+            <DirectHirePreparationContext
+              context={preparedContext}
+              onReadyToContinue={() => advanceState('getting_familiar')}
+            />
           </div>
         </div>
       )}
@@ -559,18 +605,108 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       {/* Version Created: Success */}
       {uiState === 'version_created' && versionId && (
-        <div className="space-y-8 py-12 px-6">
-          <div className="max-w-2xl mx-auto text-center space-y-6">
-            <div className="text-5xl mb-4">✓</div>
-            <h2 className="text-3xl font-serif font-light leading-tight text-amber-50">Representation Created</h2>
-            <p className="text-base text-stone-300 leading-relaxed">Your first canonical Representation Version 0.1 is ready.</p>
+        <div className="space-y-0 py-12 px-6">
+          {/* Eyebrow */}
+          <div className="text-center mb-12">
+            <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase">Representation Created</p>
+          </div>
+
+          {/* Main heading */}
+          <div className="max-w-2xl mx-auto text-center space-y-6 mb-16">
+            <h1 className="text-5xl font-serif font-light leading-tight text-amber-50">Your first Representation is now official.</h1>
+            <p className="text-base text-stone-300 leading-relaxed max-w-xl mx-auto">
+              This approved Representation becomes Version 0.1—your constitutional baseline. Every conversation I have from this point forward begins from this understanding.
+            </p>
+          </div>
+
+          {/* Representation card */}
+          <div className="max-w-2xl mx-auto mb-16">
+            <div className="border border-purple-800 bg-stone-900 rounded p-8 space-y-6">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase">Representation Version</p>
+                <h3 className="text-2xl font-serif font-light text-amber-50">Version 0.1</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-6 pt-6 border-t border-purple-800">
+                <div>
+                  <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase mb-1">Status</p>
+                  <p className="text-sm text-amber-100">Approved</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold tracking-widest text-stone-500 uppercase mb-1">Governance</p>
+                  <p className="text-sm text-amber-100">Immutable</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeline */}
+          <div className="max-w-2xl mx-auto mb-16">
+            <div className="space-y-0">
+              <div className="flex gap-4 mb-8">
+                <div className="flex flex-col items-center">
+                  <div className="w-6 h-6 rounded-full border border-purple-800 bg-purple-950 flex items-center justify-center mb-2">
+                    <div className="w-2 h-2 bg-amber-600 rounded-full"></div>
+                  </div>
+                  <div className="w-0.5 h-8 bg-purple-800"></div>
+                </div>
+                <div className="pt-1">
+                  <p className="text-sm text-amber-50">Representation Approved</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mb-8">
+                <div className="flex flex-col items-center">
+                  <div className="text-xs text-stone-500">↓</div>
+                  <div className="w-0.5 h-6 bg-purple-800"></div>
+                </div>
+                <div className="pt-1">
+                  <p className="text-sm text-stone-300">Tomorrow I begin learning.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mb-8">
+                <div className="flex flex-col items-center">
+                  <div className="text-xs text-stone-500">↓</div>
+                  <div className="w-0.5 h-6 bg-purple-800"></div>
+                </div>
+                <div className="pt-1">
+                  <p className="text-sm text-stone-300">Customer conversations generate evidence.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="text-xs text-stone-500">↓</div>
+                </div>
+                <div className="pt-1">
+                  <p className="text-sm text-stone-300">When sufficient evidence exists, I will propose Version 0.2 for your review.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Governance statement */}
+          <div className="max-w-2xl mx-auto text-center mb-12 pt-8 border-t border-purple-800">
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Approved today. Improved over time. Never changed without your consent.
+            </p>
+          </div>
+
+          {/* CTAs */}
+          <div className="max-w-2xl mx-auto space-y-3">
             <button
               onClick={() => {
                 router.replace('/representation/living');
               }}
-              className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-6"
+              className="w-full px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
             >
-              Enter your Workspace
+              Begin My First Day
+            </button>
+            <button
+              onClick={() => setUiState('summary_review')}
+              className="w-full px-6 py-3 border border-purple-800 text-stone-300 hover:bg-purple-950 hover:text-amber-50 disabled:opacity-50 transition-colors rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
+            >
+              Review Representation
             </button>
           </div>
         </div>
