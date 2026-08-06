@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
+import { createDirectHireServiceClient } from '@/lib/onboarding/direct-hire-service-client';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -34,8 +35,12 @@ export async function POST(request: NextRequest) {
   const partialAcknowledged = (body as any)?.partialAcknowledged === true;
 
   try {
+    // Use service-role client for SECURITY DEFINER RPC
+    // Authenticated user's owner UUID is server-derived and cannot be overridden by request body
+    const serviceClient = createDirectHireServiceClient();
+
     // Call atomic RPC for idempotent formation initiation
-    const rpcResult = await auth.supabase.rpc(
+    const rpcResult = await serviceClient.rpc(
       'zeya_initiate_direct_hire_formation',
       {
         p_authenticated_user_id: ownerId,
