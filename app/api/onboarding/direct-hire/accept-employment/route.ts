@@ -71,17 +71,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Employment acceptance does NOT create a canonical Representation Version.
-    // Profile data is preparation evidence, not approved truth.
-    // Canonical Representation is created only after induction, study, review, and owner approval.
-    // Update onboarding session to employment_accepted state
-    const sessionUpdate = await auth.supabase
-      .from("direct_hire_onboarding_sessions")
-      .update({ onboarding_state: "employment_accepted" })
-      .eq("id", onboarding.id)
-      .eq("owner_id", ownerId);
+    // The governed RPC performs only the allowed owner-scoped state transition.
+    const acceptance = await auth.supabase.rpc(
+      "zeya_accept_direct_hire_employment"
+    );
 
-    if (sessionUpdate.error) {
-      return failure("onboarding_state_update_failed", 500);
+    if (acceptance.error) {
+      const message = acceptance.error.message;
+
+      const status =
+        message === "onboarding not found" ? 404 :
+        message === "preparation not complete" ? 409 :
+        message === "onboarding lineage invalid" ? 409 :
+        message === "invalid onboarding state" ? 409 :
+        500;
+
+      return failure(message || "employment_acceptance_failed", status);
     }
 
     return success();
