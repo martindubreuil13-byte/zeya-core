@@ -143,6 +143,24 @@ export default function FormationEntryPage() {
           return;
         }
 
+        if (ownerData.status === 'direct_hire_employed') {
+          const nextPath = resolveOwnerJourneyPath({
+            status: 'direct_hire_employed',
+            onboardingState:
+              typeof ownerData.onboardingState === 'string'
+                ? ownerData.onboardingState
+                : 'employment_accepted',
+          });
+
+          if (!nextPath) {
+            setOwnerState({ status: 'error' });
+            return;
+          }
+
+          router.replace(nextPath);
+          return;
+        }
+
         // If has Representation, redirect to workspace
         if (ownerData.status === 'has_representation') {
           const nextPath = resolveOwnerJourneyPath({ status: 'has_representation' });
