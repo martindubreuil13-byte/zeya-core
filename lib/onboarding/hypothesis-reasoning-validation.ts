@@ -7,6 +7,7 @@ import type {
   HypothesisReasoningRequest,
   EvidenceInput,
   ObservationInput,
+  HypothesisReasoningScope,
 } from './hypothesis-reasoning-types';
 
 const VALID_CONSTITUTIONAL_DOMAINS: readonly ConstitutionalDomain[] = [
@@ -22,6 +23,14 @@ const VALID_CONSTITUTIONAL_DOMAINS: readonly ConstitutionalDomain[] = [
 const VALID_EPISTEMIC_STATES = new Set(['supported', 'partial', 'unknown', 'contradicted']);
 const VALID_CONFIDENCE_LEVELS = new Set(['high', 'medium', 'low', 'unknown']);
 const VALID_RISK_LEVELS = new Set(['high', 'medium', 'low']);
+
+export const ALL_DOMAINS_SCOPE: HypothesisReasoningScope = { mode: 'all_domains' };
+
+export function resolveHypothesisReasoningScope(
+  req: HypothesisReasoningRequest
+): HypothesisReasoningScope {
+  return req.scope ?? ALL_DOMAINS_SCOPE;
+}
 
 export class HypothesisReasoningValidationError extends Error {
   constructor(message: string) {
@@ -42,6 +51,11 @@ export function validateHypothesisReasoningInput(
     );
   }
 
+  const scope = resolveHypothesisReasoningScope(req);
+  if (scope.mode === 'specific_domain' && !VALID_CONSTITUTIONAL_DOMAINS.includes(scope.constitutionalDomain)) {
+    throw new HypothesisReasoningValidationError('specific_domain requires a valid constitutionalDomain');
+  }
+
   const evidenceIds = new Set(evidence.map(e => e.id));
 
   // Validate every Observation references Evidence in scope
@@ -57,7 +71,8 @@ export function validateHypothesisReasoningInput(
 export function validateHypothesisReasoningResult(
   result: unknown,
   suppliedEvidenceIds: Set<string>,
-  evidenceMetadata?: Map<string, EvidenceInput>
+  evidenceMetadata?: Map<string, EvidenceInput>,
+  scope: HypothesisReasoningScope = ALL_DOMAINS_SCOPE
 ): HypothesisReasoningResult {
   if (!result || typeof result !== 'object') {
     throw new HypothesisReasoningValidationError('Result must be an object');
@@ -76,9 +91,11 @@ export function validateHypothesisReasoningResult(
 
   const hypotheses = r.hypotheses as unknown[];
 
-  // Exactly 7 domains
-  if (hypotheses.length !== 7) {
-    throw new HypothesisReasoningValidationError(`Expected exactly 7 hypotheses, got ${hypotheses.length}`);
+  const expectedCount = scope.mode === 'specific_domain' ? 1 : 7;
+  if (hypotheses.length !== expectedCount) {
+    throw new HypothesisReasoningValidationError(
+      `Expected exactly ${expectedCount} ${expectedCount === 1 ? 'hypothesis' : 'hypotheses'}, got ${hypotheses.length}`
+    );
   }
 
   const seenDomains = new Set<string>();
@@ -104,6 +121,12 @@ export function validateHypothesisReasoningResult(
       throw new HypothesisReasoningValidationError(`Duplicate constitutional domain: "${domain}"`);
     }
     seenDomains.add(domain);
+
+    if (scope.mode === 'specific_domain' && domain !== scope.constitutionalDomain) {
+      throw new HypothesisReasoningValidationError(
+        `Expected constitutional domain "${scope.constitutionalDomain}", got "${domain}"`
+      );
+    }
 
     // Epistemic state validation
     const epistemicState = hypothesis.epistemicState as string;
@@ -147,6 +170,16 @@ export function validateHypothesisReasoningResult(
     const representationRisk = hypothesis.representationRisk as string;
     if (!VALID_RISK_LEVELS.has(representationRisk)) {
       throw new HypothesisReasoningValidationError(`Hypothesis ${domain}: invalid representationRisk "${representationRisk}"`);
+    }
+
+    if (
+      scope.mode === 'specific_domain' &&
+      scope.constitutionalDomain === 'authorityBoundaries' &&
+      representationRisk !== 'high'
+    ) {
+      throw new HypothesisReasoningValidationError(
+        'Hypothesis authorityBoundaries: specific-domain re-evaluation requires high representationRisk'
+      );
     }
 
     // Risk reason validation
@@ -267,11 +300,13 @@ export function validateHypothesisReasoningResult(
     });
   }
 
-  // Verify all 7 domains are present (may be out of order)
-  const domainSet = new Set(validated.map(h => h.constitutionalDomain));
-  for (const domain of VALID_CONSTITUTIONAL_DOMAINS) {
-    if (!domainSet.has(domain)) {
-      throw new HypothesisReasoningValidationError(`Missing constitutional domain: "${domain}"`);
+  if (scope.mode === 'all_domains') {
+    // Verify all 7 domains are present (may be out of order)
+    const domainSet = new Set(validated.map(h => h.constitutionalDomain));
+    for (const domain of VALID_CONSTITUTIONAL_DOMAINS) {
+      if (!domainSet.has(domain)) {
+        throw new HypothesisReasoningValidationError(`Missing constitutional domain: "${domain}"`);
+      }
     }
   }
 

@@ -7,33 +7,44 @@ import type {
   HypothesisReasoningResult,
   EvidenceInput,
   ObservationInput,
+  ConstitutionalDomain,
+  HypothesisReasoningScope,
 } from './hypothesis-reasoning-types';
 import {
   validateHypothesisReasoningResult,
   validateHypothesisReasoningInput,
   HypothesisReasoningValidationError,
+  resolveHypothesisReasoningScope,
 } from './hypothesis-reasoning-validation';
 
-// Matches OpenAI Responses API structured output schema
-const HYPOTHESIS_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    hypotheses: {
-      type: 'array' as const,
-      items: {
+const CONSTITUTIONAL_DOMAINS: ConstitutionalDomain[] = [
+  'whatYouSell',
+  'whoItIsFor',
+  'problemOrAspiration',
+  'whyCustomersShouldCare',
+  'proposedDescription',
+  'authorityBoundaries',
+  'clarificationsNeeded',
+];
+
+// Matches OpenAI Responses API structured output schema.
+export function buildHypothesisSchema(scope: HypothesisReasoningScope) {
+  const outputCount = scope.mode === 'specific_domain' ? 1 : 7;
+  const domainEnum = scope.mode === 'specific_domain'
+    ? [scope.constitutionalDomain]
+    : CONSTITUTIONAL_DOMAINS;
+
+  return {
+    type: 'object' as const,
+    properties: {
+      hypotheses: {
+        type: 'array' as const,
+        items: {
         type: 'object' as const,
         properties: {
           constitutionalDomain: {
             type: 'string',
-            enum: [
-              'whatYouSell',
-              'whoItIsFor',
-              'problemOrAspiration',
-              'whyCustomersShouldCare',
-              'proposedDescription',
-              'authorityBoundaries',
-              'clarificationsNeeded',
-            ],
+            enum: domainEnum,
           },
           epistemicState: {
             type: 'string',
@@ -79,22 +90,48 @@ const HYPOTHESIS_SCHEMA = {
         ],
         additionalProperties: false,
       },
-      minItems: 7,
-      maxItems: 7,
+        minItems: outputCount,
+        maxItems: outputCount,
+      },
+      generatedAt: {
+        type: 'string',
+      },
     },
-    generatedAt: {
-      type: 'string',
-    },
-  },
-  required: ['hypotheses', 'generatedAt'],
-  additionalProperties: false,
-};
+    required: ['hypotheses', 'generatedAt'],
+    additionalProperties: false,
+  };
+}
 
-function buildReasoningPrompt(
+export function scopeReasoningInputs(
+  scope: HypothesisReasoningScope,
+  evidence: EvidenceInput[],
+  observations: ObservationInput[]
+): { evidence: EvidenceInput[]; observations: ObservationInput[] } {
+  if (scope.mode === 'all_domains') return { evidence, observations };
+
+  const scopedEvidence = evidence.filter(item =>
+    item.affected_domains.includes(scope.constitutionalDomain)
+  );
+  const scopedEvidenceIds = new Set(scopedEvidence.map(item => item.id));
+  const scopedObservations = observations.filter(item =>
+    item.affected_domains.includes(scope.constitutionalDomain) &&
+    scopedEvidenceIds.has(item.evidenceId)
+  );
+  return { evidence: scopedEvidence, observations: scopedObservations };
+}
+
+export function buildReasoningPrompt(
   req: HypothesisReasoningRequest,
   evidence: EvidenceInput[],
   observations: ObservationInput[]
 ): string {
+  const scope = resolveHypothesisReasoningScope(req);
+  const scopeInstruction = scope.mode === 'specific_domain'
+    ? `You are re-evaluating ONLY ${scope.constitutionalDomain}. Do not make or revise conclusions for any other constitutional domain.`
+    : 'You are evaluating all seven constitutional domains.';
+  const outputInstruction = scope.mode === 'specific_domain'
+    ? `Generate exactly 1 hypothesis for ${scope.constitutionalDomain}.`
+    : 'Generate exactly 7 hypotheses (one per domain).';
   const evidenceText = evidence
     .map(
       e =>
@@ -124,6 +161,9 @@ Owner: ${req.ownerName}
 Business: ${req.businessName}
 Session: ${req.onboardingSessionId}
 
+REASONING SCOPE
+${scopeInstruction}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AVAILABLE EVIDENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -142,6 +182,7 @@ CORE PRINCIPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Evidence records what a source stated; it does not establish truth.
+   Owner Evidence is stronger verification Evidence but still a sourced statement, not objective truth.
 2. Observations are provisional interpretations, not verified facts.
 3. Contradictions remain unresolved until owner verification.
 4. Unknowns remain visible. Do not invent.
@@ -149,7 +190,7 @@ CORE PRINCIPLES
 6. Multiple extracts from one page are NOT independent corroboration.
 7. Absence of Evidence does not prove a claim is false or confidential.
 8. Confidence and Representation Risk are separate dimensions.
-9. High representation risk can exist at any confidence level.
+9. A high representation risk can exist at any confidence level.
 10. Prefer unknown over plausible inference.
 11. Do not produce marketing language unsupported by Evidence.
 12. Do not reveal chain-of-thought.
@@ -213,7 +254,7 @@ low:
   - Supporting facts about team or history
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CONSTITUTIONAL DOMAINS (exactly 7)
+CONSTITUTIONAL DOMAIN RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. whatYouSell
@@ -271,7 +312,7 @@ CONSTITUTIONAL DOMAINS (exactly 7)
 OUTPUT INSTRUCTIONS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Generate exactly 7 hypotheses (one per domain).
+${outputInstruction}
 
 For each hypothesis:
   - constitutionalDomain: string (one of the 7 above)
@@ -308,8 +349,14 @@ export async function generateHypotheses(
   // Validate input scope before calling provider
   validateHypothesisReasoningInput(req, evidence, observations);
 
+  const scope = resolveHypothesisReasoningScope(req);
+  const scopedInputs = scopeReasoningInputs(scope, evidence, observations);
+  const scopedEvidence = scopedInputs.evidence;
+  const scopedEvidenceIds = new Set(scopedEvidence.map(item => item.id));
+  const scopedObservations = scopedInputs.observations;
+
   const openai = new OpenAI();
-  const prompt = buildReasoningPrompt(req, evidence, observations);
+  const prompt = buildReasoningPrompt(req, scopedEvidence, scopedObservations);
 
   try {
     const response = await openai.responses.create({
@@ -318,14 +365,16 @@ export async function generateHypotheses(
       input: [
         {
           role: 'user',
-          content: 'Generate hypotheses for all 7 constitutional domains.',
+          content: scope.mode === 'specific_domain'
+            ? `Generate one hypothesis for ${scope.constitutionalDomain} only.`
+            : 'Generate hypotheses for all 7 constitutional domains.',
         },
       ],
       text: {
         format: {
           type: 'json_schema',
           name: 'hypothesis_reasoning_result',
-          schema: HYPOTHESIS_SCHEMA,
+          schema: buildHypothesisSchema(scope),
           strict: true,
         },
       },
@@ -338,8 +387,13 @@ export async function generateHypotheses(
       throw new Error(`Failed to parse OpenAI response as JSON: ${String(parseError)}`);
     }
 
-    const evidenceMetadata = new Map(evidence.map(e => [e.id, e]));
-    const validated = validateHypothesisReasoningResult(result, new Set(evidence.map(e => e.id)), evidenceMetadata);
+    const evidenceMetadata = new Map(scopedEvidence.map(e => [e.id, e]));
+    const validated = validateHypothesisReasoningResult(
+      result,
+      scopedEvidenceIds,
+      evidenceMetadata,
+      scope
+    );
 
     return validated;
   } catch (error) {

@@ -81,7 +81,8 @@ describe("Direct Hire Vertical Slice 1", () => {
       "utf8",
     );
     expect(component).toContain('authenticatedFetch(\n        "/api/onboarding/direct-hire"');
-    expect(component).toContain('body.data.state === "preparation" ? "preparation" : "first_meeting"');
+    expect(component).toContain('body.data.state === "employment_accepted"');
+    expect(component).toContain('body.data.state === "preparation"');
     expect(component).toContain('`/login?next=${encodeURIComponent(DIRECT_HIRE_ONBOARDING_PATH)}`');
     expect(component).toContain('router.replace("/login")');
   });

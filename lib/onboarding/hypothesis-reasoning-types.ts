@@ -20,6 +20,13 @@ export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown';
 
 export type RepresentationRiskLevel = 'high' | 'medium' | 'low';
 
+export type HypothesisReasoningScope =
+  | { mode: 'all_domains' }
+  | {
+      mode: 'specific_domain';
+      constitutionalDomain: ConstitutionalDomain;
+    };
+
 export interface HypothesisReasoningOutput {
   constitutionalDomain: ConstitutionalDomain;
   epistemicState: EpistemicState;
@@ -89,6 +96,8 @@ export interface ObservationInput {
 }
 
 export interface HypothesisReasoningRequest {
+  /** Omitted only for backward compatibility; omission means all_domains. */
+  scope?: HypothesisReasoningScope;
   onboardingSessionId: string;
   businessRepresentationId: string;
   businessId: string;

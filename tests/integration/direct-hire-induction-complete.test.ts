@@ -244,7 +244,8 @@ describe("Employee Induction Material Collection", () => {
         "app/api/onboarding/direct-hire/induction/route.ts",
         "utf8",
       );
-      expect(route).toContain("owner_id").toContain("ownerId");
+      expect(route).toContain("owner_id");
+      expect(route).toContain("ownerId");
     });
 
     it("evidence RLS prevents cross-tenant access", async () => {

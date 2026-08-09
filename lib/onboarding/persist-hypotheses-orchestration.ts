@@ -392,6 +392,7 @@ export async function persistReasonedHypothesesForPreparation(
   try {
     reasoningResult = await generateHypotheses(
       {
+        scope: { mode: 'all_domains' },
         onboardingSessionId,
         businessRepresentationId: session.business_representation_id,
         businessId: session.business_id,

@@ -15,7 +15,7 @@ import {
 } from "@/lib/onboarding/direct-hire-contract";
 import { validateDirectHireProfile } from "@/lib/onboarding/direct-hire-validation";
 
-type Surface = "loading" | "first_meeting" | "profile" | "preparation" | "error";
+type Surface = "loading" | "first_meeting" | "profile" | "preparation" | "employment_accepted" | "error";
 
 const EMPTY_PROFILE: DirectHireProfileInput = {
   ownerName: "",
@@ -66,6 +66,7 @@ export function DirectHireOnboarding() {
   const [preparationStatus, setPreparationStatus] = useState<DirectHirePreparationStatus>("not_started");
   const [preparation, setPreparation] = useState<DirectHirePreparationView>(EMPTY_PREPARATION);
   const [preparing, setPreparing] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const fieldRefs = useRef<Partial<Record<DirectHireProfileField, HTMLInputElement | HTMLTextAreaElement | null>>>({});
 
   const loadStatus = useCallback(async () => {
@@ -99,7 +100,13 @@ export function DirectHireOnboarding() {
       }
       setPreparationStatus(body.data.preparationStatus);
       setPreparation(body.data.preparation);
-      setSurface(body.data.state === "preparation" ? "preparation" : "first_meeting");
+      if (body.data.state === "employment_accepted") {
+        setSurface("employment_accepted");
+      } else if (body.data.state === "preparation") {
+        setSurface("preparation");
+      } else {
+        setSurface("first_meeting");
+      }
     } catch {
       setRequestError("I couldn’t load our first meeting. Try again when you’re ready.");
       setSurface("error");
@@ -247,6 +254,36 @@ export function DirectHireOnboarding() {
       setSubmitting(false);
     }
   };
+
+  const acceptEmployment = useCallback(async () => {
+    if (!session || accepting) return;
+    setAccepting(true);
+    setRequestError(null);
+    try {
+      const response = await authenticatedFetch(
+        "/api/onboarding/direct-hire/accept-employment",
+        session,
+        { method: "POST" },
+      );
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent(DIRECT_HIRE_ONBOARDING_PATH)}`);
+        return;
+      }
+      const body = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !body.success) {
+        setRequestError("I couldn't finalize the employment. Try again when you're ready.");
+        return;
+      }
+      setSurface("employment_accepted");
+    } catch {
+      setRequestError("I couldn't finalize the employment. Try again when you're ready.");
+    } finally {
+      setAccepting(false);
+    }
+  }, [accepting, router, session]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -437,6 +474,42 @@ export function DirectHireOnboarding() {
             {preparation.attemptCount >= 3 && preparationStatus !== "ready" && (
               <p className="mt-8 max-w-xl text-sm leading-6 text-zeya-taupe">The safe retry limit has been reached. Your profile and any sourced evidence remain preserved.</p>
             )}
+            {(preparationStatus === "ready" || preparationStatus === "partial") && !accepting && (
+              <button
+                type="button"
+                onClick={() => void acceptEmployment()}
+                disabled={accepting}
+                className="mt-8 rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-ivory focus-visible:ring-offset-4 focus-visible:ring-offset-zeya-void"
+              >
+                {accepting ? "Accepting employment…" : "Accept employment"}
+              </button>
+            )}
+            {accepting && (
+              <p className="mt-8 text-sm text-zeya-taupe">Accepting employment…</p>
+            )}
+          </section>
+        )}
+
+        {surface === "employment_accepted" && (
+          <section aria-labelledby="employment-accepted-title" className="w-full text-center">
+            <p className="mb-7 text-xs uppercase tracking-[0.28em] text-zeya-champagne">Employment accepted</p>
+            <h1 id="employment-accepted-title" className="text-balance font-serif text-5xl leading-tight sm:text-6xl">
+              Thank you for trusting me with this role.
+            </h1>
+            <div className="mx-auto mt-8 max-w-xl space-y-6 text-base leading-8 text-zeya-taupe sm:text-lg">
+              <p>
+                I've joined your team. Before I can represent your business credibly, I need time and material to prepare properly.
+              </p>
+              <p>
+                In a future update, this is where you'll share induction materials, documentation, and background for me to study.
+              </p>
+              <p>
+                Only after I've learned from your materials and we've discussed my understanding can we create a formal Representation of your business.
+              </p>
+              <p className="text-xs italic">
+                Representation is governed, not generated.
+              </p>
+            </div>
           </section>
         )}
 

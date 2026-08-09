@@ -128,8 +128,9 @@ describe('RF-B Routing Fixes', () => {
     // ✓ Authenticated visit to / → stays on / (no redirect)
     expect(pageContent).not.toContain("router.replace('/formation/entry')");
 
-    // ✓ Authenticated visit to /login → redirect to /formation/entry
-    expect(loginContent).toContain("'/formation/entry'");
+    // ✓ Authenticated visit to /login → redirect to next parameter (or defaults based on status)
+    expect(loginContent).toContain("safeInternalPath");
+    expect(loginContent).toContain("new URLSearchParams");
 
     // ✓ Unauthenticated visit to /formation/entry → redirect to /login
     expect(entryContent).toContain("'/login'");
@@ -138,7 +139,7 @@ describe('RF-B Routing Fixes', () => {
 
     console.log('✓ Final routing map:');
     console.log('  - / → stays (no auth redirect)');
-    console.log('  - /login → /formation/entry (if authenticated)');
+    console.log('  - /login → respects next param (if authenticated) or shows auth modal');
     console.log('  - /formation/entry → /login (if unauthenticated)');
     console.log('  - /experience → stays (no auth interception)');
   });

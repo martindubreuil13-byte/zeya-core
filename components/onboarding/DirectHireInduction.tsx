@@ -18,19 +18,19 @@ type LinkInput = {
   url: string;
 };
 
+type LoadedMaterial = {
+  induction_material_type: string;
+  induction_material_label?: string;
+  induction_material_url?: string;
+  raw_statement: string;
+};
+
 export function DirectHireInduction() {
   const router = useRouter();
   const { session } = useAuth();
   const [surface, setSurface] = useState<InductionSurface>("employment_accepted");
   const [inductionState, setInductionState] = useState<string>("not_started");
-  const [materials, setMaterials] = useState<
-    Array<{
-      type: string;
-      label?: string;
-      url?: string;
-      content?: string;
-    }>
-  >([]);
+  const [materials, setMaterials] = useState<LoadedMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,16 +63,16 @@ export function DirectHireInduction() {
           induction_state: string;
           materials_count: number;
           materials: Array<{
-            type: string;
-            label?: string;
-            url?: string;
-            raw_statement?: string;
+            induction_material_type: string;
+            induction_material_label?: string;
+            induction_material_url?: string;
+            raw_statement: string;
           }>;
         };
       };
       if (body.success && body.data) {
         setInductionState(body.data.induction_state);
-        setMaterials(body.data.materials);
+        setMaterials(body.data.materials || []);
         setSurface(
           body.data.induction_state === "not_started"
             ? "employment_accepted"
@@ -456,15 +456,15 @@ export function DirectHireInduction() {
                   className="rounded-lg border border-zeya-ivory/10 bg-zeya-ivory/[0.02] px-6 py-4"
                 >
                   <p className="text-xs uppercase tracking-[0.1em] text-zeya-champagne">
-                    {m.type === "link" ? "Link" : "Notes"}
+                    {m.induction_material_type === "link" ? "Link" : "Notes"}
                   </p>
-                  {m.label && (
+                  {m.induction_material_label && (
                     <p className="mt-1 font-medium text-zeya-ivory">
-                      {m.label}
+                      {m.induction_material_label}
                     </p>
                   )}
                   {m.induction_material_url ||
-                  (m.type === "link" && m.raw_statement) ? (
+                  (m.induction_material_type === "link" && m.raw_statement) ? (
                     <p className="mt-2 text-sm text-zeya-taupe break-all">
                       {m.induction_material_url || m.raw_statement}
                     </p>
