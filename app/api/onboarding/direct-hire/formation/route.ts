@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 import { createDirectHireServiceClient } from '@/lib/onboarding/direct-hire-service-client';
+import { loadCurrentPreparationHypotheses, PREPARATION_DOMAINS } from '@/lib/onboarding/preparation-intelligence';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -35,6 +36,23 @@ export async function POST(request: NextRequest) {
   const partialAcknowledged = (body as any)?.partialAcknowledged === true;
 
   try {
+    const onboardingResult = await auth.supabase
+      .from('direct_hire_onboarding_sessions')
+      .select('id, business_id, business_representation_id')
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (onboardingResult.error) return failure('onboarding_lookup_failed', 500);
+    if (!onboardingResult.data) return failure('no_direct_hire_session', 404);
+    const hypotheses = await loadCurrentPreparationHypotheses(auth.supabase, {
+      ownerId,
+      businessId: onboardingResult.data.business_id,
+      businessRepresentationId: onboardingResult.data.business_representation_id,
+      onboardingSessionId: onboardingResult.data.id,
+    });
+    if (hypotheses.length !== PREPARATION_DOMAINS.length) {
+      return failure('preparation_intelligence_pending', 409);
+    }
+
     // Use service-role client for SECURITY DEFINER RPC
     // Authenticated user's owner UUID is server-derived and cannot be overridden by request body
     const serviceClient = createDirectHireServiceClient();

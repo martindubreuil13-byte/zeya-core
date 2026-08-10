@@ -3,6 +3,7 @@ import { createAuthenticatedRepresentationContext } from "@/lib/representation/a
 import { executeDirectHirePreparation } from "@/lib/onboarding/direct-hire-preparation";
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
 import type { DirectHireProgress } from "@/lib/onboarding/direct-hire-contract";
+import { ensurePreparationIntelligence } from "@/lib/onboarding/preparation-intelligence";
 
 type ClaimRow = {
   onboarding_session_id: string;
@@ -33,6 +34,22 @@ function current(row: ClaimRow) {
   }, { status: row.preparation_status === "running" ? 202 : 200 });
 }
 
+async function completeIntelligentPreparation(row: ClaimRow) {
+  try {
+    const service = createDirectHireServiceClient();
+    await ensurePreparationIntelligence(service, {
+      ownerId: row.owner_id,
+      businessId: row.business_id,
+      businessRepresentationId: row.business_representation_id,
+      onboardingSessionId: row.onboarding_session_id,
+    });
+    return null;
+  } catch (error) {
+    console.error('[direct-hire-preparation-intelligence]', error instanceof Error ? error.message : 'unknown_failure');
+    return failure('preparation_intelligence_pending', 503);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const auth = await createAuthenticatedRepresentationContext(request);
   if (auth instanceof NextResponse) return auth;
@@ -46,7 +63,13 @@ export async function POST(request: NextRequest) {
   const rows = Array.isArray(claim.data) ? claim.data : [];
   const row = rows.length === 1 ? rows[0] as ClaimRow : null;
   if (!row || row.owner_id !== auth.user.id) return failure("preparation_claim_invalid", 500);
-  if (!row.claimed || row.preparation_status === "ready") return current(row);
+  if (!row.claimed || row.preparation_status === "ready") {
+    if (['ready', 'partial'].includes(row.preparation_status)) {
+      const intelligenceFailure = await completeIntelligentPreparation(row);
+      if (intelligenceFailure) return intelligenceFailure;
+    }
+    return current(row);
+  }
   if (!row.preparation_lease_id) return failure("preparation_claim_invalid", 500);
 
   let result;
@@ -94,6 +117,10 @@ export async function POST(request: NextRequest) {
       ? finalizedRows[0] as Record<string, unknown>
       : null;
     if (!final) return failure("preparation_persistence_invalid", 500);
+    if (['ready', 'partial'].includes(String(final.preparation_status))) {
+      const intelligenceFailure = await completeIntelligentPreparation(row);
+      if (intelligenceFailure) return intelligenceFailure;
+    }
     return NextResponse.json({
       success: true,
       data: {
@@ -104,6 +131,7 @@ export async function POST(request: NextRequest) {
         failedPageCount: final.preparation_failed_page_count,
         failureCode: final.preparation_failure_code,
         completedAt: final.preparation_completed_at,
+        intelligenceStatus: 'ready',
       },
     });
   } catch {

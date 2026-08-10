@@ -210,9 +210,10 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
       );
       // Should only accept partialAcknowledged
       expect(route).toContain('partialAcknowledged');
-      expect(route).not.toContain('.owner_id');
-      expect(route).not.toContain('.business');
-      expect(route).not.toContain('.representation');
+      expect(route).not.toContain('(body as any)?.owner');
+      expect(route).not.toContain('(body as any)?.business');
+      expect(route).not.toContain('(body as any)?.representation');
+      expect(route).toContain('auth.user.id');
     });
 
     it('calls RPC with correct parameters', async () => {
@@ -254,36 +255,39 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
       expect(route).toContain('onboarding_state');
     });
 
-    it('loads public_website Evidence (not direct_hire_website_research)', async () => {
-      const route = await readFile(
-        'app/api/onboarding/direct-hire/preparation/summary/route.ts',
+    it('uses only exact-session scoped Evidence through the shared projection', async () => {
+      const projection = await readFile(
+        'lib/onboarding/preparation-intelligence.ts',
         'utf8',
       );
-      expect(route).toContain("'public_website'");
-      expect(route).not.toContain('direct_hire_website_research');
+      expect(projection).toContain(".from('evidence')");
+      expect(projection).toContain(".eq('direct_hire_onboarding_session_id', scope.onboardingSessionId)");
+      expect(projection).toContain(".eq('business_representation_id', scope.businessRepresentationId)");
     });
 
-    it('builds all seven summary sections', async () => {
-      const route = await readFile(
-        'app/api/onboarding/direct-hire/preparation/summary/route.ts',
+    it('delegates interpretation to the shared seven-domain projection', async () => {
+      const route = await readFile('app/api/onboarding/direct-hire/preparation/summary/route.ts', 'utf8');
+      const component = await readFile(
+        'components/onboarding/DirectHirePreparationSummary.tsx',
         'utf8',
       );
-      expect(route).toContain('What I understand you sell');
-      expect(route).toContain('Who I understand');
-      expect(route).toContain('The problem');
-      expect(route).toContain('Value proposition');
-      expect(route).toContain('How to describe');
-      expect(route).toContain('Authority boundaries');
-      expect(route).toContain('unansweredQuestions');
+      expect(route).toContain('buildPrivatePreparationProjection');
+      expect(component).toContain('whatYouSell');
+      expect(component).toContain('whoItIsFor');
+      expect(component).toContain('problemOrAspiration');
+      expect(component).toContain('whyCustomersShouldCare');
+      expect(component).toContain('proposedDescription');
+      expect(component).toContain('authorityBoundaries');
+      expect(component).toContain('clarificationsNeeded');
     });
 
-    it('includes gaps and contradictions explicitly', async () => {
-      const route = await readFile(
-        'app/api/onboarding/direct-hire/preparation/summary/route.ts',
+    it('includes unknowns and genuine contradictions explicitly', async () => {
+      const projection = await readFile(
+        'lib/onboarding/preparation-intelligence.ts',
         'utf8',
       );
-      expect(route).toContain('gaps');
-      expect(route).toContain('contradictions');
+      expect(projection).toContain('majorUnknowns');
+      expect(projection).toContain("hypothesis.epistemicState === 'contradicted'");
     });
 
     it('does NOT include phone number', async () => {
@@ -318,8 +322,8 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
       );
       expect(component).toContain('Still learning');
       expect(component).toContain('italic');
-      expect(component).toContain('Will be clarified');
-      expect(component).toContain('Not yet');
+      expect(component).toContain('Unknown');
+      expect(component).toContain('clarification');
     });
 
     it('calls correct endpoint (formation not formation-initiate)', async () => {

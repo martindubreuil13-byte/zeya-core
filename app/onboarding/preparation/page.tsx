@@ -6,17 +6,13 @@ import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { DirectHireInduction } from '@/components/onboarding/DirectHireInduction';
 import { DirectHirePreparationSummary } from '@/components/onboarding/DirectHirePreparationSummary';
 import type { DirectHirePreparationStatus } from '@/lib/onboarding/direct-hire-contract';
+import type { OwnerPreparationProjection } from '@/lib/onboarding/preparation-intelligence';
 
 interface PreparationData {
   onboardingSessionId: string;
   onboardingState: string;
   preparationStatus: DirectHirePreparationStatus;
-  summary?: {
-    understood: Array<{ category: string; items: Array<{ label: string; value: string }> }>;
-    gaps: string[];
-    contradictions: Array<{ description: string; question: string }>;
-    unansweredQuestions: string[];
-  };
+  summary?: OwnerPreparationProjection;
 }
 
 export default function DirectHirePreparationPage() {
