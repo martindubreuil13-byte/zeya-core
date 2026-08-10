@@ -109,7 +109,7 @@ describe("Employee Induction Material Collection", () => {
         "utf8",
       );
       expect(component).toContain('surface === "material_received"');
-      expect(component).toContain("Here's what you've shared");
+      expect(component).toContain("Here&apos;s what you&apos;ve shared");
       expect(component).toContain("I've reviewed this");
     });
 
@@ -120,7 +120,7 @@ describe("Employee Induction Material Collection", () => {
       );
       expect(component).toContain('surface === "preparation_pending"');
       expect(component).toContain("I have what I need to begin preparing");
-      expect(component).toContain("I'll review the material you shared");
+      expect(component).toContain("I&apos;ll review the material you shared");
       expect(component).toContain("before our first");
     });
 
@@ -131,7 +131,7 @@ describe("Employee Induction Material Collection", () => {
       );
       expect(page).toContain("DirectHireInduction");
       expect(page).toContain("/api/onboarding/direct-hire/induction");
-      expect(page).toContain("inductionState !== 'preparation_pending'");
+      expect(page).toContain("loadedInductionState !== 'preparation_pending'");
     });
   });
 
@@ -277,7 +277,7 @@ describe("Employee Induction Material Collection", () => {
         "components/onboarding/DirectHireInduction.tsx",
         "utf8",
       );
-      expect(component).toContain("I'll review the material you shared");
+      expect(component).toContain("I&apos;ll review the material you shared");
       expect(component).not.toContain("Preparation is underway");
       expect(component).not.toContain("I have learned");
     });

@@ -12,7 +12,6 @@ interface PreparationData {
   onboardingSessionId: string;
   onboardingState: string;
   preparationStatus: DirectHirePreparationStatus;
-  inductionState: string;
   summary?: OwnerPreparationProjection;
 }
 
@@ -22,34 +21,45 @@ export default function DirectHirePreparationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inductionConfirmed, setInductionConfirmed] = useState(false);
+  const [inductionState, setInductionState] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authSession) return;
 
     const loadPreparation = async () => {
       try {
-        const [response, inductionResponse] = await Promise.all([
-          authenticatedFetch('/api/onboarding/direct-hire/preparation/summary', authSession),
-          authenticatedFetch('/api/onboarding/direct-hire/induction', authSession),
-        ]);
-
-        if (!response.ok || !inductionResponse.ok) {
-          setError('Failed to load preparation status');
+        const inductionResponse = await authenticatedFetch(
+          '/api/onboarding/direct-hire/induction',
+          authSession,
+        );
+        const inductionBody = await inductionResponse.json().catch(() => ({}));
+        if (!inductionResponse.ok || !inductionBody.success || !inductionBody.data) {
+          setError(inductionBody.error || 'induction_status_failed');
           return;
         }
 
-        const body = await response.json();
-        const inductionBody = await inductionResponse.json();
-        if (body.success && body.data && inductionBody.success && inductionBody.data) {
+        const loadedInductionState = inductionBody.data.induction_state as string;
+        setInductionState(loadedInductionState);
+        if (loadedInductionState !== 'preparation_pending' && !inductionConfirmed) {
+          return;
+        }
+
+        const response = await authenticatedFetch(
+          '/api/onboarding/direct-hire/preparation/summary',
+          authSession,
+        );
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.success || !body.data) {
+          setError(body.error || 'preparation_summary_failed');
+          return;
+        }
+        if (body.success && body.data) {
           setData({
             onboardingSessionId: body.data.onboardingSessionId,
             onboardingState: body.data.onboardingState,
             preparationStatus: body.data.preparationStatus,
-            inductionState: inductionBody.data.induction_state,
             summary: body.data.summary,
           });
-        } else {
-          setError(body.error || 'Unknown error');
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load preparation');
@@ -59,7 +69,7 @@ export default function DirectHirePreparationPage() {
     };
 
     void loadPreparation();
-  }, [authSession]);
+  }, [authSession, inductionConfirmed]);
 
   if (loading) {
     return (
@@ -77,7 +87,7 @@ export default function DirectHirePreparationPage() {
     );
   }
 
-  if (data && data.inductionState !== 'preparation_pending' && !inductionConfirmed) {
+  if (inductionState && inductionState !== 'preparation_pending' && !inductionConfirmed) {
     return <DirectHireInduction onReadyForPreparation={() => setInductionConfirmed(true)} />;
   }
 

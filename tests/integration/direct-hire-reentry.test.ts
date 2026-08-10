@@ -58,9 +58,24 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
       "utf8",
     );
     expect(page).toContain("DirectHireInduction");
-    expect(page).toContain("inductionState !== 'preparation_pending'");
+    expect(page).toContain("loadedInductionState !== 'preparation_pending'");
     expect(page).toContain("onReadyForPreparation");
     expect(page).not.toContain("/representation/living");
+  });
+
+  it("does not let a downstream Summary failure block induction re-entry", async () => {
+    const page = await readFile(
+      "app/onboarding/preparation/page.tsx",
+      "utf8",
+    );
+    const inductionRequest = page.indexOf("authenticatedFetch(\n          '/api/onboarding/direct-hire/induction'");
+    const inductionBoundary = page.indexOf("loadedInductionState !== 'preparation_pending'");
+    const summaryRequest = page.indexOf("authenticatedFetch(\n          '/api/onboarding/direct-hire/preparation/summary'");
+    expect(inductionRequest).toBeGreaterThan(-1);
+    expect(inductionRequest).toBeLessThan(inductionBoundary);
+    expect(inductionBoundary).toBeLessThan(summaryRequest);
+    expect(page).not.toContain("Promise.all([");
+    expect(page).toContain("body.error || 'preparation_summary_failed'");
   });
 
   it("DirectHireInduction component loads correct surface on re-entry", async () => {
