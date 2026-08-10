@@ -130,6 +130,8 @@ describe("Employee Induction Material Collection", () => {
         "utf8",
       );
       expect(page).toContain("DirectHireInduction");
+      expect(page).toContain("/api/onboarding/direct-hire/induction");
+      expect(page).toContain("inductionState !== 'preparation_pending'");
     });
   });
 

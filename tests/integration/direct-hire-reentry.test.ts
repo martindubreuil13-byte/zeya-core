@@ -48,8 +48,8 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
       "utf8",
     );
     expect(page).toContain("direct_hire_employed");
-    expect(page).toContain("directHireSessionId");
     expect(page).toContain("onboardingState");
+    expect(page).toContain("resolveOwnerJourneyPath");
   });
 
   it("preparation page renders DirectHireInduction component", async () => {
@@ -58,6 +58,8 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
       "utf8",
     );
     expect(page).toContain("DirectHireInduction");
+    expect(page).toContain("inductionState !== 'preparation_pending'");
+    expect(page).toContain("onReadyForPreparation");
     expect(page).not.toContain("/representation/living");
   });
 
@@ -70,6 +72,15 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
     expect(component).toContain('surface === "employment_accepted"');
     expect(component).toContain("/api/onboarding/direct-hire/induction");
     expect(component).toContain("setSurface");
+  });
+
+  it("employment acceptance surface links to the existing re-entry route", async () => {
+    const component = await readFile(
+      "components/onboarding/DirectHireOnboarding.tsx",
+      "utf8",
+    );
+    expect(component).toContain('router.push("/onboarding/preparation")');
+    expect(component).toContain("Continue to induction");
   });
 
   it("does not route employed owners to first encounter", async () => {

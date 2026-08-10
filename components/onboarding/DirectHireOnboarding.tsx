@@ -498,18 +498,25 @@ export function DirectHireOnboarding() {
             </h1>
             <div className="mx-auto mt-8 max-w-xl space-y-6 text-base leading-8 text-zeya-taupe sm:text-lg">
               <p>
-                I've joined your team. Before I can represent your business credibly, I need time and material to prepare properly.
+                I&apos;ve joined your team. Before I can represent your business credibly, I need time and material to prepare properly.
               </p>
               <p>
-                In a future update, this is where you'll share induction materials, documentation, and background for me to study.
+                Next, share the induction materials, documentation, and background you want me to study.
               </p>
               <p>
-                Only after I've learned from your materials and we've discussed my understanding can we create a formal Representation of your business.
+                Only after I&apos;ve learned from your materials and we&apos;ve discussed my understanding can we create a formal Representation of your business.
               </p>
               <p className="text-xs italic">
                 Representation is governed, not generated.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => router.push("/onboarding/preparation")}
+              className="mt-10 rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void transition-colors hover:bg-zeya-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-ivory focus-visible:ring-offset-4 focus-visible:ring-offset-zeya-void"
+            >
+              Continue to induction
+            </button>
           </section>
         )}
 

@@ -38,12 +38,16 @@ describe("Direct Hire Employment Accepted", () => {
       "app/api/onboarding/direct-hire/accept-employment/route.ts",
       "utf8",
     );
-    expect(route).toContain('onboarding_state: "employment_accepted"');
-    expect(route).toContain('from("direct_hire_onboarding_sessions")');
+    const migration = await readFile(
+      "supabase/migrations/20260809000001_direct_hire_accept_employment_rpc.sql",
+      "utf8",
+    );
+    expect(route).toContain('"zeya_accept_direct_hire_employment"');
+    expect(migration).toContain("SET onboarding_state = 'employment_accepted'");
     expect(route).toContain("Employment acceptance does NOT create a canonical Representation Version");
   });
 
-  it("shows employment_accepted surface with correct messaging", async () => {
+  it("shows employment_accepted as a governed transition into induction", async () => {
     const component = await readFile(
       "components/onboarding/DirectHireOnboarding.tsx",
       "utf8",
@@ -53,6 +57,9 @@ describe("Direct Hire Employment Accepted", () => {
     expect(component).not.toContain("Your business representation has been created");
     expect(component).toContain("Before I can represent your business credibly, I need time and material to prepare");
     expect(component).toContain("Representation is governed, not generated");
+    expect(component).toContain('router.push("/onboarding/preparation")');
+    expect(component).toContain("Continue to induction");
+    expect(component).not.toContain("In a future update");
   });
 
   it("does NOT route to /representation/living after employment acceptance", async () => {
@@ -68,13 +75,26 @@ describe("Direct Hire Employment Accepted", () => {
     expect(employmentSection).not.toContain("Continue to your representation");
   });
 
+  it("does not leave an already-employed owner at a dead end", async () => {
+    const component = await readFile(
+      "components/onboarding/DirectHireOnboarding.tsx",
+      "utf8",
+    );
+    const employmentSection = component.slice(
+      component.indexOf('surface === "employment_accepted"'),
+      component.indexOf('surface === "error"'),
+    );
+    expect(employmentSection).toContain("Continue to induction");
+    expect(employmentSection).toContain('/onboarding/preparation');
+  });
+
   it("profile data remains as preparation evidence, not canonical truth", async () => {
     const route = await readFile(
       "app/api/onboarding/direct-hire/accept-employment/route.ts",
       "utf8",
     );
     expect(route).toContain("does NOT create");
-    expect(route).toContain("evidence");
+    expect(route).toContain("zeya_accept_direct_hire_employment");
     expect(route).not.toContain("element_values");
     expect(route).not.toContain("overall_confidence_score");
   });
@@ -90,13 +110,13 @@ describe("Direct Hire Employment Accepted", () => {
   });
 
   it("preserves governance principle that study material is evidence, not approved truth", async () => {
-    const route = await readFile(
-      "app/api/onboarding/direct-hire/accept-employment/route.ts",
+    const inductionRoute = await readFile(
+      "app/api/onboarding/direct-hire/induction/route.ts",
       "utf8",
     );
-    expect(route).toContain("Canonical Representation");
-    expect(route).toContain("induction");
-    expect(route).toContain("study");
-    expect(route).toContain("owner approval");
+    expect(inductionRoute).toContain('.from("evidence")');
+    expect(inductionRoute).toContain('source_type: "direct_hire_induction"');
+    expect(inductionRoute).not.toContain('from("representation_versions")');
+    expect(inductionRoute).not.toContain('from("approval_decisions")');
   });
 });

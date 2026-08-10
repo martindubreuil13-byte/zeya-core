@@ -12,6 +12,7 @@ interface PreparationData {
   onboardingSessionId: string;
   onboardingState: string;
   preparationStatus: DirectHirePreparationStatus;
+  inductionState: string;
   summary?: OwnerPreparationProjection;
 }
 
@@ -20,28 +21,31 @@ export default function DirectHirePreparationPage() {
   const [data, setData] = useState<PreparationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inductionConfirmed, setInductionConfirmed] = useState(false);
 
   useEffect(() => {
     if (!authSession) return;
 
     const loadPreparation = async () => {
       try {
-        const response = await authenticatedFetch(
-          '/api/onboarding/direct-hire/preparation/summary',
-          authSession,
-        );
+        const [response, inductionResponse] = await Promise.all([
+          authenticatedFetch('/api/onboarding/direct-hire/preparation/summary', authSession),
+          authenticatedFetch('/api/onboarding/direct-hire/induction', authSession),
+        ]);
 
-        if (!response.ok) {
+        if (!response.ok || !inductionResponse.ok) {
           setError('Failed to load preparation status');
           return;
         }
 
         const body = await response.json();
-        if (body.success && body.data) {
+        const inductionBody = await inductionResponse.json();
+        if (body.success && body.data && inductionBody.success && inductionBody.data) {
           setData({
             onboardingSessionId: body.data.onboardingSessionId,
             onboardingState: body.data.onboardingState,
             preparationStatus: body.data.preparationStatus,
+            inductionState: inductionBody.data.induction_state,
             summary: body.data.summary,
           });
         } else {
@@ -73,6 +77,10 @@ export default function DirectHirePreparationPage() {
     );
   }
 
+  if (data && data.inductionState !== 'preparation_pending' && !inductionConfirmed) {
+    return <DirectHireInduction onReadyForPreparation={() => setInductionConfirmed(true)} />;
+  }
+
   // Show summary if preparation is ready or partial
   if (data && (data.preparationStatus === 'ready' || data.preparationStatus === 'partial')) {
     return (
@@ -87,5 +95,5 @@ export default function DirectHirePreparationPage() {
   }
 
   // Otherwise show induction flow (for employment_accepted state)
-  return <DirectHireInduction />;
+  return <DirectHireInduction onReadyForPreparation={() => setInductionConfirmed(true)} />;
 }

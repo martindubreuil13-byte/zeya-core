@@ -25,7 +25,11 @@ type LoadedMaterial = {
   raw_statement: string;
 };
 
-export function DirectHireInduction() {
+export function DirectHireInduction({
+  onReadyForPreparation,
+}: {
+  onReadyForPreparation?: () => void;
+} = {}) {
   const router = useRouter();
   const { session } = useAuth();
   const [surface, setSurface] = useState<InductionSurface>("employment_accepted");
@@ -215,6 +219,7 @@ export function DirectHireInduction() {
       // Mark as ready for preparation (update will happen via API)
       // For now, just navigate
       setSurface("preparation_pending");
+      onReadyForPreparation?.();
     } finally {
       setSubmitting(false);
     }
@@ -246,7 +251,7 @@ export function DirectHireInduction() {
             </h1>
             <div className="mx-auto mt-8 max-w-xl space-y-6 text-base leading-8 text-zeya-taupe sm:text-lg">
               <p>
-                Before our first formal meeting, I'd like to study your
+                Before our first formal meeting, I&apos;d like to study your
                 business properly.
               </p>
               <p>
@@ -322,7 +327,7 @@ export function DirectHireInduction() {
                 </div>
                 <div>
                   <label className="block text-sm text-zeya-ivory">
-                    What's your immediate business-development priority?
+                    What&apos;s your immediate business-development priority?
                   </label>
                   <textarea
                     value={businessContext.priority}
@@ -443,7 +448,7 @@ export function DirectHireInduction() {
               Review
             </p>
             <h1 className="font-serif text-3xl sm:text-4xl">
-              Here's what you've shared.
+              Here&apos;s what you&apos;ve shared.
             </h1>
             <p className="mt-4 max-w-xl leading-7 text-zeya-taupe">
               Review your induction material before I begin preparation.
@@ -500,12 +505,12 @@ export function DirectHireInduction() {
             </h1>
             <div className="mx-auto mt-8 max-w-xl space-y-6 text-base leading-8 text-zeya-taupe sm:text-lg">
               <p>
-                I'll review the material you shared before our first formal
+                I&apos;ll review the material you shared before our first formal
                 meeting.
               </p>
               <p>
-                I'll return with a clear summary of what I understand, the
-                areas where I'm uncertain, and the questions I need to ask.
+                I&apos;ll return with a clear summary of what I understand, the
+                areas where I&apos;m uncertain, and the questions I need to ask.
               </p>
               <p className="text-xs italic">
                 Representation is governed, not generated.
