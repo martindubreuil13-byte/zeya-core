@@ -4,7 +4,7 @@ import { isSameResearchSite, WEBSITE_RESEARCH_LIMITS } from "./safe-public-site-
 
 export const WEBSITE_EXTRACTION_VERSION = "direct-hire-web-v1";
 
-export type WebsitePageType = "homepage" | "about" | "products_services";
+export type WebsitePageType = "homepage" | "about" | "products_services" | "registered_public_page";
 export type WebsiteEvidenceKind =
   | "title"
   | "meta_description"
@@ -12,10 +12,11 @@ export type WebsiteEvidenceKind =
   | "main_excerpt"
   | "about_excerpt"
   | "products_services_excerpt"
+  | "registered_page_excerpt"
   | "explicit_absence";
 
 export type DiscoveredPage = {
-  pageType: Exclude<WebsitePageType, "homepage">;
+  pageType: "about" | "products_services";
   url: string;
   label: string;
 };
@@ -169,6 +170,25 @@ export function evidenceFromExtractedPage(page: ExtractedWebsitePage): Array<{
         affectedDomains: ["business_identity", "positioning"],
       });
     }
+  } else if (page.pageType === "registered_public_page") {
+    if (page.title) records.push({
+      kind: "title", selector: "title", excerpt: page.title,
+      affectedDomains: ["business_identity", "positioning"],
+    });
+    if (page.metaDescription) records.push({
+      kind: "meta_description", selector: "meta[name=description]",
+      excerpt: page.metaDescription,
+      affectedDomains: ["business_identity", "positioning"],
+    });
+    if (page.primaryHeading) records.push({
+      kind: "primary_heading", selector: "h1", excerpt: page.primaryHeading,
+      affectedDomains: ["business_identity", "positioning"],
+    });
+    if (page.mainExcerpt && page.mainExcerpt.length >= 80) records.push({
+      kind: "registered_page_excerpt", selector: "main",
+      excerpt: page.mainExcerpt.slice(0, 2_000),
+      affectedDomains: ["business_identity", "offer", "positioning", "differentiation"],
+    });
   } else if (page.mainExcerpt && page.mainExcerpt.length >= 80) {
     records.push({
       kind: page.pageType === "about" ? "about_excerpt" : "products_services_excerpt",

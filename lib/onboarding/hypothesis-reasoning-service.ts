@@ -139,7 +139,13 @@ export function buildReasoningPrompt(
   Source Type: ${e.sourceType}
   Page Type: ${e.source_page_type || '(not specified)'}
   Evidence Kind: ${e.source_evidence_kind || '(not specified)'}
+  Location: ${e.source_selector || '(not specified)'}
   Canonical URL: ${e.canonical_source_url || '(none)'}
+  Logical Source: ${e.logical_source_key || `unknown-source:${e.id}`}
+  Authority Type: ${e.authority_type || 'unknown'}
+  Authority Group: ${e.authority_key || `unknown-authority:${e.id}`}
+  Retrieved At: ${e.source_retrieved_at || '(not specified)'}
+  Content Hash: ${e.source_content_hash || '(not specified)'}
   Raw Statement: ${e.rawStatement}
   Domains: ${e.affected_domains.join(', ')}`
     )
@@ -187,13 +193,20 @@ CORE PRINCIPLES
 3. Contradictions remain unresolved until owner verification.
 4. Unknowns remain visible. Do not invent.
 5. Owner-provided Evidence and public Evidence must be distinguished.
-6. Multiple extracts from one page are NOT independent corroboration.
-7. Absence of Evidence does not prove a claim is false or confidential.
-8. Confidence and Representation Risk are separate dimensions.
-9. A high representation risk can exist at any confidence level.
-10. Prefer unknown over plausible inference.
-11. Do not produce marketing language unsupported by Evidence.
-12. Do not reveal chain-of-thought.
+6. Artifact count is not source count. Evidence sharing a Logical Source is one source.
+7. Source count is not authority count. Evidence sharing an Authority Group is one authority.
+8. Multiple extracts from one webpage are one source, never independent corroboration.
+9. Multiple pages from one company website are normally one first-party authority.
+10. Owner testimony and company-site claims are different origins, but are not automatically independent third-party confirmation.
+11. Unknown authority relationships must not be treated as independent corroboration.
+12. Repeated first-party wording must not inflate confidence.
+    Even distinct canonical URLs are NOT independent when they share one authority group.
+13. Absence of Evidence does not prove a claim is false or confidential.
+14. Confidence and Representation Risk are separate dimensions.
+15. A high representation risk can exist at any confidence level.
+16. Prefer unknown over plausible inference.
+17. Do not produce marketing language unsupported by Evidence.
+18. Do not reveal chain-of-thought.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONFIDENCE LEVELS
@@ -201,15 +214,17 @@ CONFIDENCE LEVELS
 
 high:
   MINIMUM REQUIREMENT for public Evidence alone:
-  - 2+ independent Evidence sources (distinct canonical URLs)
-  - Multiple pages covering the claim
+  - 2+ genuinely independent authority groups
+  - Multiple sources covering the claim
   - Strong Observation corroboration
 
   ALTERNATIVE for high confidence:
-  - owner Evidence explicitly confirming the claim + public Evidence alignment
+  - owner Evidence explicitly confirming the claim + aligned first-party public Evidence,
+    only when the claim is within the owner's authority to confirm
 
   FORBIDDEN:
   - Do NOT award high confidence to multiple extracts from ONE page
+  - Do NOT award high confidence merely to multiple pages from ONE authority
   - Do NOT award high confidence to claims from single homepage/URL
   - Do NOT infer high confidence from marketing language alone
   - EVEN WITH OBSERVATIONS: single-page public Evidence maxes out at MEDIUM confidence

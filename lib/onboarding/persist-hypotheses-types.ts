@@ -1,6 +1,6 @@
 // Hypothesis Persistence Orchestration — Type Contracts
 
-import type { ConstitutionalDomain, HypothesisReasoningOutput } from './hypothesis-reasoning-types';
+import type { ConstitutionalDomain, EvidenceInput, HypothesisReasoningOutput } from './hypothesis-reasoning-types';
 
 // Individual domain persistence result
 export interface HypothesisPersistenceDomainResult {
@@ -45,7 +45,16 @@ export interface DatabaseEvidence {
   source_type: string;
   raw_statement: string;
   affected_domains: string[];
-  source_content_hash?: string;
+  requested_source_url?: string | null;
+  canonical_source_url?: string | null;
+  source_retrieved_at?: string | null;
+  source_content_hash?: string | null;
+  source_page_type?: string | null;
+  source_evidence_kind?: string | null;
+  source_selector?: string | null;
+  registered_public_source_id?: string | null;
+  source_authority_type?: EvidenceInput['authority_type'] | null;
+  source_authority_key?: string | null;
   captured_by_actor?: string;
   induction_material_type?: string | null;
   induction_material_label?: string | null;

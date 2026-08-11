@@ -141,10 +141,10 @@ describe('Preparation intelligence snapshot freshness', () => {
       .toBe('partial');
   });
 
-  it('does not globally group links, notes, or unrelated Evidence', () => {
+  it('excludes historical URL-only rows while preserving substantive notes', () => {
     const link1 = evidence({ id: 'link-1', induction_material_type: 'link', induction_material_label: 'Reference' });
     const link2 = evidence({ id: 'link-2', induction_material_type: 'link', induction_material_label: 'Reference' });
     const note = evidence({ id: 'note', induction_material_type: 'note', induction_material_label: 'Owner notes' });
-    expect(normalizeEffectivePreparationEvidence([link1, link2, note])).toHaveLength(3);
+    expect(normalizeEffectivePreparationEvidence([link1, link2, note]).map(item => item.id)).toEqual(['note']);
   });
 });

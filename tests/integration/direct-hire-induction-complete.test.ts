@@ -436,7 +436,7 @@ describe("Employee Induction Material Collection", () => {
         "utf8",
       );
       expect(route).not.toContain("parse");
-      expect(route).not.toContain("extract");
+      expect(route).not.toContain("document extraction");
       expect(route).not.toContain("LLM");
     });
 

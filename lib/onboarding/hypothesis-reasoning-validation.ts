@@ -246,23 +246,27 @@ export function validateHypothesisReasoningResult(
         e.sourceType === 'conversation' || e.sourceType === 'direct_hire_induction'
       );
 
-      // High confidence from public Evidence alone requires multiple distinct canonical URLs
+      // High confidence from public Evidence alone requires multiple independently
+      // classified authority groups. Artifact and source counts are insufficient.
       if (ownerEvidence.length === 0 && publicEvidence.length > 0) {
-        const canonicalUrls = new Set(publicEvidence.map(e => e.canonical_source_url).filter(Boolean));
+        const authorityKeys = new Set(publicEvidence
+          .filter(e => e.authority_type === 'independent_third_party')
+          .map(e => e.authority_key));
 
-        if (canonicalUrls.size < 2) {
+        if (authorityKeys.size < 2) {
           throw new HypothesisReasoningValidationError(
-            `${domain}: high confidence from public Evidence alone requires 2+ distinct URLs; found ${canonicalUrls.size}`
+            `${domain}: high confidence from public Evidence alone requires 2+ independent authorities; distinct URLs or multiple artifacts from a single page are insufficient; found ${authorityKeys.size}`
           );
         }
       }
 
-      // If all public Evidence is from same URL, require owner corroboration for high confidence
+      // Repeated artifacts or pages from one authority cannot independently
+      // establish high confidence.
       if (publicEvidence.length > 0 && ownerEvidence.length === 0) {
-        const uniqueUrls = new Set(publicEvidence.map(e => e.canonical_source_url).filter(Boolean));
-        if (uniqueUrls.size === 1 && publicEvidence.length > 1) {
+        const uniqueAuthorities = new Set(publicEvidence.map(e => e.authority_key));
+        if (uniqueAuthorities.size === 1 && publicEvidence.length > 1) {
           throw new HypothesisReasoningValidationError(
-            `${domain}: multiple Evidence citations from single page cannot achieve high confidence without owner corroboration`
+            `${domain}: multiple Evidence artifacts or sources from one authority cannot achieve high confidence without owner corroboration`
           );
         }
       }

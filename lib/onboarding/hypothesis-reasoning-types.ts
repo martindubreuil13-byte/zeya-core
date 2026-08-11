@@ -84,7 +84,15 @@ export interface EvidenceInput {
   requested_source_url?: string;
   source_page_type?: string;
   source_evidence_kind?: string;
+  source_selector?: string;
+  source_content_hash?: string;
   source_retrieved_at?: string;
+  /** Stable identity for the page/location. Several artifacts may share it. */
+  logical_source_key?: string;
+  /** Server-classified origin. The provider must not infer independence from URLs. */
+  authority_type?: 'owner' | 'first_party_company' | 'customer' | 'partner' | 'independent_third_party' | 'unknown';
+  /** Stable non-PII grouping key. Several sources may share one authority. */
+  authority_key?: string;
 }
 
 export interface ObservationInput {

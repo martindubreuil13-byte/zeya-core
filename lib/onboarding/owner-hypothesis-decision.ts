@@ -93,6 +93,17 @@ type EvidenceRow = {
   source_type: EvidenceInput['sourceType'];
   raw_statement: string;
   affected_domains: string[] | null;
+  induction_material_type: string | null;
+  requested_source_url: string | null;
+  canonical_source_url: string | null;
+  source_retrieved_at: string | null;
+  source_content_hash: string | null;
+  source_page_type: string | null;
+  source_evidence_kind: string | null;
+  source_selector: string | null;
+  registered_public_source_id: string | null;
+  source_authority_type: EvidenceInput['authority_type'] | null;
+  source_authority_key: string | null;
   created_at: string;
 };
 
@@ -257,7 +268,13 @@ export async function applyOwnerHypothesisDecision(
 
   const evidenceResponse = await client
     .from('evidence')
-    .select('id, source_type, raw_statement, affected_domains, created_at')
+    .select(`
+      id, source_type, raw_statement, affected_domains, induction_material_type, created_at,
+      requested_source_url, canonical_source_url, source_retrieved_at,
+      source_content_hash, source_page_type, source_evidence_kind,
+      source_selector, registered_public_source_id,
+      source_authority_type, source_authority_key
+    `)
     .eq('direct_hire_onboarding_session_id', operation.direct_hire_onboarding_session_id)
     .eq('business_representation_id', operation.business_representation_id)
     .contains('affected_domains', [operation.constitutional_domain])
@@ -282,12 +299,42 @@ export async function applyOwnerHypothesisDecision(
     throw new OwnerHypothesisDecisionError('invariant_error', 'Observation scope mismatch');
   }
 
-  const evidence: EvidenceInput[] = evidenceRows.map(row => ({
-    id: row.id,
-    sourceType: row.source_type,
-    rawStatement: row.raw_statement,
-    affected_domains: row.affected_domains ?? [],
-  }));
+  const evidence: EvidenceInput[] = evidenceRows
+    .filter(row => !(row.source_type === 'direct_hire_induction' && row.induction_material_type === 'link'))
+    .map(row => {
+      const publicUrl = row.canonical_source_url ?? row.requested_source_url;
+      let publicHost: string | null = null;
+      try {
+        publicHost = publicUrl ? new URL(publicUrl).hostname.toLowerCase().replace(/^www\./, '') : null;
+      } catch {
+        publicHost = null;
+      }
+      const ownerOrigin = ['direct_hire_induction', 'conversation', 'manual'].includes(row.source_type);
+      return {
+        id: row.id,
+        sourceType: row.source_type,
+        rawStatement: row.raw_statement,
+        affected_domains: row.affected_domains ?? [],
+        requested_source_url: row.requested_source_url ?? undefined,
+        canonical_source_url: row.canonical_source_url ?? undefined,
+        source_retrieved_at: row.source_retrieved_at ?? undefined,
+        source_content_hash: row.source_content_hash ?? undefined,
+        source_page_type: row.source_page_type ?? undefined,
+        source_evidence_kind: row.source_evidence_kind ?? undefined,
+        source_selector: row.source_selector ?? undefined,
+        logical_source_key: ownerOrigin
+          ? `owner-origin:${row.id}`
+          : row.registered_public_source_id
+            ? `registered-source:${row.registered_public_source_id}`
+            : `webpage:${publicUrl ?? row.id}`,
+        authority_type: ownerOrigin
+          ? 'owner'
+          : row.source_authority_type ?? (publicHost ? 'first_party_company' : 'unknown'),
+        authority_key: ownerOrigin
+          ? 'owner'
+          : row.source_authority_key ?? (publicHost ? `first-party-site:${publicHost}` : `unknown:${row.id}`),
+      };
+    });
   const observations: ObservationInput[] = observationRows.map(row => ({
     id: row.id,
     evidenceId: row.evidence_id,

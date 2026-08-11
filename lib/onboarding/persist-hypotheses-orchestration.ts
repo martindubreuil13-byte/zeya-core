@@ -23,7 +23,48 @@ import {
 } from './induction-evidence';
 
 // Reasoning contract version (increment when hypothesis output structure changes)
-const REASONING_CONTRACT_VERSION = '1.0';
+const REASONING_CONTRACT_VERSION = '1.1-source-semantics';
+
+function normalizedAuthorityHost(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+function sourceSemantics(evidence: DatabaseEvidence): Pick<
+  EvidenceInput,
+  'logical_source_key' | 'authority_type' | 'authority_key'
+> {
+  if (evidence.source_type === 'direct_hire_induction'
+    || evidence.source_type === 'conversation'
+    || evidence.source_type === 'manual') {
+    return {
+      logical_source_key: `owner-origin:${evidence.id}`,
+      authority_type: 'owner',
+      authority_key: 'owner',
+    };
+  }
+  if (evidence.source_type === 'public_website') {
+    const canonicalUrl = evidence.canonical_source_url ?? evidence.requested_source_url;
+    const host = normalizedAuthorityHost(canonicalUrl);
+    return {
+      logical_source_key: evidence.registered_public_source_id
+        ? `registered-source:${evidence.registered_public_source_id}`
+        : `webpage:${canonicalUrl ?? evidence.source_content_hash ?? evidence.id}`,
+      authority_type: evidence.source_authority_type ?? (host ? 'first_party_company' : 'unknown'),
+      authority_key: evidence.source_authority_key
+        ?? (host ? `first-party-site:${host}` : `unknown:${evidence.id}`),
+    };
+  }
+  return {
+    logical_source_key: `artifact-origin:${evidence.id}`,
+    authority_type: 'unknown',
+    authority_key: `unknown:${evidence.id}`,
+  };
+}
 
 /**
  * Generate deterministic reasoning-run fingerprint.
@@ -90,7 +131,16 @@ async function loadScopedEvidence(
       source_type,
       raw_statement,
       affected_domains,
+      requested_source_url,
+      canonical_source_url,
+      source_retrieved_at,
       source_content_hash,
+      source_page_type,
+      source_evidence_kind,
+      source_selector,
+      registered_public_source_id,
+      source_authority_type,
+      source_authority_key,
       captured_by_actor,
       induction_material_type,
       induction_material_label,
@@ -114,6 +164,11 @@ export function normalizeEffectivePreparationEvidence(
   const ungrouped: DatabaseEvidence[] = [];
 
   for (const row of evidence) {
+    // Historical link rows record an owner-supplied location, not acquired
+    // source content. They remain durable but are not substantive Evidence.
+    if (row.source_type === 'direct_hire_induction' && row.induction_material_type === 'link') {
+      continue;
+    }
     if (row.source_type !== 'direct_hire_induction'
       || !isFixedInductionMaterial(row.induction_material_label, row.induction_material_type)) {
       ungrouped.push(row);
@@ -187,17 +242,28 @@ function validateObservationScope(
  * Convert database Evidence rows to EvidenceInput for reasoning service.
  */
 export function toEvidenceInput(dbEvidence: DatabaseEvidence[]): EvidenceInput[] {
-  return dbEvidence.map(e => ({
-    id: e.id,
-    sourceType: e.source_type as EvidenceInput['sourceType'],
-    rawStatement: e.raw_statement,
-    affected_domains: e.source_type === 'direct_hire_induction'
-      ? [...new Set([
-          ...(e.affected_domains || []),
-          ...constitutionalDomainsForInductionMaterial(e.induction_material_label),
-        ])]
-      : e.affected_domains || [],
-  }));
+  return dbEvidence.map(e => {
+    const semantics = sourceSemantics(e);
+    return {
+      id: e.id,
+      sourceType: e.source_type as EvidenceInput['sourceType'],
+      rawStatement: e.raw_statement,
+      affected_domains: e.source_type === 'direct_hire_induction'
+        ? [...new Set([
+            ...(e.affected_domains || []),
+            ...constitutionalDomainsForInductionMaterial(e.induction_material_label),
+          ])]
+        : e.affected_domains || [],
+      canonical_source_url: e.canonical_source_url ?? undefined,
+      requested_source_url: e.requested_source_url ?? undefined,
+      source_page_type: e.source_page_type ?? undefined,
+      source_evidence_kind: e.source_evidence_kind ?? undefined,
+      source_selector: e.source_selector ?? undefined,
+      source_content_hash: e.source_content_hash ?? undefined,
+      source_retrieved_at: e.source_retrieved_at ?? undefined,
+      ...semantics,
+    };
+  });
 }
 
 /**

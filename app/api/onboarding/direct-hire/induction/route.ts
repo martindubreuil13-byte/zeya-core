@@ -5,6 +5,10 @@ import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-serv
 import type { InductionMaterial } from "@/lib/onboarding/direct-hire-contract";
 import { constitutionalDomainsForInductionMaterial } from "@/lib/onboarding/induction-evidence";
 import { ensurePreparationIntelligence } from "@/lib/onboarding/preparation-intelligence";
+import {
+  acquirePendingRegisteredPublicSources,
+  registerPublicSource,
+} from "@/lib/onboarding/registered-public-sources";
 
 type InductionRow = {
   id: string;
@@ -14,6 +18,7 @@ type InductionRow = {
   onboarding_state: string;
   induction_state: string;
   induction_materials_count: number;
+  website_url: string;
 };
 
 function failure(error: string, status: number) {
@@ -99,6 +104,7 @@ export async function GET(request: NextRequest) {
       .select("id,induction_material_type,induction_material_label,induction_material_url,raw_statement,created_at")
       .eq("direct_hire_onboarding_session_id", session.id)
       .eq("source_type", "direct_hire_induction")
+      .neq("induction_material_type", "link")
       .order("created_at", { ascending: false });
 
     if (materialsResult.error) {
@@ -106,13 +112,33 @@ export async function GET(request: NextRequest) {
       return failure("materials_lookup_failed", 500);
     }
 
+    const sourcesResult = await auth.supabase
+      .from("direct_hire_public_sources")
+      .select("id,submitted_url,status,created_at")
+      .eq("owner_id", ownerId)
+      .eq("direct_hire_onboarding_session_id", session.id)
+      .order("created_at", { ascending: false });
+    if (sourcesResult.error) {
+      logDatabaseError("public_sources_lookup_failed", sourcesResult.error);
+      return failure("materials_lookup_failed", 500);
+    }
+
+    const registeredSources = (sourcesResult.data ?? []).map((source) => ({
+      induction_material_type: "link",
+      induction_material_label: "Public source",
+      induction_material_url: source.submitted_url,
+      raw_statement: "",
+      source_status: source.status,
+      created_at: source.created_at,
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
         onboarding_session_id: session.id,
         induction_state: session.induction_state,
         materials_count: session.induction_materials_count,
-        materials: materialsResult.data || [],
+        materials: [...registeredSources, ...(materialsResult.data || [])],
       },
     });
   } catch {
@@ -152,12 +178,22 @@ export async function PATCH(request: NextRequest) {
         .select("id", { count: "exact", head: true })
         .eq("business_representation_id", session.business_representation_id)
         .eq("direct_hire_onboarding_session_id", session.id)
-        .eq("source_type", "direct_hire_induction");
+        .eq("source_type", "direct_hire_induction")
+        .neq("induction_material_type", "link");
       if (materialsResult.error) {
         logDatabaseError("material_count_failed", materialsResult.error);
         return failure("induction_completion_failed", 500);
       }
-      const materialsCount = materialsResult.count ?? 0;
+      const sourcesResult = await auth.supabase
+        .from("direct_hire_public_sources")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", ownerId)
+        .eq("direct_hire_onboarding_session_id", session.id);
+      if (sourcesResult.error) {
+        logDatabaseError("public_source_count_failed", sourcesResult.error);
+        return failure("induction_completion_failed", 500);
+      }
+      const materialsCount = (materialsResult.count ?? 0) + (sourcesResult.count ?? 0);
       if (materialsCount === 0) return failure("induction_material_required", 409);
 
       await persistInductionState(
@@ -168,6 +204,10 @@ export async function PATCH(request: NextRequest) {
       );
       const service = createDirectHireServiceClient();
       try {
+        await acquirePendingRegisteredPublicSources(service, {
+          ownerId,
+          onboardingSessionId: session.id,
+        });
         await ensurePreparationIntelligence(service, {
           ownerId,
           businessId: session.business_id,
@@ -218,7 +258,7 @@ export async function POST(request: NextRequest) {
     // Load onboarding session
     const sessionResult = await auth.supabase
       .from("direct_hire_onboarding_sessions")
-      .select("id,owner_id,business_representation_id,onboarding_state,induction_state,induction_materials_count")
+      .select("id,owner_id,business_id,business_representation_id,onboarding_state,induction_state,induction_materials_count,website_url")
       .eq("owner_id", ownerId)
       .maybeSingle();
 
@@ -235,12 +275,30 @@ export async function POST(request: NextRequest) {
       return failure("not_in_employment_accepted_state", 409);
     }
 
-    // Create evidence record for induction material
-    // Store: links as URL, notes/descriptions as text
+    // A link registers a source location. Its URL is not substantive Evidence;
+    // only successfully acquired and extracted content becomes public Evidence.
+    if (material.type === "link") {
+      if (!material.url) return failure("material_validation_failed", 400);
+      const service = createDirectHireServiceClient();
+      try {
+        await registerPublicSource(service, {
+          ownerId,
+          onboardingSessionId: session.id,
+          submittedUrl: material.url,
+          companyWebsiteUrl: session.website_url,
+        });
+      } catch (error) {
+        console.error(
+          "[direct-hire-induction] public_source_registration_failed",
+          error instanceof Error ? error.message : "unknown_failure",
+        );
+        return failure("material_validation_failed", 400);
+      }
+    }
+
+    // Text and notes remain owner-originated Evidence.
     const raw_statement =
-      material.type === "link"
-        ? material.url || ""
-        : material.content || material.label || "";
+      material.content || material.label || "";
 
     const statement_hash = createHash("sha256")
       .update(raw_statement)
@@ -263,8 +321,9 @@ export async function POST(request: NextRequest) {
       return failure("material_persistence_failed", 500);
     }
 
-    if ((existingResult.data ?? []).length === 0) {
-      const evidenceResult = await auth.supabase
+    if (material.type !== "link") {
+      if ((existingResult.data ?? []).length === 0) {
+        const evidenceResult = await auth.supabase
         .from("evidence")
         .insert({
           business_representation_id: session.business_representation_id,
@@ -276,15 +335,16 @@ export async function POST(request: NextRequest) {
           direct_hire_onboarding_session_id: session.id,
           induction_material_type: material.type,
           induction_material_label: material.label,
-          induction_material_url: material.type === "link" ? material.url : null,
+          induction_material_url: null,
           affected_domains: constitutionalDomainsForInductionMaterial(material.label),
         })
         .select("id")
         .single();
 
-      if (evidenceResult.error) {
-        logDatabaseError("material_persistence_failed", evidenceResult.error);
-        return failure("material_persistence_failed", 500);
+        if (evidenceResult.error) {
+          logDatabaseError("material_persistence_failed", evidenceResult.error);
+          return failure("material_persistence_failed", 500);
+        }
       }
     }
 
@@ -293,13 +353,27 @@ export async function POST(request: NextRequest) {
       .select("id", { count: "exact", head: true })
       .eq("business_representation_id", session.business_representation_id)
       .eq("direct_hire_onboarding_session_id", session.id)
-      .eq("source_type", "direct_hire_induction");
+      .eq("source_type", "direct_hire_induction")
+      .neq("induction_material_type", "link");
     if (countResult.error) {
       logDatabaseError("material_count_failed", countResult.error);
       return failure("induction_state_update_failed", 500);
     }
 
-    const materialsCount = Math.min(countResult.count ?? 0, 99);
+    const sourceCountResult = await auth.supabase
+      .from("direct_hire_public_sources")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", ownerId)
+      .eq("direct_hire_onboarding_session_id", session.id);
+    if (sourceCountResult.error) {
+      logDatabaseError("public_source_count_failed", sourceCountResult.error);
+      return failure("induction_state_update_failed", 500);
+    }
+
+    const materialsCount = Math.min(
+      (countResult.count ?? 0) + (sourceCountResult.count ?? 0),
+      99,
+    );
     const updated = await persistInductionState(
       session,
       ownerId,
