@@ -46,6 +46,33 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("State Progression and Durability", () => {
+    it("has a forward-only repair for the Preview induction schema gap", async () => {
+      const migration = await readFile(
+        "supabase/migrations/20260810000000_restore_employee_induction_schema.sql",
+        "utf8",
+      );
+      expect(migration).toContain("ADD VALUE IF NOT EXISTS 'direct_hire_induction'");
+      expect(migration).toContain("ADD COLUMN IF NOT EXISTS induction_state");
+      expect(migration).toContain("ADD COLUMN IF NOT EXISTS induction_materials_count");
+      expect(migration).toContain("ADD COLUMN IF NOT EXISTS direct_hire_onboarding_session_id");
+      expect(migration).toContain("ADD COLUMN IF NOT EXISTS induction_material_type");
+      expect(migration).not.toContain("DROP COLUMN");
+      expect(migration).not.toContain("DELETE FROM");
+    });
+
+    it("logs structural Supabase diagnostics without exposing them in the response", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      expect(route).toContain('logDatabaseError("session_lookup_failed"');
+      expect(route).toContain("code: error.code");
+      expect(route).toContain("message: error.message");
+      expect(route).toContain("details: error.details");
+      expect(route).toContain("hint: error.hint");
+      expect(route).toContain('failure("session_lookup_failed", 500)');
+    });
+
     it("induction_state enum includes all expected states", async () => {
       const migration = await readFile(
         "supabase/migrations/20260805000002_employee_induction_material_collection.sql",

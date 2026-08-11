@@ -16,6 +16,20 @@ function failure(error: string, status: number) {
   return NextResponse.json({ success: false, error }, { status });
 }
 
+function logDatabaseError(stage: string, error: {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+}) {
+  console.error(`[direct-hire-induction] ${stage}`, {
+    code: error.code ?? "",
+    message: error.message ?? "",
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+  });
+}
+
 function success(induction_state: string, materials_count: number) {
   return NextResponse.json({
     success: true,
@@ -38,7 +52,10 @@ export async function GET(request: NextRequest) {
       .eq("owner_id", ownerId)
       .maybeSingle();
 
-    if (sessionResult.error) return failure("session_lookup_failed", 500);
+    if (sessionResult.error) {
+      logDatabaseError("session_lookup_failed", sessionResult.error);
+      return failure("session_lookup_failed", 500);
+    }
     if (!sessionResult.data) return failure("session_not_found", 404);
 
     const session = sessionResult.data as InductionRow;
@@ -51,7 +68,10 @@ export async function GET(request: NextRequest) {
       .eq("source_type", "direct_hire_induction")
       .order("created_at", { ascending: false });
 
-    if (materialsResult.error) return failure("materials_lookup_failed", 500);
+    if (materialsResult.error) {
+      logDatabaseError("materials_lookup_failed", materialsResult.error);
+      return failure("materials_lookup_failed", 500);
+    }
 
     return NextResponse.json({
       success: true,
@@ -91,7 +111,10 @@ export async function POST(request: NextRequest) {
       .eq("owner_id", ownerId)
       .maybeSingle();
 
-    if (sessionResult.error) return failure("session_lookup_failed", 500);
+    if (sessionResult.error) {
+      logDatabaseError("session_lookup_failed", sessionResult.error);
+      return failure("session_lookup_failed", 500);
+    }
     if (!sessionResult.data) return failure("session_not_found", 404);
 
     const session = sessionResult.data as InductionRow;
@@ -130,6 +153,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (evidenceResult.error) {
+      logDatabaseError("material_persistence_failed", evidenceResult.error);
       return failure("material_persistence_failed", 500);
     }
 
@@ -154,6 +178,7 @@ export async function POST(request: NextRequest) {
       .eq("owner_id", ownerId);
 
     if (updateResult.error) {
+      logDatabaseError("induction_state_update_failed", updateResult.error);
       return failure("induction_state_update_failed", 500);
     }
 
