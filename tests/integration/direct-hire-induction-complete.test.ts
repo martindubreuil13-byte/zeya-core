@@ -46,6 +46,62 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("State Progression and Durability", () => {
+    it("persists Begin My Induction through the authenticated server boundary", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      const component = await readFile(
+        "components/onboarding/DirectHireInduction.tsx",
+        "utf8",
+      );
+      expect(route).toContain("export async function PATCH");
+      expect(route).toContain('persistInductionState(session, ownerId, "material_requested", 0)');
+      expect(route).toContain('.eq("owner_id", ownerId)');
+      expect(component).toContain('{ method: "PATCH" }');
+      expect(component.indexOf('{ method: "PATCH" }')).toBeLessThan(
+        component.indexOf('setSurface("material_requested")'),
+      );
+    });
+
+    it("uses owner/session-scoped browser drafts and clears them after governed submission", async () => {
+      const component = await readFile(
+        "components/onboarding/DirectHireInduction.tsx",
+        "utf8",
+      );
+      expect(component).toContain("zeya:direct-hire-induction-draft:${user.id}:${body.data.onboarding_session_id}");
+      expect(component).toContain("window.localStorage.getItem(nextDraftKey)");
+      expect(component).toContain("window.localStorage.setItem(draftKey");
+      expect(component).toContain("window.localStorage.removeItem(draftKey)");
+    });
+
+    it("keeps Evidence owner-RLS governed while session state uses the server-derived service boundary", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      const evidenceInsert = route.slice(
+        route.indexOf("const evidenceResult"),
+        route.indexOf("const countResult"),
+      );
+      expect(route).toContain("createDirectHireServiceClient");
+      expect(evidenceInsert).toContain('auth.supabase');
+      expect(evidenceInsert).toContain('.from("evidence")');
+      expect(route).toContain('service\n    .from("direct_hire_onboarding_sessions")');
+      expect(route).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    });
+
+    it("makes a retry idempotent when immutable Evidence already exists", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      expect(route).toContain("const existingResult");
+      expect(route).toContain('.eq("statement_hash", statement_hash)');
+      expect(route).toContain("if ((existingResult.data ?? []).length === 0)");
+      expect(route).toContain('select("id", { count: "exact", head: true })');
+    });
+
     it("has a forward-only repair for the Preview induction schema gap", async () => {
       const migration = await readFile(
         "supabase/migrations/20260810000000_restore_employee_induction_schema.sql",
@@ -387,7 +443,8 @@ describe("Employee Induction Material Collection", () => {
         "components/onboarding/DirectHireInduction.tsx",
         "utf8",
       );
-      expect(component).toContain("setInductionState");
+      expect(component).toContain("body.data.induction_state");
+      expect(component).toContain('setSurface(');
       expect(component).toContain("loadStatus");
       // Verify it loads from API not just local
       expect(component).toContain("induction_state");

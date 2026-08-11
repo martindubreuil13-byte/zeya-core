@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 import type { InductionMaterial } from "@/lib/onboarding/direct-hire-contract";
@@ -30,11 +29,10 @@ export function DirectHireInduction({
 }: {
   onReadyForPreparation?: () => void;
 } = {}) {
-  const router = useRouter();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const [surface, setSurface] = useState<InductionSurface>("employment_accepted");
-  const [inductionState, setInductionState] = useState<string>("not_started");
   const [materials, setMaterials] = useState<LoadedMaterial[]>([]);
+  const [draftKey, setDraftKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +62,7 @@ export function DirectHireInduction({
       const body = (await response.json()) as {
         success?: boolean;
         data?: {
+          onboarding_session_id: string;
           induction_state: string;
           materials_count: number;
           materials: Array<{
@@ -75,7 +74,25 @@ export function DirectHireInduction({
         };
       };
       if (body.success && body.data) {
-        setInductionState(body.data.induction_state);
+        const nextDraftKey = user
+          ? `zeya:direct-hire-induction-draft:${user.id}:${body.data.onboarding_session_id}`
+          : null;
+        setDraftKey(nextDraftKey);
+        if (nextDraftKey && body.data.induction_state === "material_requested") {
+          try {
+            const stored = window.localStorage.getItem(nextDraftKey);
+            const draft = stored ? JSON.parse(stored) as {
+              businessContext?: typeof businessContext;
+              notes?: string;
+              links?: LinkInput[];
+            } : null;
+            if (draft?.businessContext) setBusinessContext(draft.businessContext);
+            if (typeof draft?.notes === "string") setNotes(draft.notes);
+            if (Array.isArray(draft?.links)) setLinks(draft.links);
+          } catch {
+            window.localStorage.removeItem(nextDraftKey);
+          }
+        }
         setMaterials(body.data.materials || []);
         setSurface(
           body.data.induction_state === "not_started"
@@ -92,7 +109,7 @@ export function DirectHireInduction({
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, user]);
 
   useEffect(() => {
     queueMicrotask(() => void loadStatus());
@@ -122,8 +139,36 @@ export function DirectHireInduction({
     setLinks(links.filter((_, i) => i !== index));
   };
 
-  const handleBeginInduction = () => {
-    setSurface("material_requested");
+  useEffect(() => {
+    if (!draftKey || surface !== "material_requested") return;
+    window.localStorage.setItem(draftKey, JSON.stringify({
+      businessContext,
+      notes,
+      links,
+    }));
+  }, [businessContext, draftKey, links, notes, surface]);
+
+  const handleBeginInduction = async () => {
+    if (!session || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await authenticatedFetch(
+        "/api/onboarding/direct-hire/induction",
+        session,
+        { method: "PATCH" },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.success) {
+        setError(body.error || "induction_start_failed");
+        return;
+      }
+      setSurface("material_requested");
+    } catch {
+      setError("induction_start_failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSubmitMaterials = async () => {
@@ -195,17 +240,19 @@ export function DirectHireInduction({
           },
         );
 
-        if (!response.ok) {
-          setError("Could not save materials. Try again.");
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.success) {
+          setError(body.error || "material_persistence_failed");
           setSubmitting(false);
           return;
         }
       }
 
+      if (draftKey) window.localStorage.removeItem(draftKey);
       await loadStatus();
       setSurface("material_received");
     } catch {
-      setError("Could not save materials.");
+      setError("induction_material_save_failed");
     } finally {
       setSubmitting(false);
     }
@@ -265,10 +312,11 @@ export function DirectHireInduction({
             </div>
             <button
               type="button"
-              onClick={handleBeginInduction}
+              onClick={() => void handleBeginInduction()}
+              disabled={submitting}
               className="mt-10 rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void transition-colors hover:bg-zeya-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-ivory focus-visible:ring-offset-4 focus-visible:ring-offset-zeya-void"
             >
-              Begin My Induction
+              {submitting ? "Beginning induction…" : "Begin My Induction"}
             </button>
           </section>
         )}
