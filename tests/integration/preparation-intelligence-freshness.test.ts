@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   hasCurrentReasoningSnapshot,
   PREPARATION_DOMAINS,
@@ -69,6 +70,24 @@ describe('Preparation intelligence snapshot freshness', () => {
       ['website-observation'],
     );
     expect(inductionTrace).not.toBe(websiteTrace);
+  });
+
+  it('changes the governed fingerprint when the reasoning contract changes', () => {
+    const current = generateReasoningRunFingerprint(
+      'session-1',
+      'representation-1',
+      ['website-evidence'],
+      ['website-observation'],
+    );
+    const legacy = createHash('sha256').update([
+      '1.0',
+      'session-1',
+      'representation-1',
+      'website-evidence',
+      'website-observation',
+    ].join('|')).digest('hex');
+    expect(current).toHaveLength(64);
+    expect(current).not.toBe(legacy);
   });
 
   it('selects the latest repeated fixed induction field without mutating history', () => {

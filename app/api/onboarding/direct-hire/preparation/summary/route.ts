@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 import {
   buildPrivatePreparationProjection,
+  ensurePreparationIntelligence,
   PreparationIntelligenceIncompleteError,
   toOwnerPreparationProjection,
 } from '@/lib/onboarding/preparation-intelligence';
+import { createDirectHireServiceClient } from '@/lib/onboarding/direct-hire-service-client';
 
 function failure(error: string, status: number) {
   return NextResponse.json({ success: false, error }, { status });
@@ -40,11 +42,25 @@ export async function GET(request: NextRequest) {
       business_id: string;
       business_representation_id: string;
     };
-    const projection = await buildPrivatePreparationProjection(auth.supabase, {
+    const scope = {
       ownerId,
       businessId: session.business_id,
       businessRepresentationId: session.business_representation_id,
       onboardingSessionId: session.id,
+    };
+    try {
+      // Re-entry must be able to resume a stale snapshot (including a reasoning
+      // contract upgrade) through the one existing freshness-aware path.
+      await ensurePreparationIntelligence(createDirectHireServiceClient(), scope);
+    } catch (error) {
+      console.error('[preparation-summary] preparation_intelligence_refresh_failed', {
+        errorClass: error instanceof Error ? error.name : 'UnknownError',
+        message: error instanceof Error ? error.message : 'unknown_failure',
+      });
+      throw new PreparationIntelligenceIncompleteError('Preparation intelligence refresh failed');
+    }
+    const projection = await buildPrivatePreparationProjection(auth.supabase, {
+      ...scope,
     });
 
     return NextResponse.json({

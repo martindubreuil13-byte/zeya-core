@@ -231,7 +231,15 @@ export async function ensurePreparationIntelligence(
   if (existing.length === PREPARATION_DOMAINS.length) return existing;
   const result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);
   if (result.status !== 'complete' || !result.readbackVerified || result.domains.length !== PREPARATION_DOMAINS.length) {
-    throw new PreparationIntelligenceIncompleteError();
+    const failedDomains = result.domains
+      .filter(domain => domain.persistenceStatus === 'failed')
+      .map(domain => `${domain.constitutionalDomain}:${domain.errorCode ?? 'unknown'}`)
+      .join(',');
+    throw new PreparationIntelligenceIncompleteError(
+      failedDomains
+        ? `Hypothesis refresh persistence incomplete (${failedDomains})`
+        : `Hypothesis refresh readback incomplete (status=${result.status}, readback=${result.readbackVerified})`,
+    );
   }
   const current = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (current.length !== PREPARATION_DOMAINS.length) throw new PreparationIntelligenceIncompleteError();

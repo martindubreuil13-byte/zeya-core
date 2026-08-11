@@ -33,12 +33,29 @@ describe('Preparation intelligence real-journey wiring', () => {
 
   it('makes retry resumable and prevents a false intelligent-ready response', async () => {
     const route = await readFile('app/api/onboarding/direct-hire/preparation/route.ts', 'utf8');
+    const summary = await readFile('app/api/onboarding/direct-hire/preparation/summary/route.ts', 'utf8');
     const helper = await readFile('lib/onboarding/preparation-intelligence.ts', 'utf8');
     expect(route).toContain("failure('preparation_intelligence_pending', 503)");
     expect(route).toContain("if (!row.claimed || row.preparation_status === \"ready\")");
     expect(helper).toContain('if (existing.length === PREPARATION_DOMAINS.length) return existing');
     expect(helper).toContain('loadFreshCurrentPreparationHypotheses');
     expect(helper).toContain('hypothesis.requestTraceId === reasoningRunId');
+    expect(summary).toContain('ensurePreparationIntelligence(createDirectHireServiceClient(), scope)');
+    expect(summary.indexOf('await ensurePreparationIntelligence')).toBeLessThan(
+      summary.indexOf('buildPrivatePreparationProjection(auth.supabase'),
+    );
+    expect(summary).toContain("throw new PreparationIntelligenceIncompleteError('Preparation intelligence refresh failed')");
+    expect(summary).toContain("return failure('preparation_intelligence_pending', 409)");
+  });
+
+  it('logs refresh diagnostics server-side without exposing them through Summary', async () => {
+    const summary = await readFile('app/api/onboarding/direct-hire/preparation/summary/route.ts', 'utf8');
+    expect(summary).toContain('preparation_intelligence_refresh_failed');
+    expect(summary).toContain('errorClass:');
+    expect(summary).toContain('message:');
+    expect(summary).not.toContain('details:');
+    expect(summary).not.toContain('hint:');
+    expect(summary).not.toContain('raw_statement');
   });
 
   it('scopes hypotheses and their Evidence to exact owner lineage', async () => {
