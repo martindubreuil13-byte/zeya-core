@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 import { createDirectHireServiceClient } from '@/lib/onboarding/direct-hire-service-client';
-import { loadCurrentPreparationHypotheses, PREPARATION_DOMAINS } from '@/lib/onboarding/preparation-intelligence';
+import { loadFreshCurrentPreparationHypotheses, PREPARATION_DOMAINS } from '@/lib/onboarding/preparation-intelligence';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (onboardingResult.error) return failure('onboarding_lookup_failed', 500);
     if (!onboardingResult.data) return failure('no_direct_hire_session', 404);
-    const hypotheses = await loadCurrentPreparationHypotheses(auth.supabase, {
+    const hypotheses = await loadFreshCurrentPreparationHypotheses(auth.supabase, {
       ownerId,
       businessId: onboardingResult.data.business_id,
       businessRepresentationId: onboardingResult.data.business_representation_id,

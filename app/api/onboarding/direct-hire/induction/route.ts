@@ -3,10 +3,13 @@ import { createHash } from "crypto";
 import { createAuthenticatedRepresentationContext } from "@/lib/representation/api-auth";
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
 import type { InductionMaterial } from "@/lib/onboarding/direct-hire-contract";
+import { constitutionalDomainsForInductionMaterial } from "@/lib/onboarding/induction-evidence";
+import { ensurePreparationIntelligence } from "@/lib/onboarding/preparation-intelligence";
 
 type InductionRow = {
   id: string;
   owner_id: string;
+  business_id: string;
   business_representation_id: string;
   onboarding_state: string;
   induction_state: string;
@@ -122,10 +125,13 @@ export async function PATCH(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const ownerId = auth.user.id;
+  let action: "start" | "complete" = "start";
   try {
+    const body = await request.json().catch(() => ({})) as { action?: unknown };
+    action = body.action === "complete" ? "complete" : "start";
     const sessionResult = await auth.supabase
       .from("direct_hire_onboarding_sessions")
-      .select("id,owner_id,business_representation_id,onboarding_state,induction_state,induction_materials_count")
+      .select("id,owner_id,business_id,business_representation_id,onboarding_state,induction_state,induction_materials_count")
       .eq("owner_id", ownerId)
       .maybeSingle();
     if (sessionResult.error) {
@@ -137,6 +143,47 @@ export async function PATCH(request: NextRequest) {
     if (session.onboarding_state !== "employment_accepted") {
       return failure("not_in_employment_accepted_state", 409);
     }
+    if (action === "complete") {
+      if (!["material_received", "preparation_pending"].includes(session.induction_state)) {
+        return failure("induction_material_required", 409);
+      }
+      const materialsResult = await auth.supabase
+        .from("evidence")
+        .select("id", { count: "exact", head: true })
+        .eq("business_representation_id", session.business_representation_id)
+        .eq("direct_hire_onboarding_session_id", session.id)
+        .eq("source_type", "direct_hire_induction");
+      if (materialsResult.error) {
+        logDatabaseError("material_count_failed", materialsResult.error);
+        return failure("induction_completion_failed", 500);
+      }
+      const materialsCount = materialsResult.count ?? 0;
+      if (materialsCount === 0) return failure("induction_material_required", 409);
+
+      await persistInductionState(
+        session,
+        ownerId,
+        "preparation_pending",
+        Math.min(materialsCount, 99),
+      );
+      const service = createDirectHireServiceClient();
+      try {
+        await ensurePreparationIntelligence(service, {
+          ownerId,
+          businessId: session.business_id,
+          businessRepresentationId: session.business_representation_id,
+          onboardingSessionId: session.id,
+        });
+      } catch (error) {
+        console.error(
+          "[direct-hire-induction] preparation_intelligence_pending",
+          error instanceof Error ? error.message : "unknown_failure",
+        );
+        return failure("preparation_intelligence_pending", 503);
+      }
+      return success("preparation_pending", Math.min(materialsCount, 99));
+    }
+
     if (session.induction_state !== "not_started") {
       return success(session.induction_state, session.induction_materials_count);
     }
@@ -145,7 +192,8 @@ export async function PATCH(request: NextRequest) {
     return success(updated.induction_state, updated.induction_materials_count);
   } catch (error) {
     const code = error instanceof Error ? error.message : "induction_start_failed";
-    return failure(code === "induction_state_update_conflict" ? code : "induction_start_failed", 500);
+    if (code === "induction_state_update_conflict") return failure(code, 500);
+    return failure(action === "complete" ? "induction_completion_failed" : "induction_start_failed", 500);
   }
 }
 
@@ -229,6 +277,7 @@ export async function POST(request: NextRequest) {
           induction_material_type: material.type,
           induction_material_label: material.label,
           induction_material_url: material.type === "link" ? material.url : null,
+          affected_domains: constitutionalDomainsForInductionMaterial(material.label),
         })
         .select("id")
         .single();

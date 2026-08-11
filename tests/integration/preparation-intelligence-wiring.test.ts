@@ -20,12 +20,25 @@ describe('Preparation intelligence real-journey wiring', () => {
     expect(helper).toContain('predecessor.hypothesis_version !== row.hypothesis_version - 1');
   });
 
+  it('reuses immutable next-version persistence for an all-domain stale snapshot refresh', async () => {
+    const orchestration = await readFile('lib/onboarding/persist-hypotheses-orchestration.ts', 'utf8');
+    const migration = await readFile('supabase/migrations/20260808000003_hypotheses_persist_fix_42702_fully_qualify_columns.sql', 'utf8');
+    expect(orchestration).toContain("scope: { mode: 'all_domains' }");
+    expect(orchestration).toContain('p_request_trace_id: reasoningRunId');
+    expect(migration).toContain('MAX(h.hypothesis_version), 0) + 1');
+    expect(migration).toContain('previous_hypothesis_id');
+    expect(migration).toContain('v_predecessor_id');
+    expect(migration).not.toContain('UPDATE public.hypotheses');
+  });
+
   it('makes retry resumable and prevents a false intelligent-ready response', async () => {
     const route = await readFile('app/api/onboarding/direct-hire/preparation/route.ts', 'utf8');
     const helper = await readFile('lib/onboarding/preparation-intelligence.ts', 'utf8');
     expect(route).toContain("failure('preparation_intelligence_pending', 503)");
     expect(route).toContain("if (!row.claimed || row.preparation_status === \"ready\")");
     expect(helper).toContain('if (existing.length === PREPARATION_DOMAINS.length) return existing');
+    expect(helper).toContain('loadFreshCurrentPreparationHypotheses');
+    expect(helper).toContain('hypothesis.requestTraceId === reasoningRunId');
   });
 
   it('scopes hypotheses and their Evidence to exact owner lineage', async () => {
@@ -70,7 +83,7 @@ describe('Preparation intelligence real-journey wiring', () => {
 
   it('blocks Formation initiation until intelligence is complete', async () => {
     const route = await readFile('app/api/onboarding/direct-hire/formation/route.ts', 'utf8');
-    expect(route).toContain('loadCurrentPreparationHypotheses');
+    expect(route).toContain('loadFreshCurrentPreparationHypotheses');
     expect(route).toContain("failure('preparation_intelligence_pending', 409)");
   });
 });

@@ -242,7 +242,9 @@ export function validateHypothesisReasoningResult(
         .filter(Boolean) as EvidenceInput[];
 
       const publicEvidence = citedEvidence.filter(e => e.sourceType === 'public_website');
-      const ownerEvidence = citedEvidence.filter(e => e.sourceType === 'conversation');
+      const ownerEvidence = citedEvidence.filter(e =>
+        e.sourceType === 'conversation' || e.sourceType === 'direct_hire_induction'
+      );
 
       // High confidence from public Evidence alone requires multiple distinct canonical URLs
       if (ownerEvidence.length === 0 && publicEvidence.length > 0) {

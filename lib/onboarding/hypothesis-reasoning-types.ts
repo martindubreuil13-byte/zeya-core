@@ -77,7 +77,7 @@ export interface HypothesisReasoningResult {
 // Input to reasoning service
 export interface EvidenceInput {
   id: string;
-  sourceType: 'public_website' | 'conversation' | 'manual' | 'inference' | 'system' | 'import';
+  sourceType: 'public_website' | 'direct_hire_induction' | 'conversation' | 'manual' | 'inference' | 'system' | 'import';
   rawStatement: string;
   affected_domains: string[];
   canonical_source_url?: string;

@@ -17,6 +17,10 @@ import type {
   DatabaseObservation,
   DatabaseDirectHireSession,
 } from './persist-hypotheses-types';
+import {
+  constitutionalDomainsForInductionMaterial,
+  isFixedInductionMaterial,
+} from './induction-evidence';
 
 // Reasoning contract version (increment when hypothesis output structure changes)
 const REASONING_CONTRACT_VERSION = '1.0';
@@ -88,6 +92,8 @@ async function loadScopedEvidence(
       affected_domains,
       source_content_hash,
       captured_by_actor,
+      induction_material_type,
+      induction_material_label,
       created_at
     `)
     .eq('direct_hire_onboarding_session_id', onboardingSessionId)
@@ -98,7 +104,32 @@ async function loadScopedEvidence(
     throw new Error(`Failed to load Evidence: ${error.message}`);
   }
 
-  return (data || []) as DatabaseEvidence[];
+  return normalizeEffectivePreparationEvidence((data || []) as DatabaseEvidence[]);
+}
+
+export function normalizeEffectivePreparationEvidence(
+  evidence: DatabaseEvidence[],
+): DatabaseEvidence[] {
+  const effectiveFixedSlots = new Map<string, DatabaseEvidence>();
+  const ungrouped: DatabaseEvidence[] = [];
+
+  for (const row of evidence) {
+    if (row.source_type !== 'direct_hire_induction'
+      || !isFixedInductionMaterial(row.induction_material_label, row.induction_material_type)) {
+      ungrouped.push(row);
+      continue;
+    }
+    const slot = [
+      row.direct_hire_onboarding_session_id,
+      row.captured_by_actor ?? '',
+      row.induction_material_type ?? '',
+      row.induction_material_label ?? '',
+    ].join('|');
+    effectiveFixedSlots.set(slot, row);
+  }
+
+  return [...ungrouped, ...effectiveFixedSlots.values()]
+    .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }
 
 /**
@@ -155,12 +186,17 @@ function validateObservationScope(
 /**
  * Convert database Evidence rows to EvidenceInput for reasoning service.
  */
-function toEvidenceInput(dbEvidence: DatabaseEvidence[]): EvidenceInput[] {
+export function toEvidenceInput(dbEvidence: DatabaseEvidence[]): EvidenceInput[] {
   return dbEvidence.map(e => ({
     id: e.id,
-    sourceType: e.source_type as 'public_website' | 'conversation' | 'manual' | 'inference' | 'system' | 'import',
+    sourceType: e.source_type as EvidenceInput['sourceType'],
     rawStatement: e.raw_statement,
-    affected_domains: e.affected_domains || [],
+    affected_domains: e.source_type === 'direct_hire_induction'
+      ? [...new Set([
+          ...(e.affected_domains || []),
+          ...constitutionalDomainsForInductionMaterial(e.induction_material_label),
+        ])]
+      : e.affected_domains || [],
   }));
 }
 
@@ -343,8 +379,8 @@ export async function persistReasonedHypothesesForPreparation(
   onboardingSessionId: string,
   ownerId: string
 ): Promise<PersistReasonedHypothesesResult> {
-  // Load session with lineage validation
-  const session = await loadDirectHireSession(client, onboardingSessionId, ownerId);
+  const snapshot = await loadPreparationReasoningSnapshot(client, onboardingSessionId, ownerId);
+  const { session, evidence, observations, reasoningRunId } = snapshot;
 
   // Validate preparation status
   if (!['ready', 'partial'].includes(session.preparation_status)) {
@@ -352,36 +388,6 @@ export async function persistReasonedHypothesesForPreparation(
       `Direct Hire preparation must be ready or partial; current status: ${session.preparation_status}`
     );
   }
-
-  // Load Evidence scoped to session + representation
-  const evidence = await loadScopedEvidence(client, onboardingSessionId, session.business_representation_id);
-
-  if (evidence.length === 0) {
-    throw new Error('No Evidence available for reasoning');
-  }
-
-  const evidenceIds = new Set(evidence.map(e => e.id));
-  const sortedEvidenceIds = Array.from(evidenceIds).sort();
-
-  // Load Observations scoped to Evidence
-  const observations = await loadScopedObservations(
-    client,
-    evidenceIds,
-    session.business_representation_id
-  );
-
-  // Validate Observation scope
-  validateObservationScope(observations, evidenceIds);
-
-  const sortedObservationIds = observations.map(o => o.id).sort();
-
-  // Generate deterministic reasoning-run fingerprint
-  const reasoningRunId = generateReasoningRunFingerprint(
-    onboardingSessionId,
-    session.business_representation_id,
-    sortedEvidenceIds,
-    sortedObservationIds
-  );
 
   // Convert to reasoning service input
   const evidenceInput = toEvidenceInput(evidence);
@@ -468,4 +474,45 @@ export async function persistReasonedHypothesesForPreparation(
     domains: persistResults,
     readbackVerified,
   };
+}
+
+export interface PreparationReasoningSnapshot {
+  session: DatabaseDirectHireSession;
+  evidence: DatabaseEvidence[];
+  observations: DatabaseObservation[];
+  reasoningRunId: string;
+}
+
+export async function loadPreparationReasoningSnapshot(
+  client: SupabaseClient,
+  onboardingSessionId: string,
+  ownerId: string,
+): Promise<PreparationReasoningSnapshot> {
+  const session = await loadDirectHireSession(client, onboardingSessionId, ownerId);
+  if (!['ready', 'partial'].includes(session.preparation_status)) {
+    throw new Error(
+      `Direct Hire preparation must be ready or partial; current status: ${session.preparation_status}`,
+    );
+  }
+  const evidence = await loadScopedEvidence(
+    client,
+    onboardingSessionId,
+    session.business_representation_id,
+  );
+  if (evidence.length === 0) throw new Error('No Evidence available for reasoning');
+
+  const evidenceIds = new Set(evidence.map(item => item.id));
+  const observations = await loadScopedObservations(
+    client,
+    evidenceIds,
+    session.business_representation_id,
+  );
+  validateObservationScope(observations, evidenceIds);
+  const reasoningRunId = generateReasoningRunFingerprint(
+    onboardingSessionId,
+    session.business_representation_id,
+    [...evidenceIds].sort(),
+    observations.map(item => item.id).sort(),
+  );
+  return { session, evidence, observations, reasoningRunId };
 }

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { persistReasonedHypothesesForPreparation } from './persist-hypotheses-orchestration';
+import {
+  loadPreparationReasoningSnapshot,
+  persistReasonedHypothesesForPreparation,
+} from './persist-hypotheses-orchestration';
 
 export const PREPARATION_DOMAINS = [
   'whatYouSell',
@@ -29,6 +32,7 @@ export interface CurrentPreparationHypothesis {
   hypothesisVersion: number;
   previousHypothesisId: string | null;
   ownerDecision: 'approved' | 'rejected' | 'deferred' | null;
+  requestTraceId: string | null;
 }
 
 export interface PreparationProjectionDomain {
@@ -86,6 +90,7 @@ type HypothesisRow = {
   source_evidence_ids: string[] | null;
   hypothesis_version: number;
   previous_hypothesis_id: string | null;
+  request_trace_id: string | null;
 };
 
 const DOMAIN_LABELS: Record<PreparationDomain, string> = {
@@ -130,7 +135,7 @@ export async function loadCurrentPreparationHypotheses(
   await loadSession(client, scope);
   const result = await client
     .from('hypotheses')
-    .select('id, constitutional_domain, epistemic_state, current_belief, confidence, representation_risk, risk_reason, source_evidence_ids, hypothesis_version, previous_hypothesis_id')
+    .select('id, constitutional_domain, epistemic_state, current_belief, confidence, representation_risk, risk_reason, source_evidence_ids, hypothesis_version, previous_hypothesis_id, request_trace_id')
     .eq('owner_id', scope.ownerId)
     .eq('business_id', scope.businessId)
     .eq('business_representation_id', scope.businessRepresentationId)
@@ -190,20 +195,45 @@ export async function loadCurrentPreparationHypotheses(
     hypothesisVersion: row.hypothesis_version,
     previousHypothesisId: row.previous_hypothesis_id,
     ownerDecision: decisions.get(row.id) ?? null,
+    requestTraceId: row.request_trace_id,
   }));
+}
+
+export async function loadFreshCurrentPreparationHypotheses(
+  client: SupabaseClient,
+  scope: Scope,
+): Promise<CurrentPreparationHypothesis[]> {
+  const current = await loadCurrentPreparationHypotheses(client, scope);
+  if (current.length !== PREPARATION_DOMAINS.length) return [];
+  const snapshot = await loadPreparationReasoningSnapshot(
+    client,
+    scope.onboardingSessionId,
+    scope.ownerId,
+  );
+  return hasCurrentReasoningSnapshot(current, snapshot.reasoningRunId)
+    ? current
+    : [];
+}
+
+export function hasCurrentReasoningSnapshot(
+  hypotheses: CurrentPreparationHypothesis[],
+  reasoningRunId: string,
+): boolean {
+  return hypotheses.length === PREPARATION_DOMAINS.length
+    && hypotheses.every(hypothesis => hypothesis.requestTraceId === reasoningRunId);
 }
 
 export async function ensurePreparationIntelligence(
   client: SupabaseClient,
   scope: Scope,
 ): Promise<CurrentPreparationHypothesis[]> {
-  const existing = await loadCurrentPreparationHypotheses(client, scope);
+  const existing = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (existing.length === PREPARATION_DOMAINS.length) return existing;
   const result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);
   if (result.status !== 'complete' || !result.readbackVerified || result.domains.length !== PREPARATION_DOMAINS.length) {
     throw new PreparationIntelligenceIncompleteError();
   }
-  const current = await loadCurrentPreparationHypotheses(client, scope);
+  const current = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (current.length !== PREPARATION_DOMAINS.length) throw new PreparationIntelligenceIncompleteError();
   return current;
 }
@@ -213,7 +243,7 @@ export async function buildPrivatePreparationProjection(
   scope: Scope,
 ): Promise<PrivatePreparationProjection> {
   const session = await loadSession(client, scope);
-  const hypotheses = await loadCurrentPreparationHypotheses(client, scope);
+  const hypotheses = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (hypotheses.length !== PREPARATION_DOMAINS.length) throw new PreparationIntelligenceIncompleteError();
 
   const businessResult = await client.from('businesses').select('business_name').eq('id', scope.businessId).eq('user_id', scope.ownerId).maybeSingle();

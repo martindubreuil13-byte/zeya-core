@@ -47,6 +47,8 @@ export interface DatabaseEvidence {
   affected_domains: string[];
   source_content_hash?: string;
   captured_by_actor?: string;
+  induction_material_type?: string | null;
+  induction_material_label?: string | null;
   created_at: string;
 }
 

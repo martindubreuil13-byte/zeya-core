@@ -259,14 +259,28 @@ export function DirectHireInduction({
   };
 
   const handleConfirmAndPrepare = async () => {
-    // Transition to preparation_pending
-    if (!session) return;
+    if (!session || submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
-      // Mark as ready for preparation (update will happen via API)
-      // For now, just navigate
+      const response = await authenticatedFetch(
+        "/api/onboarding/direct-hire/induction",
+        session,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "complete" }),
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.success) {
+        setError(body.error || "preparation_intelligence_pending");
+        return;
+      }
       setSurface("preparation_pending");
       onReadyForPreparation?.();
+    } catch {
+      setError("preparation_intelligence_pending");
     } finally {
       setSubmitting(false);
     }

@@ -46,6 +46,39 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("State Progression and Durability", () => {
+    it("persists completion before one freshness-aware intelligence refresh", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      const component = await readFile(
+        "components/onboarding/DirectHireInduction.tsx",
+        "utf8",
+      );
+      const completion = route.slice(route.indexOf('if (action === "complete")'));
+      expect(completion).toContain('"preparation_pending"');
+      expect(completion).toContain("ensurePreparationIntelligence");
+      expect(completion.indexOf('"preparation_pending"')).toBeLessThan(
+        completion.indexOf("ensurePreparationIntelligence"),
+      );
+      expect(component).toContain('JSON.stringify({ action: "complete" })');
+      expect(component.indexOf('JSON.stringify({ action: "complete" })')).toBeLessThan(
+        component.indexOf('setSurface("preparation_pending")'),
+      );
+    });
+
+    it("requires exact owner, session, Representation, and material lineage at completion", async () => {
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      expect(route).toContain('.eq("owner_id", ownerId)');
+      expect(route).toContain('.eq("business_representation_id", session.business_representation_id)');
+      expect(route).toContain('.eq("direct_hire_onboarding_session_id", session.id)');
+      expect(route).toContain('failure("induction_material_required", 409)');
+      expect(route).toContain('failure("preparation_intelligence_pending", 503)');
+    });
+
     it("persists Begin My Induction through the authenticated server boundary", async () => {
       const route = await readFile(
         "app/api/onboarding/direct-hire/induction/route.ts",
@@ -266,6 +299,22 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("Evidence Persistence", () => {
+    it("domain-maps only obvious fixed owner testimony", async () => {
+      const mapping = await readFile(
+        "lib/onboarding/induction-evidence.ts",
+        "utf8",
+      );
+      const route = await readFile(
+        "app/api/onboarding/direct-hire/induction/route.ts",
+        "utf8",
+      );
+      expect(mapping).toContain("'What the business sells': ['whatYouSell']");
+      expect(mapping).toContain("'Target customer': ['whoItIsFor']");
+      expect(mapping).not.toContain("'Business-development priority':");
+      expect(mapping).not.toContain("'Owner notes':");
+      expect(route).toContain("affected_domains: constitutionalDomainsForInductionMaterial(material.label)");
+    });
+
     it("induction materials stored in evidence table with source_type='direct_hire_induction'", async () => {
       const migration = await readFile(
         "supabase/migrations/20260805000002_employee_induction_material_collection.sql",
