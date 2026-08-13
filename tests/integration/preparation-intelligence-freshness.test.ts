@@ -8,10 +8,12 @@ import {
 import {
   generateReasoningRunFingerprint,
   normalizeEffectivePreparationEvidence,
+  normalizeEffectivePreparationObservations,
   toEvidenceInput,
+  toObservationInput,
 } from '../../lib/onboarding/persist-hypotheses-orchestration';
-import type { DatabaseEvidence } from '../../lib/onboarding/persist-hypotheses-types';
-import { validateHypothesisReasoningResult } from '../../lib/onboarding/hypothesis-reasoning-validation';
+import type { DatabaseEvidence, DatabaseObservation } from '../../lib/onboarding/persist-hypotheses-types';
+import { validateHypothesisReasoningInput, validateHypothesisReasoningResult } from '../../lib/onboarding/hypothesis-reasoning-validation';
 
 function currentSet(trace: string): CurrentPreparationHypothesis[] {
   return PREPARATION_DOMAINS.map((domain) => ({
@@ -208,5 +210,27 @@ describe('Preparation intelligence snapshot freshness', () => {
     const old = evidence({ id: 'old', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'old', source_retrieved_at: '2026-08-10T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v1', induction_material_type: null, induction_material_label: null });
     const current = evidence({ id: 'current', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'new', source_retrieved_at: '2026-08-13T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v2', induction_material_type: null, induction_material_label: null });
     expect(normalizeEffectivePreparationEvidence([old, current]).map((item) => item.id)).toEqual(['current']);
+  });
+
+  it('builds a live-shaped pre-provider scope with only current Evidence and Observations', () => {
+    const oldHomepage = evidence({ id: 'v1-home', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'same', source_retrieved_at: '2026-08-10T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v1', induction_material_type: null, induction_material_label: null });
+    const currentHomepage = evidence({ id: 'v2-home', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'same', source_retrieved_at: '2026-08-13T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v2', induction_material_type: null, induction_material_label: null });
+    const qualify = evidence({ id: 'v2-qualify', source_type: 'public_website', canonical_source_url: 'https://example.com/qualify', requested_source_url: 'https://example.com/qualify', source_content_hash: 'qualify', source_retrieved_at: '2026-08-13T08:00:01.000Z', extraction_method_version: 'direct-hire-web-v2', induction_material_type: null, induction_material_label: null });
+    const owner = evidence({ id: 'owner', source_type: 'direct_hire_induction' });
+    const effective = normalizeEffectivePreparationEvidence([oldHomepage, currentHomepage, qualify, owner]);
+    const observations: DatabaseObservation[] = [
+      { id: 'old-observation', business_representation_id: 'representation-1', evidence_id: 'v1-home', interpreted_meaning: 'Historical homepage', confidence_in_interpretation: 50, affected_domains: ['whatYouSell'], created_at: '2026-08-10T08:00:00.000Z' },
+      { id: 'current-observation', business_representation_id: 'representation-1', evidence_id: 'v2-home', interpreted_meaning: 'Current homepage', confidence_in_interpretation: 50, affected_domains: ['whatYouSell'], created_at: '2026-08-13T08:00:00.000Z' },
+      { id: 'qualify-observation', business_representation_id: 'representation-1', evidence_id: 'v2-qualify', interpreted_meaning: 'Current qualification page', confidence_in_interpretation: 50, affected_domains: ['whoItIsFor'], created_at: '2026-08-13T08:00:01.000Z' },
+    ];
+    const evidenceIds = new Set(effective.map((item) => item.id));
+    const effectiveObservations = normalizeEffectivePreparationObservations(observations, evidenceIds);
+    expect(effective.map((item) => item.id)).toEqual(['v2-home', 'v2-qualify', 'owner']);
+    expect(effectiveObservations.map((item) => item.id)).toEqual(['current-observation', 'qualify-observation']);
+    expect(() => validateHypothesisReasoningInput({
+      scope: { mode: 'all_domains' }, onboardingSessionId: 'session-1',
+      businessRepresentationId: 'representation-1', businessId: 'business-1',
+      ownerName: 'Owner', businessName: 'Business', requestTraceId: 'trace',
+    }, toEvidenceInput(effective), toObservationInput(effectiveObservations))).not.toThrow();
   });
 });

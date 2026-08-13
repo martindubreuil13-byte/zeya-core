@@ -3,6 +3,7 @@ import {
   loadPreparationReasoningSnapshot,
   persistReasonedHypothesesForPreparation,
 } from './persist-hypotheses-orchestration';
+import { PreparationReasoningStageError } from './hypothesis-reasoning-service';
 
 export const PREPARATION_DOMAINS = [
   'whatYouSell',
@@ -230,18 +231,34 @@ export async function ensurePreparationIntelligence(
   client: SupabaseClient,
   scope: Scope,
 ): Promise<CurrentPreparationHypothesis[]> {
-  const existing = await loadFreshCurrentPreparationHypotheses(client, scope);
+  let existing: CurrentPreparationHypothesis[];
+  try {
+    existing = await loadFreshCurrentPreparationHypotheses(client, scope);
+  } catch (error) {
+    if (error instanceof PreparationReasoningStageError) throw error;
+    throw new PreparationReasoningStageError(
+      error instanceof Error && error.message.startsWith('Observation ')
+        ? 'preparation_reasoning_observation_scope_invalid'
+        : 'preparation_reasoning_snapshot_invalid',
+    );
+  }
   if (existing.length === PREPARATION_DOMAINS.length) return existing;
-  const result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);
+  let result;
+  try {
+    result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);
+  } catch (error) {
+    if (error instanceof PreparationReasoningStageError) throw error;
+    throw new PreparationReasoningStageError('preparation_reasoning_snapshot_invalid');
+  }
   if (result.status !== 'complete' || !result.readbackVerified || result.domains.length !== PREPARATION_DOMAINS.length) {
     const failedDomains = result.domains
       .filter(domain => domain.persistenceStatus === 'failed')
       .map(domain => `${domain.constitutionalDomain}:${domain.errorCode ?? 'unknown'}`)
       .join(',');
-    throw new PreparationIntelligenceIncompleteError(
+    throw new PreparationReasoningStageError(
       failedDomains
-        ? `Hypothesis refresh persistence incomplete (${failedDomains})`
-        : `Hypothesis refresh readback incomplete (status=${result.status}, readback=${result.readbackVerified})`,
+        ? 'preparation_reasoning_persistence_failed'
+        : 'preparation_reasoning_readback_failed',
     );
   }
   const current = await loadFreshCurrentPreparationHypotheses(client, scope);

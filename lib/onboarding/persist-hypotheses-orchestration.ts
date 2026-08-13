@@ -8,7 +8,10 @@ import type {
   EvidenceInput,
   ObservationInput,
 } from './hypothesis-reasoning-types';
-import { generateHypotheses } from './hypothesis-reasoning-service';
+import {
+  generateHypotheses,
+  PreparationReasoningStageError,
+} from './hypothesis-reasoning-service';
 import type {
   PersistReasonedHypothesesResult,
   HypothesisPersistenceDomainResult,
@@ -247,7 +250,17 @@ async function loadScopedObservations(
     throw new Error(`Failed to load Observations: ${error.message}`);
   }
 
-  return (data || []) as DatabaseObservation[];
+  return normalizeEffectivePreparationObservations(
+    (data || []) as DatabaseObservation[],
+    evidenceIds,
+  );
+}
+
+export function normalizeEffectivePreparationObservations(
+  observations: DatabaseObservation[],
+  effectiveEvidenceIds: Set<string>,
+): DatabaseObservation[] {
+  return observations.filter((observation) => effectiveEvidenceIds.has(observation.evidence_id));
 }
 
 /**
@@ -504,7 +517,8 @@ export async function persistReasonedHypothesesForPreparation(
       observationInput
     );
   } catch (error) {
-    throw new Error(`Hypothesis reasoning failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    if (error instanceof PreparationReasoningStageError) throw error;
+    throw new PreparationReasoningStageError('preparation_reasoning_provider_failed');
   }
 
   const evidenceCutoffAt = reasoningResult.generatedAt;

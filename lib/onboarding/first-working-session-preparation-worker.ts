@@ -6,6 +6,7 @@ import {
   buildFirstWorkingSessionBrief,
   FIRST_WORKING_SESSION_PREPARATION_VERSION,
 } from "./first-working-session-brief";
+import { PreparationReasoningStageError } from "./hypothesis-reasoning-service";
 
 type Claim = {
   working_session_id: string;
@@ -74,7 +75,9 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
     if (completion.error) throw new Error(`brief_persistence_failed:${completion.error.code}`);
     return { claimed: true as const, ready: true as const, sourceOutcomes };
   } catch (error) {
-    const failureCode = error instanceof Error ? error.message.split(":")[0] : "preparation_failed";
+    const failureCode = error instanceof PreparationReasoningStageError
+      ? error.stageCode
+      : error instanceof Error ? error.message.split(":")[0] : "preparation_failed";
     await client.rpc("zeya_fail_first_working_session_preparation", {
       p_working_session_id: claim.working_session_id,
       p_lease_id: claim.lease_id,

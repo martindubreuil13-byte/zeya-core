@@ -2,7 +2,7 @@
 // Uses OpenAI gpt-4o Responses API
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildReasoningPrompt, generateHypotheses } from '../../lib/onboarding/hypothesis-reasoning-service';
+import { buildReasoningPrompt, generateHypotheses, PreparationReasoningStageError } from '../../lib/onboarding/hypothesis-reasoning-service';
 import {
   HypothesisReasoningValidationError,
   validateHypothesisReasoningInput,
@@ -31,6 +31,18 @@ const baseRequest: HypothesisReasoningRequest = {
 };
 
 describe('Hypothesis Reasoning Service (OpenAI Integration)', () => {
+  it('reports missing provider configuration before any provider request', async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      await expect(generateHypotheses(baseRequest, [], [])).rejects.toMatchObject({
+        stageCode: 'preparation_reasoning_provider_unavailable',
+      } satisfies Partial<PreparationReasoningStageError>);
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
   describe('TYPE A: VALIDATOR TESTS', () => {
     describe('Scenario 1: Single homepage with 4 extracts should return medium confidence', () => {
       it('should validate response structure for thin Evidence', () => {

@@ -27,6 +27,23 @@ const CONSTITUTIONAL_DOMAINS: ConstitutionalDomain[] = [
   'clarificationsNeeded',
 ];
 
+export type PreparationReasoningStageCode =
+  | 'preparation_reasoning_snapshot_invalid'
+  | 'preparation_reasoning_observation_scope_invalid'
+  | 'preparation_reasoning_input_validation_failed'
+  | 'preparation_reasoning_provider_unavailable'
+  | 'preparation_reasoning_provider_failed'
+  | 'preparation_reasoning_output_validation_failed'
+  | 'preparation_reasoning_persistence_failed'
+  | 'preparation_reasoning_readback_failed';
+
+export class PreparationReasoningStageError extends Error {
+  constructor(public readonly stageCode: PreparationReasoningStageCode) {
+    super(stageCode);
+    this.name = 'PreparationReasoningStageError';
+  }
+}
+
 // Matches OpenAI Responses API structured output schema.
 export function buildHypothesisSchema(scope: HypothesisReasoningScope) {
   const outputCount = scope.mode === 'specific_domain' ? 1 : 7;
@@ -362,7 +379,11 @@ export async function generateHypotheses(
   observations: ObservationInput[]
 ): Promise<HypothesisReasoningResult> {
   // Validate input scope before calling provider
-  validateHypothesisReasoningInput(req, evidence, observations);
+  try {
+    validateHypothesisReasoningInput(req, evidence, observations);
+  } catch {
+    throw new PreparationReasoningStageError('preparation_reasoning_input_validation_failed');
+  }
 
   const scope = resolveHypothesisReasoningScope(req);
   const scopedInputs = scopeReasoningInputs(scope, evidence, observations);
@@ -370,7 +391,10 @@ export async function generateHypotheses(
   const scopedEvidenceIds = new Set(scopedEvidence.map(item => item.id));
   const scopedObservations = scopedInputs.observations;
 
-  const openai = new OpenAI();
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    throw new PreparationReasoningStageError('preparation_reasoning_provider_unavailable');
+  }
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const prompt = buildReasoningPrompt(req, scopedEvidence, scopedObservations);
 
   try {
@@ -413,11 +437,8 @@ export async function generateHypotheses(
     return validated;
   } catch (error) {
     if (error instanceof HypothesisReasoningValidationError) {
-      throw error;
+      throw new PreparationReasoningStageError('preparation_reasoning_output_validation_failed');
     }
-    if (error instanceof Error) {
-      throw new Error(`Hypothesis reasoning failed: ${error.message}`);
-    }
-    throw new Error('Hypothesis reasoning failed with unknown error');
+    throw new PreparationReasoningStageError('preparation_reasoning_provider_failed');
   }
 }

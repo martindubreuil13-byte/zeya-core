@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
 import { executeOneFirstWorkingSessionPreparation } from "@/lib/onboarding/first-working-session-preparation-worker";
+import { PreparationReasoningStageError } from "@/lib/onboarding/hypothesis-reasoning-service";
 
 export const maxDuration = 300;
 
@@ -20,7 +21,10 @@ export async function POST(request: NextRequest) {
     const result = await executeOneFirstWorkingSessionPreparation(createDirectHireServiceClient());
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    console.error("[first-working-session-preparation]", error instanceof Error ? error.message : "failed");
+    const safeStage = error instanceof PreparationReasoningStageError
+      ? error.stageCode
+      : "preparation_failed";
+    console.error("[first-working-session-preparation]", safeStage);
     return NextResponse.json({ success: false, error: "preparation_failed" }, { status: 503 });
   }
 }
