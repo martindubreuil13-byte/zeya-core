@@ -32,7 +32,7 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
     expect(route).toContain("onboardingState");
   });
 
-  it("owner journey resolver routes direct_hire_employed to /onboarding/preparation", async () => {
+  it("owner journey resolver routes accepted employment to induction/scheduling", async () => {
     const route = await readFile(
       "lib/owner/owner-route.ts",
       "utf8",
@@ -40,6 +40,7 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
     expect(route).toContain("DIRECT_HIRE_PREPARATION_PATH");
     expect(route).toContain('"direct_hire_employed"');
     expect(route).toContain("/onboarding/preparation");
+    expect(route).toContain('state.onboardingState === "employment_accepted"');
   });
 
   it("formation entry page handles direct_hire_employed status", async () => {
@@ -58,24 +59,24 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
       "utf8",
     );
     expect(page).toContain("DirectHireInduction");
-    expect(page).toContain("loadedInductionState !== 'preparation_pending'");
-    expect(page).toContain("onReadyForPreparation");
+    expect(page).toContain("inductionState !== 'preparation_pending'");
+    expect(page).toContain("onReadyForScheduling");
     expect(page).not.toContain("/representation/living");
   });
 
-  it("does not let a downstream Summary failure block induction re-entry", async () => {
+  it("routes induction completion directly to scheduling without loading Summary", async () => {
     const page = await readFile(
       "app/onboarding/preparation/page.tsx",
       "utf8",
     );
     const inductionRequest = page.indexOf("authenticatedFetch(\n          '/api/onboarding/direct-hire/induction'");
-    const inductionBoundary = page.indexOf("loadedInductionState !== 'preparation_pending'");
-    const summaryRequest = page.indexOf("authenticatedFetch(\n          '/api/onboarding/direct-hire/preparation/summary'");
+    const inductionBoundary = page.indexOf("inductionState !== 'preparation_pending'");
+    const scheduler = page.indexOf("<DirectHireWorkingSessionScheduler />");
     expect(inductionRequest).toBeGreaterThan(-1);
     expect(inductionRequest).toBeLessThan(inductionBoundary);
-    expect(inductionBoundary).toBeLessThan(summaryRequest);
+    expect(inductionBoundary).toBeLessThan(scheduler);
     expect(page).not.toContain("Promise.all([");
-    expect(page).toContain("body.error || 'preparation_summary_failed'");
+    expect(page).not.toContain("preparation/summary");
   });
 
   it("DirectHireInduction component loads correct surface on re-entry", async () => {
@@ -98,14 +99,15 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
     expect(component).toContain("Continue to induction");
   });
 
-  it("does not route employed owners to first encounter", async () => {
+  it("routes only pre-acceptance profile owners back to the hiring decision", async () => {
     const resolver = await readFile(
       "lib/owner/owner-route.ts",
       "utf8",
     );
-    // Employed owners get /onboarding/preparation, not /onboarding (first encounter)
+    // Accepted owners get induction/scheduling; profile-only owners resume acceptance.
     expect(resolver).toContain("direct_hire_employed");
     expect(resolver).toContain("DIRECT_HIRE_PREPARATION_PATH");
+    expect(resolver).toContain("DIRECT_HIRE_ONBOARDING_PATH");
 
     // Verify new_owner still gets /onboarding
     const newOwnerRoute = resolver.slice(

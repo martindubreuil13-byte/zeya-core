@@ -25,9 +25,9 @@ type LoadedMaterial = {
 };
 
 export function DirectHireInduction({
-  onReadyForPreparation,
+  onReadyForScheduling,
 }: {
-  onReadyForPreparation?: () => void;
+  onReadyForScheduling?: () => void;
 } = {}) {
   const { session, user } = useAuth();
   const [surface, setSurface] = useState<InductionSurface>("employment_accepted");
@@ -258,7 +258,7 @@ export function DirectHireInduction({
     }
   };
 
-  const handleConfirmAndPrepare = async () => {
+  const handleCompleteInduction = async () => {
     if (!session || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -274,13 +274,13 @@ export function DirectHireInduction({
       );
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.success) {
-        setError(body.error || "preparation_intelligence_pending");
+        setError(body.error || "induction_completion_failed");
         return;
       }
       setSurface("preparation_pending");
-      onReadyForPreparation?.();
+      onReadyForScheduling?.();
     } catch {
-      setError("preparation_intelligence_pending");
+      setError("induction_completion_failed");
     } finally {
       setSubmitting(false);
     }
@@ -513,7 +513,7 @@ export function DirectHireInduction({
               Here&apos;s what you&apos;ve shared.
             </h1>
             <p className="mt-4 max-w-xl leading-7 text-zeya-taupe">
-              Review your induction material before I begin preparation.
+              Review your induction material before we schedule our first working session.
             </p>
 
             <div className="mt-9 space-y-6">
@@ -547,7 +547,7 @@ export function DirectHireInduction({
             <div className="mt-9 space-y-3">
               <button
                 type="button"
-                onClick={handleConfirmAndPrepare}
+                onClick={handleCompleteInduction}
                 disabled={submitting}
                 className="w-full rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void transition-colors hover:bg-zeya-ivory disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zeya-ivory focus-visible:ring-offset-4 focus-visible:ring-offset-zeya-void"
               >

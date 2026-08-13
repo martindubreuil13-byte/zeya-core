@@ -40,16 +40,11 @@ describe("Direct Hire Vertical Slice 2 boundaries", () => {
     }
   });
 
-  it("renders backend-derived queued, running, ready, partial, failed, and retry states", async () => {
+  it("does not expose or trigger Preparation during the hiring step", async () => {
     const component = await readFile("components/onboarding/DirectHireOnboarding.tsx", "utf8");
-    for (const status of ["queued", "running", "ready", "partial", "failed"] as const) {
-      expect(component).toContain(`preparationStatus === "${status}"`);
-    }
-    expect(component).toContain("Begin preparation");
-    expect(component).toContain("Try preparation again");
-    expect(component).toContain("Retry expired preparation");
-    expect(component).toContain('? "Retrying"');
-    expect(component).toContain("setInterval(() => void loadStatus(), 3_000)");
+    expect(component).not.toContain('"/api/onboarding/direct-hire/preparation"');
+    expect(component).not.toContain("preparationStatus ===");
+    expect(component).toContain("Accept employment");
     expect(component).not.toContain("/api/formation");
   });
 });

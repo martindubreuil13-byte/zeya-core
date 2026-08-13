@@ -46,7 +46,7 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("State Progression and Durability", () => {
-    it("persists completion before one freshness-aware intelligence refresh", async () => {
+    it("persists completion without prematurely starting Preparation", async () => {
       const route = await readFile(
         "app/api/onboarding/direct-hire/induction/route.ts",
         "utf8",
@@ -57,10 +57,8 @@ describe("Employee Induction Material Collection", () => {
       );
       const completion = route.slice(route.indexOf('if (action === "complete")'));
       expect(completion).toContain('"preparation_pending"');
-      expect(completion).toContain("ensurePreparationIntelligence");
-      expect(completion.indexOf('"preparation_pending"')).toBeLessThan(
-        completion.indexOf("ensurePreparationIntelligence"),
-      );
+      expect(completion).not.toContain("ensurePreparationIntelligence");
+      expect(completion).not.toContain("acquirePendingRegisteredPublicSources");
       expect(component).toContain('JSON.stringify({ action: "complete" })');
       expect(component.indexOf('JSON.stringify({ action: "complete" })')).toBeLessThan(
         component.indexOf('setSurface("preparation_pending")'),
@@ -76,7 +74,7 @@ describe("Employee Induction Material Collection", () => {
       expect(route).toContain('.eq("business_representation_id", session.business_representation_id)');
       expect(route).toContain('.eq("direct_hire_onboarding_session_id", session.id)');
       expect(route).toContain('failure("induction_material_required", 409)');
-      expect(route).toContain('failure("preparation_intelligence_pending", 503)');
+      expect(route).not.toContain('failure("preparation_intelligence_pending", 503)');
     });
 
     it("persists Begin My Induction through the authenticated server boundary", async () => {
@@ -247,7 +245,8 @@ describe("Employee Induction Material Collection", () => {
       );
       expect(page).toContain("DirectHireInduction");
       expect(page).toContain("/api/onboarding/direct-hire/induction");
-      expect(page).toContain("loadedInductionState !== 'preparation_pending'");
+      expect(page).toContain("inductionState !== 'preparation_pending'");
+      expect(page).toContain("DirectHireWorkingSessionScheduler");
     });
   });
 
@@ -458,12 +457,12 @@ describe("Employee Induction Material Collection", () => {
       expect(route).not.toContain("study");
     });
 
-    it("does not implement meeting scheduling", async () => {
+    it("keeps scheduling outside the induction component", async () => {
       const component = await readFile(
         "components/onboarding/DirectHireInduction.tsx",
         "utf8",
       );
-      expect(component).not.toContain("schedule");
+      expect(component).toContain("schedule our first working session");
       expect(component).not.toContain("meeting_time");
     });
 

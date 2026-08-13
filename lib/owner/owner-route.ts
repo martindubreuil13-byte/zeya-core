@@ -16,8 +16,13 @@ const UUID =
 export function resolveOwnerJourneyPath(state: OwnerJourneyState): string | null {
   if (state.status === "new_owner") return DIRECT_HIRE_ONBOARDING_PATH;
   if (state.status === "direct_hire_employed") {
-    // Employed owners resume at the preparation boundary, not first encounter
-    return DIRECT_HIRE_PREPARATION_PATH;
+    // Profile persistence still uses the legacy database state name
+    // "preparation". Until employment is accepted, resume at the hiring
+    // decision; afterwards induction/appointment state is derived on the
+    // preparation route.
+    return state.onboardingState === "employment_accepted"
+      ? DIRECT_HIRE_PREPARATION_PATH
+      : DIRECT_HIRE_ONBOARDING_PATH;
   }
   if (state.status === "has_representation") {
     return LIVING_REPRESENTATION_PATH;

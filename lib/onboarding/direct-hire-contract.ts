@@ -91,6 +91,15 @@ export type DirectHirePreparationView = {
   completedAt: string | null;
 };
 
+export function projectDirectHireCount(value: unknown, maximum = 10): number {
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 0
+    && value <= maximum
+    ? value
+    : 0;
+}
+
 export type DirectHireProfileInput = {
   ownerName: string;
   businessName: string;

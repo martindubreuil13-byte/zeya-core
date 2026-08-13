@@ -6,7 +6,6 @@ type DirectHireRow = {
   owner_id: string;
   business_id: string;
   business_representation_id: string;
-  preparation_status: string;
 };
 
 function failure(error: string, status: number) {
@@ -29,7 +28,7 @@ export async function POST(request: NextRequest) {
     // Load the Direct Hire onboarding session
     const onboardingResult = await auth.supabase
       .from("direct_hire_onboarding_sessions")
-      .select("id,owner_id,business_id,business_representation_id,preparation_status")
+      .select("id,owner_id,business_id,business_representation_id")
       .eq("owner_id", ownerId)
       .limit(2);
 
@@ -40,11 +39,6 @@ export async function POST(request: NextRequest) {
 
     const onboarding = onboardingResult.data?.[0] as DirectHireRow | undefined;
     if (!onboarding) return failure("onboarding_not_found", 404);
-
-    // Verify preparation is complete (ready or partial)
-    if (onboarding.preparation_status !== "ready" && onboarding.preparation_status !== "partial") {
-      return failure("preparation_not_complete", 409);
-    }
 
     // Verify lineage
     const [business, representation] = await Promise.all([
@@ -81,7 +75,6 @@ export async function POST(request: NextRequest) {
 
       const status =
         message === "onboarding not found" ? 404 :
-        message === "preparation not complete" ? 409 :
         message === "onboarding lineage invalid" ? 409 :
         message === "invalid onboarding state" ? 409 :
         500;

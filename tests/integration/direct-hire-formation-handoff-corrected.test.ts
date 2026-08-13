@@ -345,20 +345,21 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
   });
 
   describe('Preparation Page Integration', () => {
-    it('loads from correct endpoint (/preparation/summary)', async () => {
+    it('does not expose the internal Preparation Summary in the P2.1 owner journey', async () => {
       const page = await readFile(
         'app/onboarding/preparation/page.tsx',
         'utf8',
       );
-      expect(page).toContain('/api/onboarding/direct-hire/preparation/summary');
+      expect(page).not.toContain('/api/onboarding/direct-hire/preparation/summary');
+      expect(page).toContain('DirectHireWorkingSessionScheduler');
     });
 
-    it('passes summary to component', async () => {
+    it('keeps the summary component out of the normal owner-facing page', async () => {
       const page = await readFile(
         'app/onboarding/preparation/page.tsx',
         'utf8',
       );
-      expect(page).toContain('summary={data.summary}');
+      expect(page).not.toContain('DirectHirePreparationSummary');
     });
   });
 

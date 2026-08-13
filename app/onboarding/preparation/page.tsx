@@ -1,109 +1,69 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import { DirectHireInduction } from '@/components/onboarding/DirectHireInduction';
-import { DirectHirePreparationSummary } from '@/components/onboarding/DirectHirePreparationSummary';
-import type { DirectHirePreparationStatus } from '@/lib/onboarding/direct-hire-contract';
-import type { OwnerPreparationProjection } from '@/lib/onboarding/preparation-intelligence';
-
-interface PreparationData {
-  onboardingSessionId: string;
-  onboardingState: string;
-  preparationStatus: DirectHirePreparationStatus;
-  summary?: OwnerPreparationProjection;
-}
+import { DirectHireWorkingSessionScheduler } from '@/components/onboarding/DirectHireWorkingSession';
 
 export default function DirectHirePreparationPage() {
   const { session: authSession } = useAuth();
-  const [data, setData] = useState<PreparationData | null>(null);
+  const [inductionState, setInductionState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [inductionConfirmed, setInductionConfirmed] = useState(false);
-  const [inductionState, setInductionState] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authSession) return;
-
-    const loadPreparation = async () => {
+    const loadJourney = async () => {
       try {
-        const inductionResponse = await authenticatedFetch(
-          '/api/onboarding/direct-hire/induction',
-          authSession,
-        );
-        const inductionBody = await inductionResponse.json().catch(() => ({}));
-        if (!inductionResponse.ok || !inductionBody.success || !inductionBody.data) {
-          setError(inductionBody.error || 'induction_status_failed');
-          return;
-        }
-
-        const loadedInductionState = inductionBody.data.induction_state as string;
-        setInductionState(loadedInductionState);
-        if (loadedInductionState !== 'preparation_pending' && !inductionConfirmed) {
-          return;
-        }
-
         const response = await authenticatedFetch(
-          '/api/onboarding/direct-hire/preparation/summary',
+          '/api/onboarding/direct-hire/induction',
           authSession,
         );
         const body = await response.json().catch(() => ({}));
         if (!response.ok || !body.success || !body.data) {
-          setError(body.error || 'preparation_summary_failed');
+          setError(body.error || 'induction_status_failed');
           return;
         }
-        if (body.success && body.data) {
-          setData({
-            onboardingSessionId: body.data.onboardingSessionId,
-            onboardingState: body.data.onboardingState,
-            preparationStatus: body.data.preparationStatus,
-            summary: body.data.summary,
-          });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load preparation');
+        setInductionState(body.data.induction_state);
+      } catch {
+        setError('induction_status_failed');
       } finally {
         setLoading(false);
       }
     };
-
-    void loadPreparation();
-  }, [authSession, inductionConfirmed]);
+    void loadJourney();
+  }, [authSession]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-slate-600">Loading preparation...</p>
-      </div>
+      <main className="min-h-screen bg-zeya-void text-zeya-ivory grid place-items-center px-6">
+        <p className="text-zeya-taupe" role="status">Loading your induction…</p>
+      </main>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-        <p className="text-sm text-red-800">{error}</p>
-      </div>
+      <main className="min-h-screen bg-zeya-void text-zeya-ivory grid place-items-center px-6">
+        <p role="alert" className="text-red-200">{error}</p>
+      </main>
     );
   }
 
-  if (inductionState && inductionState !== 'preparation_pending' && !inductionConfirmed) {
-    return <DirectHireInduction onReadyForPreparation={() => setInductionConfirmed(true)} />;
+  // Routing precedence: incomplete induction, then scheduling, then the
+  // scheduled/preparing view. The scheduler derives its latter two surfaces
+  // from the durable active appointment; Formation is intentionally untouched.
+  if (inductionState !== 'preparation_pending') {
+    return <DirectHireInduction onReadyForScheduling={() => setInductionState('preparation_pending')} />;
   }
 
-  // Show summary if preparation is ready or partial
-  if (data && (data.preparationStatus === 'ready' || data.preparationStatus === 'partial')) {
-    return (
-      <div className="mx-auto max-w-2xl py-8 px-4">
-        <DirectHirePreparationSummary
-          onboardingSessionId={data.onboardingSessionId}
-          preparationStatus={data.preparationStatus}
-          summary={data.summary}
-        />
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-zeya-void px-5 py-12 text-zeya-ivory sm:px-8 sm:py-16">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_15%,rgba(197,164,126,0.12),transparent_42%)]" />
+      <div className="relative mx-auto flex min-h-[calc(100vh-8rem)] max-w-2xl items-center">
+        <DirectHireWorkingSessionScheduler />
       </div>
-    );
-  }
-
-  // Otherwise show induction flow (for employment_accepted state)
-  return <DirectHireInduction onReadyForPreparation={() => setInductionConfirmed(true)} />;
+    </main>
+  );
 }

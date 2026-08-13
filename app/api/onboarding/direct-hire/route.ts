@@ -4,6 +4,7 @@ import {
   DIRECT_HIRE_ONBOARDING_STATES,
   DIRECT_HIRE_PREPARATION_STATUSES,
   DIRECT_HIRE_PROGRESS_STEPS,
+  projectDirectHireCount,
   type DirectHireOnboardingState,
   type DirectHirePreparationView,
   type DirectHirePreparationStatus,
@@ -57,12 +58,6 @@ function safeProgress(value: unknown): DirectHireProgress {
       ? [[step, candidate]]
       : [];
   })) as DirectHireProgress;
-}
-
-function safeCount(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3
-    ? value
-    : 0;
 }
 
 function success(
@@ -187,11 +182,11 @@ export async function GET(request: NextRequest) {
     return success(onboarding.onboarding_state, onboarding.preparation_status, {
       authorized: Boolean(onboarding.research_authorized_at),
       progress: safeProgress(onboarding.preparation_progress),
-      successfulPageCount: safeCount(onboarding.preparation_successful_page_count),
-      failedPageCount: safeCount(onboarding.preparation_failed_page_count),
-      attemptCount: safeCount(onboarding.preparation_attempt_count),
+      successfulPageCount: projectDirectHireCount(onboarding.preparation_successful_page_count),
+      failedPageCount: projectDirectHireCount(onboarding.preparation_failed_page_count),
+      attemptCount: projectDirectHireCount(onboarding.preparation_attempt_count, 3),
       retryAvailable: onboarding.preparation_status === "running"
-        && safeCount(onboarding.preparation_attempt_count) < 3
+        && projectDirectHireCount(onboarding.preparation_attempt_count, 3) < 3
         && typeof onboarding.preparation_lease_expires_at === "string"
         && Date.parse(onboarding.preparation_lease_expires_at) <= Date.now(),
       failureCode: typeof onboarding.preparation_failure_code === "string"

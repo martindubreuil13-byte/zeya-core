@@ -4,9 +4,7 @@ import { createAuthenticatedRepresentationContext } from "@/lib/representation/a
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
 import type { InductionMaterial } from "@/lib/onboarding/direct-hire-contract";
 import { constitutionalDomainsForInductionMaterial } from "@/lib/onboarding/induction-evidence";
-import { ensurePreparationIntelligence } from "@/lib/onboarding/preparation-intelligence";
 import {
-  acquirePendingRegisteredPublicSources,
   registerPublicSource,
 } from "@/lib/onboarding/registered-public-sources";
 
@@ -202,25 +200,6 @@ export async function PATCH(request: NextRequest) {
         "preparation_pending",
         Math.min(materialsCount, 99),
       );
-      const service = createDirectHireServiceClient();
-      try {
-        await acquirePendingRegisteredPublicSources(service, {
-          ownerId,
-          onboardingSessionId: session.id,
-        });
-        await ensurePreparationIntelligence(service, {
-          ownerId,
-          businessId: session.business_id,
-          businessRepresentationId: session.business_representation_id,
-          onboardingSessionId: session.id,
-        });
-      } catch (error) {
-        console.error(
-          "[direct-hire-induction] preparation_intelligence_pending",
-          error instanceof Error ? error.message : "unknown_failure",
-        );
-        return failure("preparation_intelligence_pending", 503);
-      }
       return success("preparation_pending", Math.min(materialsCount, 99));
     }
 

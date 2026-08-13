@@ -2,14 +2,13 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Direct Hire Employment Accepted", () => {
-  it("accepts employment only after preparation completes", async () => {
+  it("accepts employment before Preparation begins", async () => {
     const route = await readFile(
       "app/api/onboarding/direct-hire/accept-employment/route.ts",
       "utf8",
     );
-    expect(route).toContain('onboarding.preparation_status !== "ready" && onboarding.preparation_status !== "partial"');
-    expect(route).toContain("preparation_not_complete");
-    expect(route).not.toContain("preparation_status === 'failed'");
+    expect(route).not.toContain("preparation_status");
+    expect(route).toContain('"zeya_accept_direct_hire_employment"');
   });
 
   it("does NOT create a representation version on employment acceptance", async () => {
@@ -99,14 +98,12 @@ describe("Direct Hire Employment Accepted", () => {
     expect(route).not.toContain("overall_confidence_score");
   });
 
-  it("does not accept employment without complete preparation", async () => {
+  it("does not couple employment acceptance to a Preparation status", async () => {
     const route = await readFile(
       "app/api/onboarding/direct-hire/accept-employment/route.ts",
       "utf8",
     );
-    expect(route).not.toContain("preparation_status === 'queued'");
-    expect(route).not.toContain("preparation_status === 'running'");
-    expect(route).not.toContain("preparation_status === 'not_started'");
+    expect(route).not.toContain("preparation_status");
   });
 
   it("preserves governance principle that study material is evidence, not approved truth", async () => {

@@ -62,17 +62,15 @@ describe("Direct Hire Vertical Slice 1", () => {
     expect(component).not.toContain("sessionStorage");
   });
 
-  it("shows only truthful backend-derived preparation states", async () => {
+  it("shows employment acceptance without owner-facing Preparation internals", async () => {
     const component = await readFile(
       "components/onboarding/DirectHireOnboarding.tsx",
       "utf8",
     );
-    expect(component).toContain('label="Business profile" status="Received"');
-    expect(component).toContain(': displayStatus(preparationStatus)}');
-    expect(component).toContain('status={displayProgress(preparation.progress.homepage)}');
-    expect(component).toContain('status={displayProgress(preparation.progress.evidence)}');
-    expect(component).toContain("Preparation has not started");
-    expect(component).not.toContain("Research complete");
+    expect(component).toContain("Accept employment");
+    expect(component).not.toContain("PreparationItem");
+    expect(component).not.toContain("preparation.progress");
+    expect(component).not.toContain('"/api/onboarding/direct-hire/preparation"');
   });
 
   it("resumes durable preparation and safely returns signed-out owners", async () => {
