@@ -50,7 +50,7 @@ describe("P2.2 orchestration", () => {
     const worker = await readFile("lib/onboarding/first-working-session-preparation-worker.ts", "utf8");
     const source = worker.lastIndexOf("acquirePendingRegisteredPublicSources(client");
     const research = worker.indexOf("executeDirectHirePreparation(claim.website_url");
-    const intelligence = worker.indexOf("ensurePreparationIntelligence(client, scope,");
+    const intelligence = worker.indexOf("ensurePreparationIntelligence(client, scope)");
     const brief = worker.indexOf("buildFirstWorkingSessionBrief(client, scope)");
     expect(source).toBeLessThan(research);
     expect(research).toBeLessThan(intelligence);
@@ -81,35 +81,60 @@ describe("P2.2 private brief governance", () => {
       expect(sql).toContain(marker);
     }
     const service = await readFile("lib/onboarding/first-working-session-brief.ts", "utf8");
-    expect(service).toContain('"first-working-session-preparation-v1"');
+    expect(service).toContain('"first-working-session-preparation-v2"');
   });
   it("independently synthesizes a specific, governed representative brief", async () => {
     const inputs = {
-      evidence: [{ id: "e1", sourceType: "public_website", rawStatement: "We use business architecture to redesign offers and operating systems, not traditional coaching.", affected_domains: ["whatYouSell", "proposedDescription"] }],
+      evidence: [
+        { id: "e1", sourceType: "public_website", rawStatement: "We use business architecture to redesign offers and operating systems, with client proof from Montreal, Nigeria, and the United Kingdom.", affected_domains: ["whatYouSell", "proposedDescription", "whoItIsFor"], authority_type: "first_party_company", authority_key: "first-party-site:modernbusinessarchitect.com" },
+        { id: "e2", sourceType: "direct_hire_induction", rawStatement: "Business coaching and architecture for startups in English-speaking developed markets.", affected_domains: ["whatYouSell", "whoItIsFor"], authority_type: "owner", authority_key: "owner" },
+      ],
       observations: [{ id: "o1", evidenceId: "e1", interpreted_meaning: "The offer is framed as architecture and operating-system design.", confidence_in_interpretation: 55, affected_domains: ["whatYouSell"] }],
-      hypotheses: Array.from({ length: 7 }, (_, index) => ({ id: `h${index + 1}`, constitutionalDomain: ["whatYouSell","whoItIsFor","problemOrAspiration","whyCustomersShouldCare","proposedDescription","authorityBoundaries","clarificationsNeeded"][index], currentBelief: "Current governed hypothesis", sourceEvidenceIds: ["e1"] })),
+      hypotheses: Array.from({ length: 7 }, (_, index) => ({ id: `h${index + 1}`, constitutionalDomain: ["whatYouSell","whoItIsFor","problemOrAspiration","whyCustomersShouldCare","proposedDescription","authorityBoundaries","clarificationsNeeded"][index], currentBelief: index === 5 ? null : "Business architecture and coaching for startup growth", sourceEvidenceIds: index === 5 ? [] : ["e1", "e2"], epistemicState: index === 5 ? "unknown" : "partial", confidence: index === 5 ? "unknown" : "medium", representationRisk: index === 5 ? "high" : "medium", ownerDecision: null, riskReason: index === 5 ? "Pricing promises negotiation commitments and escalation authority are unknown" : "Business positioning requires verification" })),
     } as never;
-    const statement = (text: string, kind = "supported_finding") => ({ statement: text, kind, evidenceIds: ["e1"], hypothesisIds: ["h1"] });
+    const statement = (text: string, kind = "supported_finding") => ({ statement: text, kind, evidenceIds: ["e1", "e2"], hypothesisIds: ["h1"] });
     const fixture = {
-      businessRead: statement("The business is an architecture-led advisory practice."),
-      offerRead: statement("It redesigns offers and operating systems."), customerRead: statement("The customer remains to be narrowed."),
-      problemOutcomeRead: statement("It targets structural execution problems."), positioningRead: statement("Business architecture is the explicit positioning anchor."),
+      businessRead: statement("The business presents business architecture for startup growth."),
+      offerRead: statement("The offer combines business architecture and coaching."), customerRead: statement("The stated customer is startups in developed markets."),
+      problemOutcomeRead: statement("The public offer addresses business structure and operating systems."), positioningRead: statement("Business architecture is the explicit public positioning anchor."),
       commercialSignals: [statement("The offer language points to transformation of operating systems.")], contradictions: [],
-      unknowns: [{ statement: "Pricing authority is unknown.", kind: "unknown", evidenceIds: [], hypothesisIds: [] }],
-      workingOpinions: [statement("My working interpretation is that the business is positioned closer to business architecture than traditional coaching.", "working_opinion")],
-      formationPriorities: [statement("Test whether architecture language is understood by the intended buyer.", "interpretation")],
+      unknowns: [{ statement: "Pricing and negotiation authority are unknown.", kind: "unknown", evidenceIds: [], hypothesisIds: ["h6"] }],
+      workingOpinions: [{ ...statement("My working interpretation is that the public business positioning is more architecture-led than coaching-led.", "working_opinion"), evidenceIds: ["e1", "e2"] }],
+      formationPriorities: [
+        { ...statement("Verify whether business architecture or coaching should lead the offer.", "interpretation"), evidenceIds: ["e1", "e2"] },
+        { ...statement("Clarify whether startups in English-speaking developed markets are the commercial priority.", "interpretation"), evidenceIds: ["e1", "e2"], hypothesisIds: ["h2"] },
+        { statement: "Establish pricing promises negotiation commitments and escalation authority.", kind: "unknown", evidenceIds: [], hypothesisIds: ["h6"] },
+      ],
       openingInsights: [statement("The architecture-versus-coaching distinction is a productive opening for the session.", "interpretation")],
-      questions: [{ statement: "Which buyer most values the operating-system redesign?", kind: "unknown", evidenceIds: [], hypothesisIds: [] }],
-      authorityGaps: [{ statement: "Pricing and promise authority are not established.", kind: "unknown", evidenceIds: [], hypothesisIds: [] }],
+      questions: [{ statement: "Should startups in English-speaking developed markets remain the commercial priority when public client proof is geographically broader?", kind: "unknown", evidenceIds: ["e1", "e2"], hypothesisIds: ["h2"] }],
+      authorityGaps: [{ statement: "Pricing promises negotiation commitments and escalation authority are not established.", kind: "unknown", evidenceIds: [], hypothesisIds: ["h6"] }],
       governance: { canonical: false, containsChainOfThought: false },
     };
     const prompt = buildFirstWorkingSessionBriefPrompt(inputs);
     expect(prompt).toContain("business architecture");
     const brief = await synthesizeFirstWorkingSessionBrief(inputs, async () => fixture);
     for (const key of ["businessRead","offerRead","customerRead","problemOutcomeRead","positioningRead","commercialSignals","contradictions","unknowns","workingOpinions","formationPriorities","openingInsights","questions","authorityGaps"]) expect(brief).toHaveProperty(key);
-    expect(brief.workingOpinions[0].statement).toContain("closer to business architecture than traditional coaching");
+    expect(brief.workingOpinions[0].statement).toContain("more architecture-led than coaching-led");
+    expect(brief.formationPriorities).toHaveLength(3);
+    expect(brief.authorityGaps).not.toHaveLength(0);
+    expect(brief.questions[0].statement).toContain("public client proof is geographically broader");
     expect(brief.workingOpinions.every(item => item.kind === "working_opinion")).toBe(true);
     expect(brief.governance).toEqual({ canonical: false, containsChainOfThought: false });
+  });
+  it("rejects empty risk agenda sections and untraceable generic questions", async () => {
+    const inputs = {
+      evidence: [{ id: "e1", sourceType: "public_website", rawStatement: "Business architecture for founders.", affected_domains: ["whatYouSell"] }],
+      observations: [],
+      hypotheses: [{ id: "authority", constitutionalDomain: "authorityBoundaries", epistemicState: "unknown", confidence: "unknown", representationRisk: "high", currentBelief: null, riskReason: "Authority is unknown", ownerDecision: null }],
+    } as never;
+    const base = { statement: "Business architecture for founders.", kind: "supported_finding", evidenceIds: ["e1"], hypothesisIds: [] };
+    const invalid = {
+      businessRead: base, offerRead: base, customerRead: base, problemOutcomeRead: base, positioningRead: base,
+      commercialSignals: [], contradictions: [], unknowns: [], workingOpinions: [], formationPriorities: [], openingInsights: [],
+      questions: [{ statement: "What specific techniques ensure scalable solution architecture across different markets?", kind: "unknown", evidenceIds: [], hypothesisIds: [] }],
+      authorityGaps: [], governance: { canonical: false, containsChainOfThought: false },
+    };
+    await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid)).rejects.toThrow(/brief_(untraceable_language|formation_priorities_required|question_untraceable|authority_gaps_required)/);
   });
   it("never exposes private brief through the owner API", async () => {
     const route = await readFile("app/api/onboarding/direct-hire/working-session/route.ts", "utf8");
@@ -118,8 +143,8 @@ describe("P2.2 private brief governance", () => {
     expect(route).toContain("preparationStatus");
   });
   it("rejects a stale brief when its governed snapshot changes", () => {
-    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v1" }, "a")).toBe(true);
-    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v1" }, "b")).toBe(false);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v2" }, "a")).toBe(true);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v2" }, "b")).toBe(false);
     expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "old" }, "a")).toBe(false);
   });
 });

@@ -52,6 +52,7 @@ export interface DatabaseEvidence {
   source_page_type?: string | null;
   source_evidence_kind?: string | null;
   source_selector?: string | null;
+  extraction_method_version?: string | null;
   registered_public_source_id?: string | null;
   source_authority_type?: EvidenceInput['authority_type'] | null;
   source_authority_key?: string | null;

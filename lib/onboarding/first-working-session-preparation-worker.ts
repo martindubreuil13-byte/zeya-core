@@ -59,7 +59,7 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
       businessRepresentationId: claim.business_representation_id,
       onboardingSessionId: claim.onboarding_session_id,
     };
-    await ensurePreparationIntelligence(client, scope, { preserveOwnerCorrections: true });
+    await ensurePreparationIntelligence(client, scope);
     const synthesis = await buildFirstWorkingSessionBrief(client, scope);
     const completion = await client.rpc("zeya_finalize_first_working_session_preparation", {
       p_working_session_id: claim.working_session_id,

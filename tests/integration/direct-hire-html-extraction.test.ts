@@ -77,6 +77,18 @@ describe("Direct Hire deterministic HTML extraction", () => {
     for (const [label, path, expected] of cases) expect(classifyBusinessLink(label, path)).toBe(expected);
   });
 
+  it("classifies the live-shaped qualification CTA as substantive offer discovery", () => {
+    const discovered = discoverBusinessPages(`
+      <a href="/qualify">See If You Qualify</a>
+      <a href="/qualify">Work With Me</a>
+      <a href="/contact">Ask me anything before you decide</a>
+    `, "https://modernbusinessarchitect.com/");
+    expect(discovered).toEqual([
+      expect.objectContaining({ url: "https://modernbusinessarchitect.com/qualify", pageType: "products_services" }),
+      expect.objectContaining({ url: "https://modernbusinessarchitect.com/contact", pageType: "contact" }),
+    ]);
+  });
+
   it("discovers before ranking, normalizes fragments/tracking, and deduplicates equivalent URLs", () => {
     const links = `
       <a href="/blog">Blog</a><a href="/contact">Contact</a><a href="/team">Team</a>

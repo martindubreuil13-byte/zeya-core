@@ -169,11 +169,11 @@ describe('Preparation intelligence snapshot freshness', () => {
   });
 
   it('keeps only the newest content snapshot per website page while retaining all current sections', () => {
-    const page = (id: string, hash: string, retrieved: string, kind: string) => evidence({
+    const page = (id: string, hash: string, retrieved: string, kind: string, version = 'direct-hire-web-v2') => evidence({
       id, source_type: 'public_website', induction_material_type: null,
       induction_material_label: null, canonical_source_url: 'https://example.com/about',
       requested_source_url: 'https://example.com/about', source_content_hash: hash,
-      source_retrieved_at: retrieved, source_evidence_kind: kind,
+      source_retrieved_at: retrieved, source_evidence_kind: kind, extraction_method_version: version,
     });
     const rows = [
       page('old-title', 'old-hash', '2026-08-12T08:00:00.000Z', 'title'),
@@ -184,5 +184,29 @@ describe('Preparation intelligence snapshot freshness', () => {
     expect(normalizeEffectivePreparationEvidence(rows).map(item => item.id))
       .toEqual(['new-title', 'new-section']);
     expect(rows).toHaveLength(4);
+  });
+
+  it('excludes v1 artifacts when a newer v2 crawl has identical content', () => {
+    const website = (id: string, version: string, retrieved: string) => evidence({
+      id, source_type: 'public_website', induction_material_type: null,
+      induction_material_label: null, canonical_source_url: 'https://example.com/',
+      requested_source_url: 'https://example.com/', source_content_hash: 'same-content',
+      source_retrieved_at: retrieved, source_evidence_kind: 'primary_heading',
+      extraction_method_version: version,
+    });
+    const history = [
+      website('v1-historical', 'direct-hire-web-v1', '2026-08-10T08:00:00.000Z'),
+      website('v2-current', 'direct-hire-web-v2', '2026-08-13T08:00:00.000Z'),
+    ];
+    const effective = normalizeEffectivePreparationEvidence(history);
+    expect(history.map((item) => item.id)).toEqual(['v1-historical', 'v2-current']);
+    expect(effective.map((item) => item.id)).toEqual(['v2-current']);
+    expect(toEvidenceInput(effective).map((item) => item.id)).toEqual(['v2-current']);
+  });
+
+  it('uses only the newer v2 page when its content changed', () => {
+    const old = evidence({ id: 'old', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'old', source_retrieved_at: '2026-08-10T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v1', induction_material_type: null, induction_material_label: null });
+    const current = evidence({ id: 'current', source_type: 'public_website', canonical_source_url: 'https://example.com/', requested_source_url: 'https://example.com/', source_content_hash: 'new', source_retrieved_at: '2026-08-13T08:00:00.000Z', extraction_method_version: 'direct-hire-web-v2', induction_material_type: null, induction_material_label: null });
+    expect(normalizeEffectivePreparationEvidence([old, current]).map((item) => item.id)).toEqual(['current']);
   });
 });

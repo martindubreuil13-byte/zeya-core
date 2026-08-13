@@ -84,7 +84,7 @@ const TYPE_PRIORITY: Record<DiscoverableWebsitePageType, number> = {
 const CLASSIFIERS: Array<[DiscoverableWebsitePageType, RegExp]> = [
   ["case_studies", /\b(?:case studies?|case study|success stories?|customer stories?|client stories?|results?)\b/],
   ["pricing", /\b(?:pricing|prices?|plans?|packages?|subscriptions?|fees?)\b/],
-  ["products_services", /\b(?:products?|services?|solutions?|offerings?|what we do|capabilities)\b/],
+  ["products_services", /\b(?:products?|services?|solutions?|offerings?|what we do|capabilities|work with (?:me|us)|qualif(?:y|ication)|start here|apply|application)\b/],
   ["customers", /\b(?:customers?|clients?|who we serve|our work|portfolio)\b/],
   ["about", /\b(?:about|company|our story|who we are|mission|company profile)\b/],
   ["industries", /\b(?:industries|sectors?|use cases?|verticals?|markets? served)\b/],

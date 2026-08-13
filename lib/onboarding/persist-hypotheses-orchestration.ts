@@ -138,6 +138,7 @@ async function loadScopedEvidence(
       source_page_type,
       source_evidence_kind,
       source_selector,
+      extraction_method_version,
       registered_public_source_id,
       source_authority_type,
       source_authority_key,
@@ -194,15 +195,20 @@ export function normalizeEffectivePreparationEvidence(
     effectiveFixedSlots.set(slot, row);
   }
 
-  const currentWebsiteHashes = new Map(
-    [...latestWebsiteSnapshot.entries()].map(([identity, row]) => [identity, row.source_content_hash]),
-  );
+  const currentWebsiteSnapshots = new Map([...latestWebsiteSnapshot.entries()].map(([identity, row]) => [identity, {
+    contentHash: row.source_content_hash,
+    extractionVersion: row.extraction_method_version,
+    retrievedAt: row.source_retrieved_at,
+  }]));
   const currentWebsite = evidence.filter((row) => {
     if (row.source_type !== 'public_website' || !row.source_content_hash) return false;
     const identity = row.registered_public_source_id
       ? `registered:${row.registered_public_source_id}`
       : `website:${row.canonical_source_url ?? row.requested_source_url ?? row.source_authority_key ?? ''}`;
-    return currentWebsiteHashes.get(identity) === row.source_content_hash;
+    const current = currentWebsiteSnapshots.get(identity);
+    return current?.contentHash === row.source_content_hash
+      && current.extractionVersion === row.extraction_method_version
+      && current.retrievedAt === row.source_retrieved_at;
   });
 
   return [...ungrouped, ...currentWebsite, ...effectiveFixedSlots.values()]

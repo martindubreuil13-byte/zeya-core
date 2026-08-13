@@ -229,13 +229,7 @@ export function hasCurrentReasoningSnapshot(
 export async function ensurePreparationIntelligence(
   client: SupabaseClient,
   scope: Scope,
-  options: { preserveOwnerCorrections?: boolean } = {},
 ): Promise<CurrentPreparationHypothesis[]> {
-  if (options.preserveOwnerCorrections) {
-    const current = await loadCurrentPreparationHypotheses(client, scope);
-    if (current.length === PREPARATION_DOMAINS.length
-      && current.some((hypothesis) => hypothesis.createdByActor === 'owner_correction')) return current;
-  }
   const existing = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (existing.length === PREPARATION_DOMAINS.length) return existing;
   const result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);

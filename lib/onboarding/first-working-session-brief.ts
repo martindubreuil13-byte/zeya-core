@@ -13,7 +13,7 @@ import {
 import type { EvidenceInput, ObservationInput } from "./hypothesis-reasoning-types";
 
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
-  "first-working-session-preparation-v1";
+  "first-working-session-preparation-v2";
 
 export type BriefStatementKind =
   | "supported_finding" | "interpretation" | "working_opinion"
@@ -77,7 +77,13 @@ Synthesize independently across raw Evidence, Observations, and current hypothes
 Be specific enough that the facilitator sounds genuinely prepared. Avoid generic business language.
 Every supported_finding, interpretation, working_opinion, or contradiction must cite one or more supplied Evidence IDs.
 Use hypothesisIds only for supplied current hypothesis IDs. A working opinion is useful noncanonical judgment, never approved truth.
-Do not invent contradiction resolution, authority, pricing, guarantees, promises, or facts. Unknowns/questions may have no citation.
+Every formation priority, authority gap, and question must cite the Evidence and/or current hypothesis that makes it necessary.
+When any medium/high-risk hypothesis is unresolved, return 3-7 ranked formationPriorities, highest value first.
+When authorityBoundaries is unknown or high-risk, authorityGaps must identify practical authority categories to verify: pricing, promises/guarantees, negotiation, commitments, escalation, and what Zeya may say or agree to. Do not invent the answers.
+Compare owner-authority Evidence with first_party_company Evidence. Surface useful verification questions when the owner's stated offer/target differs in breadth or emphasis from public positioning or proof; do not label tension as contradiction without conflicting facts.
+Questions must reduce representation risk or improve outbound business-development readiness. Reject generic consultant questions and terminology absent from the cited material.
+Business Read and working opinions must synthesize distinctive patterns across inputs rather than paraphrase a meta description.
+Do not invent contradiction resolution, authority, pricing, guarantees, promises, jargon, or facts.
 Return conclusions only: never chain-of-thought, hidden reasoning, or provider commentary.
 GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
 GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
@@ -91,8 +97,32 @@ function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
   ];
 }
 
+const STOP_WORDS = new Set("a an and are as at be been by do does for from how i if in into is it may more must my of on or our should than that the their this to we what when where which who why with you your".split(" "));
+
+function contentTokens(value: string): Set<string> {
+  return new Set(value.toLowerCase().match(/[a-z]{4,}/g)?.filter((token) => !STOP_WORDS.has(token)) ?? []);
+}
+
+function validateTraceableLanguage(
+  item: BriefStatement,
+  evidenceById: Map<string, EvidenceInput>,
+  hypothesesById: Map<string, CurrentPreparationHypothesis>,
+) {
+  const basis = [
+    ...item.evidenceIds.map((id) => evidenceById.get(id)?.rawStatement ?? ""),
+    ...item.hypothesisIds.flatMap((id) => {
+      const hypothesis = hypothesesById.get(id);
+      return [hypothesis?.currentBelief ?? "", hypothesis?.riskReason ?? "", hypothesis?.constitutionalDomain ?? ""];
+    }),
+  ].join(" ");
+  const statementTokens = contentTokens(item.statement);
+  const basisTokens = contentTokens(basis);
+  const overlap = [...statementTokens].filter((token) => basisTokens.has(token)).length;
+  if (statementTokens.size >= 4 && overlap < 2) throw new Error(`brief_untraceable_language:${item.statement.slice(0, 80)}`);
+}
+
 export function validateFirstWorkingSessionBrief(
-  value: unknown, evidenceIds: Set<string>, hypothesisIds: Set<string>,
+  value: unknown, inputs: BriefInputs,
 ): FirstWorkingSessionBrief {
   if (!value || typeof value !== "object") throw new Error("brief_invalid_shape");
   const brief = value as FirstWorkingSessionBrief;
@@ -101,16 +131,41 @@ export function validateFirstWorkingSessionBrief(
   }
   for (const key of singletonSectionNames) if (!brief[key] || typeof brief[key].statement !== "string") throw new Error(`brief_missing_${key}`);
   for (const key of arraySectionNames) if (!Array.isArray(brief[key])) throw new Error(`brief_missing_${key}`);
+  const evidenceById = new Map(inputs.evidence.map((item) => [item.id, item]));
+  const hypothesesById = new Map(inputs.hypotheses.map((item) => [item.id, item]));
   for (const item of statements(brief)) {
     if (!item.statement?.trim() || !Array.isArray(item.evidenceIds) || !Array.isArray(item.hypothesisIds)) throw new Error("brief_invalid_statement");
     if (!["supported_finding", "interpretation", "working_opinion", "unknown", "contradiction"].includes(item.kind)) throw new Error("brief_invalid_kind");
     if (!["unknown"].includes(item.kind) && item.evidenceIds.length === 0) throw new Error("brief_unsupported_statement");
-    if (item.evidenceIds.some((id) => !evidenceIds.has(id))) throw new Error("brief_evidence_out_of_scope");
-    if (item.hypothesisIds.some((id) => !hypothesisIds.has(id))) throw new Error("brief_hypothesis_out_of_scope");
+    if (item.evidenceIds.some((id) => !evidenceById.has(id))) throw new Error("brief_evidence_out_of_scope");
+    if (item.hypothesisIds.some((id) => !hypothesesById.has(id))) throw new Error("brief_hypothesis_out_of_scope");
+    if (item.evidenceIds.length + item.hypothesisIds.length > 0) {
+      validateTraceableLanguage(item, evidenceById, hypothesesById);
+    }
   }
   if (brief.workingOpinions.some((item) => item.kind !== "working_opinion")) throw new Error("brief_opinion_mislabeled");
   if (brief.contradictions.some((item) => item.kind !== "contradiction")) throw new Error("brief_contradiction_mislabeled");
   if (brief.unknowns.some((item) => item.kind !== "unknown")) throw new Error("brief_unknown_mislabeled");
+  const unresolvedRisk = inputs.hypotheses.some((item) =>
+    ["medium", "high"].includes(item.representationRisk)
+      && (item.epistemicState !== "supported" || item.ownerDecision !== "approved"),
+  );
+  if (unresolvedRisk && (brief.formationPriorities.length < 3 || brief.formationPriorities.length > 7)) {
+    throw new Error("brief_formation_priorities_required");
+  }
+  if (brief.formationPriorities.some((item) => item.evidenceIds.length + item.hypothesisIds.length === 0)) {
+    throw new Error("brief_priority_untraceable");
+  }
+  if (brief.questions.some((item) => item.evidenceIds.length + item.hypothesisIds.length === 0)) {
+    throw new Error("brief_question_untraceable");
+  }
+  const authority = inputs.hypotheses.find((item) => item.constitutionalDomain === "authorityBoundaries");
+  if (authority && (authority.epistemicState === "unknown" || authority.representationRisk === "high")) {
+    if (brief.authorityGaps.length === 0) throw new Error("brief_authority_gaps_required");
+    if (brief.authorityGaps.some((item) => !item.hypothesisIds.includes(authority.id))) {
+      throw new Error("brief_authority_gap_untraceable");
+    }
+  }
   return brief;
 }
 
@@ -137,11 +192,7 @@ export async function synthesizeFirstWorkingSessionBrief(
   inputs: BriefInputs, generator: BriefGenerator = defaultGenerator,
 ): Promise<FirstWorkingSessionBrief> {
   const value = await generator(buildFirstWorkingSessionBriefPrompt(inputs), briefSchema);
-  return validateFirstWorkingSessionBrief(
-    value,
-    new Set(inputs.evidence.map((item) => item.id)),
-    new Set(inputs.hypotheses.map((item) => item.id)),
-  );
+  return validateFirstWorkingSessionBrief(value, inputs);
 }
 
 export async function buildFirstWorkingSessionBrief(client: SupabaseClient, scope: Scope) {
