@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeBriefEvidenceScope, buildBriefCitationLineage, buildFirstWorkingSessionBriefPrompt, buildFirstWorkingSessionBriefSchema, isFirstWorkingSessionBriefCurrent, synthesizeFirstWorkingSessionBrief } from "../../lib/onboarding/first-working-session-brief";
 
 const migration = "supabase/migrations/20260813010000_direct_hire_first_working_session_preparation.sql";
+const recoveryMigration = "supabase/migrations/20260813020000_direct_hire_first_working_session_preparation_recovery.sql";
 
 describe("P2.2 durable eligibility and leases", () => {
   it("requires scheduled, employed, induction-complete lineage", async () => {
@@ -81,7 +82,7 @@ describe("P2.2 private brief governance", () => {
       expect(sql).toContain(marker);
     }
     const service = await readFile("lib/onboarding/first-working-session-brief.ts", "utf8");
-    expect(service).toContain('"first-working-session-preparation-v2"');
+    expect(service).toContain('"first-working-session-preparation-v3"');
   });
   it("independently synthesizes a specific, governed representative brief", async () => {
     const inputs = {
@@ -135,6 +136,60 @@ describe("P2.2 private brief governance", () => {
       authorityGaps: [], governance: { canonical: false, containsChainOfThought: false },
     };
     await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid)).rejects.toThrow(/brief_(untraceable_language|formation_priorities_required|question_untraceable|authority_gaps_required)/);
+  });
+  it("rejects unsupported concrete facts while permitting governed synthesis", async () => {
+    const inputs = {
+      evidence: [
+        { id: "e1", sourceType: "public_website", rawStatement: "We use business architecture to redesign offers and operating systems for founders.", affected_domains: ["whatYouSell"], logical_source_key: "site:home" },
+        { id: "e2", sourceType: "direct_hire_induction", rawStatement: "Business coaching and architecture for startups in English-speaking developed markets.", affected_domains: ["whatYouSell", "whoItIsFor"], logical_source_key: "owner:induction" },
+      ],
+      observations: [],
+      hypotheses: [
+        { id: "h1", constitutionalDomain: "whatYouSell", epistemicState: "partial", currentBelief: "Architecture and coaching are both present", confidence: "medium", representationRisk: "medium", riskReason: "Positioning needs verification", ownerDecision: null },
+        { id: "h2", constitutionalDomain: "whoItIsFor", epistemicState: "partial", currentBelief: "Startups in English-speaking developed markets are the stated target", confidence: "medium", representationRisk: "medium", riskReason: "Public proof is broader", ownerDecision: null },
+        { id: "h6", constitutionalDomain: "authorityBoundaries", epistemicState: "unknown", currentBelief: null, confidence: "unknown", representationRisk: "high", riskReason: "Pricing promises negotiation commitments and escalation authority are unknown", ownerDecision: null },
+      ],
+    } as any;
+    const cited = (statement: string, kind = "interpretation") => ({ statement, kind, evidenceIds: ["e1", "e2"], hypothesisIds: ["h1"] });
+    const valid = {
+      businessRead: cited("The business appears more architecture-led in positioning than coaching-led in delivery.", "working_opinion"),
+      offerRead: cited("Architecture and coaching are both visible in the offer."),
+      customerRead: { ...cited("Startups in English-speaking developed markets are the stated priority."), hypothesisIds: ["h2"] },
+      problemOutcomeRead: cited("The offer appears focused on structural business decisions."),
+      positioningRead: cited("Architecture appears to lead the public positioning."),
+      commercialSignals: [], contradictions: [], unknowns: [], workingOpinions: [],
+      formationPriorities: [
+        cited("Clarify which of architecture and coaching should lead the commercial offer."),
+        { ...cited("Clarify whether startups remain the priority despite broader public proof."), hypothesisIds: ["h2"] },
+        { statement: "Clarify commercial target and authority boundaries.", kind: "unknown", evidenceIds: [], hypothesisIds: ["h2", "h6"] },
+      ],
+      openingInsights: [],
+      questions: [{ statement: "Are startups in English-speaking developed markets still the priority despite broader public proof?", kind: "unknown", evidenceIds: ["e1", "e2"], hypothesisIds: ["h2"] }],
+      authorityGaps: [{ statement: "Pricing, promises, negotiation, commitment, and escalation authority remain unknown.", kind: "unknown", evidenceIds: [], hypothesisIds: ["h6"] }],
+      governance: { canonical: false, containsChainOfThought: false },
+    } as any;
+    await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => valid)).resolves.toEqual(valid);
+
+    const unsupported = [
+      "The business serves a $5 billion market.",
+      "The standard package costs $5,000.",
+      "The service is GDPR compliant.",
+      "The primary segment is Fortune 500 healthcare companies.",
+      "The company guarantees revenue growth.",
+      "The company is the leading business architecture consultancy.",
+    ];
+    for (const statement of unsupported) {
+      const invalid = { ...valid, businessRead: cited(statement, "supported_finding") };
+      await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid))
+        .rejects.toThrow("brief_unsupported_concrete_claim");
+    }
+
+    const unsupportedContradiction = {
+      ...valid,
+      contradictions: [{ statement: "The offer descriptions conflict.", kind: "contradiction", evidenceIds: ["e1"], hypothesisIds: [] }],
+    };
+    await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => unsupportedContradiction))
+      .rejects.toThrow("brief_contradiction_without_conflicting_basis");
   });
   it("keeps live-shaped brief citations in the exact effective Evidence namespace", async () => {
     const effectiveIds = ["v2-home", "v2-qualify", "v2-contact", "owner-offer", "owner-target"];
@@ -195,9 +250,52 @@ describe("P2.2 private brief governance", () => {
     expect(route).toContain("preparationStatus");
   });
   it("rejects a stale brief when its governed snapshot changes", () => {
-    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v2" }, "a")).toBe(true);
-    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v2" }, "b")).toBe(false);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v3" }, "a")).toBe(true);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v3" }, "b")).toBe(false);
     expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "old" }, "a")).toBe(false);
+  });
+});
+
+describe("P2.2 exhausted-job recovery", () => {
+  it("is service-only, exact-scope, auditable, idempotent, and preserves governed artifacts", async () => {
+    const sql = await readFile(recoveryMigration, "utf8");
+    expect(sql).toContain("auth.role() <> 'service_role'");
+    expect(sql).toContain("working_session.id = p_working_session_id");
+    expect(sql).toContain("v_session.preparation_status <> 'failed'");
+    expect(sql).toContain("v_session.preparation_attempt_count <> 3");
+    expect(sql).toContain("v_session.preparation_contract_version IS DISTINCT FROM p_exhausted_contract_version");
+    expect(sql).toContain("p_exhausted_contract_version <> 'first-working-session-preparation-v2'");
+    expect(sql).toContain("p_recovery_contract_version <> 'first-working-session-preparation-v3'");
+    expect(sql).toContain("v_session.preparation_lease_id IS NOT NULL");
+    expect(sql).toContain("representation.current_version_id IS NULL");
+    expect(sql).toContain("corrected_application_defect");
+    expect(sql).toContain("direct_hire_first_working_session_preparation_recoveries");
+    expect(sql).toContain("recovered_by_role");
+    expect(sql).toContain("BEFORE UPDATE OR DELETE");
+    expect(sql).toContain("IF EXISTS");
+    expect(sql).toContain("RETURN true");
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.zeya_recover_first_working_session_preparation(uuid,text,text,text)\n  TO service_role");
+    expect(sql).not.toMatch(/(?:UPDATE|DELETE FROM) public\.(?:evidence|observations|constitutional_hypotheses|direct_hire_first_working_session_briefs)/i);
+    expect(sql).toContain("preparation_website_persisted_at");
+    const update = sql.slice(sql.indexOf("UPDATE public.direct_hire_working_sessions"));
+    expect(update).not.toContain("preparation_website_persisted_at =");
+  });
+  it("ships read-only catalog-driven recovery preflight and postcheck diagnostics", async () => {
+    const files = await Promise.all([
+      readFile("supabase/manual/20260813_direct_hire_first_working_session_preparation_recovery_preflight.sql", "utf8"),
+      readFile("supabase/manual/20260813_direct_hire_first_working_session_preparation_recovery_postcheck.sql", "utf8"),
+    ]);
+    for (const sql of files) {
+      expect(sql).toContain("PASS");
+      expect(sql).toContain("pg_catalog");
+      expect(sql).toContain("aclexplode(coalesce(");
+      expect(sql).not.toContain("has_function_privilege('PUBLIC'");
+      expect(sql).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM|ALTER\s+(?:TABLE|FUNCTION)|CREATE\s+(?:TABLE|FUNCTION)|DROP\s+(?:TABLE|FUNCTION)|TRUNCATE)\b/i);
+    }
+    expect(files[0]).toContain("recovery_objects_absent");
+    expect(files[0]).not.toContain("715f4971-4d3f-4f53-9b89-a9dd703349d8");
+    expect(files[1]).toContain("immutable_trigger");
+    expect(files[1]).toContain("current_version_id is null");
   });
 });
 

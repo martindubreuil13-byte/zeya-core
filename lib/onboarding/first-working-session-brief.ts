@@ -13,7 +13,7 @@ import {
 import type { EvidenceInput, ObservationInput } from "./hypothesis-reasoning-types";
 
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
-  "first-working-session-preparation-v2";
+  "first-working-session-preparation-v3";
 
 export type BriefStatementKind =
   | "supported_finding" | "interpretation" | "working_opinion"
@@ -78,7 +78,7 @@ export function buildFirstWorkingSessionBriefPrompt(inputs: BriefInputs): string
   return `Create an executive preparation brief for a first working session from the governed inputs below.
 Synthesize independently across raw Evidence, Observations, and current hypotheses; do not merely paraphrase hypotheses.
 Be specific enough that the facilitator sounds genuinely prepared. Avoid generic business language.
-Every supported_finding, interpretation, working_opinion, or contradiction must cite one or more supplied Evidence IDs.
+Every supported_finding must cite supplied Evidence. An interpretation or working_opinion must cite supplied Evidence and/or a current hypothesis. A contradiction must cite a contradicted current hypothesis and at least two genuinely conflicting Evidence items.
 Use hypothesisIds only for supplied current hypothesis IDs. A working opinion is useful noncanonical judgment, never approved truth.
 Every formation priority, authority gap, and question must cite the Evidence and/or current hypothesis that makes it necessary.
 When any medium/high-risk hypothesis is unresolved, return 3-7 ranked formationPriorities, highest value first.
@@ -86,7 +86,7 @@ When authorityBoundaries is unknown or high-risk, authorityGaps must identify pr
 Compare owner-authority Evidence with first_party_company Evidence. Surface useful verification questions when the owner's stated offer/target differs in breadth or emphasis from public positioning or proof; do not label tension as contradiction without conflicting facts.
 Questions must reduce representation risk or improve outbound business-development readiness. Reject generic consultant questions and terminology absent from the cited material.
 Business Read and working opinions must synthesize distinctive patterns across inputs rather than paraphrase a meta description.
-Do not invent contradiction resolution, authority, pricing, guarantees, promises, jargon, or facts.
+Do not invent contradiction resolution, market size, customer segment, regulatory status, authority, pricing, guarantees, promises, superlatives, jargon, or facts. Concrete numbers and high-risk factual claims must appear in the cited governed basis.
 Return conclusions only: never chain-of-thought, hidden reasoning, or provider commentary.
 GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
 GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
@@ -107,6 +107,15 @@ function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
   return [
     ...singletonSectionNames.map((key) => brief[key]),
     ...arraySectionNames.flatMap((key) => brief[key]),
+  ];
+}
+
+type BriefSection = typeof singletonSectionNames[number] | typeof arraySectionNames[number];
+
+function statementEntries(brief: FirstWorkingSessionBrief): Array<{ section: BriefSection; item: BriefStatement }> {
+  return [
+    ...singletonSectionNames.map((section) => ({ section, item: brief[section] })),
+    ...arraySectionNames.flatMap((section) => brief[section].map((item) => ({ section, item }))),
   ];
 }
 
@@ -155,28 +164,71 @@ export function buildBriefCitationLineage(
   return { sourceEvidenceIds, sourceHypothesisIds };
 }
 
-const STOP_WORDS = new Set("a an and are as at be been by do does for from how i if in into is it may more must my of on or our should than that the their this to we what when where which who why with you your".split(" "));
+const GOVERNED_FACT_MARKERS = [
+  /\b(?:gdpr|hipaa|soc\s*2|iso\s*\d+|certified|licensed|regulated|regulatory|compliant|compliance)\b/gi,
+  /\b(?:guarantee(?:d|s)?|warrant(?:y|ies)|promises?)\b/gi,
+  /\b(?:best|largest|leading|only|number\s+one|award[- ]winning)\b/gi,
+  /\b(?:enterprise|fortune\s*500|healthcare|government|public\s+sector|financial\s+services|e-?commerce|manufacturers?|nonprofits?)\b/gi,
+] as const;
 
-function contentTokens(value: string): Set<string> {
-  return new Set(value.toLowerCase().match(/[a-z]{4,}/g)?.filter((token) => !STOP_WORDS.has(token)) ?? []);
+function normalized(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9%$]+/g, " ").trim();
 }
 
-function validateTraceableLanguage(
+function concreteClaimMarkers(value: string): string[] {
+  const markers: string[] = [...(value.match(/(?:[$€£]\s*)?\b\d[\d,.]*(?:\s*(?:%|percent|million|billion|thousand))?\b/gi) ?? [])];
+  for (const pattern of GOVERNED_FACT_MARKERS) markers.push(...(value.match(pattern) ?? []));
+  return [...new Set(markers.map(normalized).filter(Boolean))];
+}
+
+function rejectBriefStatement(section: BriefSection, item: BriefStatement, category: string): never {
+  console.error("[first-working-session-brief] validation_failed", {
+    section,
+    kind: item.kind,
+    category,
+  });
+  throw new Error(category);
+}
+
+function validateKindAwareTraceability(
+  section: BriefSection,
   item: BriefStatement,
   evidenceById: Map<string, EvidenceInput>,
   hypothesesById: Map<string, CurrentPreparationHypothesis>,
 ) {
-  const basis = [
-    ...item.evidenceIds.map((id) => evidenceById.get(id)?.rawStatement ?? ""),
-    ...item.hypothesisIds.flatMap((id) => {
-      const hypothesis = hypothesesById.get(id);
-      return [hypothesis?.currentBelief ?? "", hypothesis?.riskReason ?? "", hypothesis?.constitutionalDomain ?? ""];
-    }),
-  ].join(" ");
-  const statementTokens = contentTokens(item.statement);
-  const basisTokens = contentTokens(basis);
-  const overlap = [...statementTokens].filter((token) => basisTokens.has(token)).length;
-  if (statementTokens.size >= 4 && overlap < 2) throw new Error(`brief_untraceable_language:${item.statement.slice(0, 80)}`);
+  const evidenceBasis = item.evidenceIds.map((id) => evidenceById.get(id)?.rawStatement ?? "");
+  const hypothesisBasis = item.hypothesisIds.flatMap((id) => {
+    const hypothesis = hypothesesById.get(id);
+    return [hypothesis?.currentBelief ?? "", hypothesis?.riskReason ?? "", hypothesis?.verificationNeed ?? "", hypothesis?.constitutionalDomain ?? ""];
+  });
+  const basis = normalized([
+    ...evidenceBasis,
+    ...hypothesisBasis,
+  ].join(" "));
+
+  if (item.kind === "supported_finding" && item.evidenceIds.length === 0) {
+    rejectBriefStatement(section, item, "brief_supported_finding_without_evidence");
+  }
+  if (["interpretation", "working_opinion"].includes(item.kind)
+      && item.evidenceIds.length + item.hypothesisIds.length === 0) {
+    rejectBriefStatement(section, item, "brief_synthesis_without_basis");
+  }
+  if (item.kind === "contradiction") {
+    const citesContradictedHypothesis = item.hypothesisIds.some(
+      (id) => hypothesesById.get(id)?.epistemicState === "contradicted",
+    );
+    const distinctEvidenceStatements = new Set(evidenceBasis.map(normalized).filter(Boolean));
+    if (!citesContradictedHypothesis || distinctEvidenceStatements.size < 2) {
+      rejectBriefStatement(section, item, "brief_contradiction_without_conflicting_basis");
+    }
+  }
+
+  if (["supported_finding", "interpretation", "working_opinion", "contradiction"].includes(item.kind)) {
+    const unsupportedMarker = concreteClaimMarkers(item.statement).find((marker) => !basis.includes(marker));
+    if (unsupportedMarker) {
+      rejectBriefStatement(section, item, "brief_unsupported_concrete_claim");
+    }
+  }
 }
 
 export function validateFirstWorkingSessionBrief(
@@ -196,15 +248,12 @@ export function validateFirstWorkingSessionBrief(
   for (const key of arraySectionNames) if (!Array.isArray(brief[key])) throw new Error(`brief_missing_${key}`);
   const evidenceById = new Map(inputs.evidence.map((item) => [item.id, item]));
   const hypothesesById = new Map(inputs.hypotheses.map((item) => [item.id, item]));
-  for (const item of statements(brief)) {
+  for (const { section, item } of statementEntries(brief)) {
     if (!item.statement?.trim() || !Array.isArray(item.evidenceIds) || !Array.isArray(item.hypothesisIds)) throw new Error("brief_invalid_statement");
     if (!["supported_finding", "interpretation", "working_opinion", "unknown", "contradiction"].includes(item.kind)) throw new Error("brief_invalid_kind");
-    if (!["unknown"].includes(item.kind) && item.evidenceIds.length === 0) throw new Error("brief_unsupported_statement");
     if (item.evidenceIds.some((id) => !evidenceById.has(id))) throw new Error("brief_evidence_out_of_scope");
     if (item.hypothesisIds.some((id) => !hypothesesById.has(id))) throw new Error("brief_hypothesis_out_of_scope");
-    if (item.evidenceIds.length + item.hypothesisIds.length > 0) {
-      validateTraceableLanguage(item, evidenceById, hypothesesById);
-    }
+    validateKindAwareTraceability(section, item, evidenceById, hypothesesById);
   }
   if (brief.workingOpinions.some((item) => item.kind !== "working_opinion")) throw new Error("brief_opinion_mislabeled");
   if (brief.contradictions.some((item) => item.kind !== "contradiction")) throw new Error("brief_contradiction_mislabeled");
