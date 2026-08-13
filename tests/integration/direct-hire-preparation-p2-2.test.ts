@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { buildFirstWorkingSessionBriefPrompt, isFirstWorkingSessionBriefCurrent, synthesizeFirstWorkingSessionBrief } from "../../lib/onboarding/first-working-session-brief";
+import { analyzeBriefEvidenceScope, buildBriefCitationLineage, buildFirstWorkingSessionBriefPrompt, buildFirstWorkingSessionBriefSchema, isFirstWorkingSessionBriefCurrent, synthesizeFirstWorkingSessionBrief } from "../../lib/onboarding/first-working-session-brief";
 
 const migration = "supabase/migrations/20260813010000_direct_hire_first_working_session_preparation.sql";
 
@@ -91,7 +91,7 @@ describe("P2.2 private brief governance", () => {
       ],
       observations: [{ id: "o1", evidenceId: "e1", interpreted_meaning: "The offer is framed as architecture and operating-system design.", confidence_in_interpretation: 55, affected_domains: ["whatYouSell"] }],
       hypotheses: Array.from({ length: 7 }, (_, index) => ({ id: `h${index + 1}`, constitutionalDomain: ["whatYouSell","whoItIsFor","problemOrAspiration","whyCustomersShouldCare","proposedDescription","authorityBoundaries","clarificationsNeeded"][index], currentBelief: index === 5 ? null : "Business architecture and coaching for startup growth", sourceEvidenceIds: index === 5 ? [] : ["e1", "e2"], epistemicState: index === 5 ? "unknown" : "partial", confidence: index === 5 ? "unknown" : "medium", representationRisk: index === 5 ? "high" : "medium", ownerDecision: null, riskReason: index === 5 ? "Pricing promises negotiation commitments and escalation authority are unknown" : "Business positioning requires verification" })),
-    } as never;
+    } as any;
     const statement = (text: string, kind = "supported_finding") => ({ statement: text, kind, evidenceIds: ["e1", "e2"], hypothesisIds: ["h1"] });
     const fixture = {
       businessRead: statement("The business presents business architecture for startup growth."),
@@ -126,7 +126,7 @@ describe("P2.2 private brief governance", () => {
       evidence: [{ id: "e1", sourceType: "public_website", rawStatement: "Business architecture for founders.", affected_domains: ["whatYouSell"] }],
       observations: [],
       hypotheses: [{ id: "authority", constitutionalDomain: "authorityBoundaries", epistemicState: "unknown", confidence: "unknown", representationRisk: "high", currentBelief: null, riskReason: "Authority is unknown", ownerDecision: null }],
-    } as never;
+    } as any;
     const base = { statement: "Business architecture for founders.", kind: "supported_finding", evidenceIds: ["e1"], hypothesisIds: [] };
     const invalid = {
       businessRead: base, offerRead: base, customerRead: base, problemOutcomeRead: base, positioningRead: base,
@@ -135,6 +135,58 @@ describe("P2.2 private brief governance", () => {
       authorityGaps: [], governance: { canonical: false, containsChainOfThought: false },
     };
     await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid)).rejects.toThrow(/brief_(untraceable_language|formation_priorities_required|question_untraceable|authority_gaps_required)/);
+  });
+  it("keeps live-shaped brief citations in the exact effective Evidence namespace", async () => {
+    const effectiveIds = ["v2-home", "v2-qualify", "v2-contact", "owner-offer", "owner-target"];
+    const inputs = {
+      evidence: effectiveIds.map((id) => ({ id, sourceType: id.startsWith("owner") ? "direct_hire_induction" : "public_website", rawStatement: `${id} business architecture coaching startups pricing negotiation authority`, affected_domains: ["whatYouSell", "whoItIsFor", "authorityBoundaries"] })),
+      observations: [],
+      hypotheses: Array.from({ length: 7 }, (_, index) => ({
+        id: `v5-h${index + 1}`, previousHypothesisId: `v4-h${index + 1}`,
+        constitutionalDomain: ["whatYouSell","whoItIsFor","problemOrAspiration","whyCustomersShouldCare","proposedDescription","authorityBoundaries","clarificationsNeeded"][index],
+        currentBelief: index === 5 ? null : "Business architecture coaching for startups",
+        sourceEvidenceIds: index === 0 ? ["historical-v1-home"] : ["v2-home"],
+        epistemicState: index === 5 ? "unknown" : "partial", confidence: index === 5 ? "unknown" : "medium",
+        representationRisk: index === 5 ? "high" : "medium", ownerDecision: null,
+        riskReason: "Pricing negotiation authority requires verification",
+      })),
+    } as any;
+    const statement = (text: string, evidenceIds = ["v2-home"], hypothesisIds = ["v5-h1"], kind = "interpretation") => ({ statement: text, kind, evidenceIds, hypothesisIds });
+    const brief = {
+      businessRead: statement("Business architecture and coaching shape the current offer."),
+      offerRead: statement("Business architecture and coaching shape the current offer."),
+      customerRead: statement("Startups are the stated customer for business coaching.", ["owner-target", "v2-home"], ["v5-h2"]),
+      problemOutcomeRead: statement("Business architecture and startup structure are the current problem focus."),
+      positioningRead: statement("Business architecture leads the public positioning."),
+      commercialSignals: [], contradictions: [], unknowns: [], workingOpinions: [],
+      formationPriorities: [
+        statement("Verify business architecture and coaching offer emphasis."),
+        statement("Verify startups as the business coaching customer priority.", ["owner-target", "v2-home"], ["v5-h2"]),
+        statement("Verify pricing negotiation authority boundaries.", [], ["v5-h6"], "unknown"),
+      ],
+      openingInsights: [],
+      questions: [statement("Should startups remain the business coaching customer priority?", ["owner-target", "v2-home"], ["v5-h2"], "unknown")],
+      authorityGaps: [statement("Pricing negotiation authority remains unknown.", [], ["v5-h6"], "unknown")],
+      governance: { canonical: false, containsChainOfThought: false },
+    };
+    const generated = await synthesizeFirstWorkingSessionBrief(inputs, async (_prompt, schema) => {
+      const properties = (schema as any).properties.businessRead.properties;
+      expect(properties.evidenceIds.items.enum).toEqual(effectiveIds);
+      expect(properties.hypothesisIds.items.enum).toEqual(inputs.hypotheses.map((item: any) => item.id));
+      return brief;
+    });
+    const lineage = buildBriefCitationLineage(generated, new Set(effectiveIds), new Set(inputs.hypotheses.map((item: any) => item.id)));
+    expect(lineage.sourceEvidenceIds).toEqual(["owner-target", "v2-home"]);
+    expect(lineage.sourceEvidenceIds).not.toContain("historical-v1-home");
+    expect(analyzeBriefEvidenceScope(brief, inputs)).toMatchObject({ outOfScopeCount: 0, category: "none" });
+  });
+
+  it("classifies a hypothesis UUID placed in evidenceIds without weakening rejection", () => {
+    const inputs = { evidence: [{ id: "current-evidence" }], observations: [], hypotheses: [{ id: "current-hypothesis", previousHypothesisId: "old-hypothesis", sourceEvidenceIds: ["historical-evidence"] }] } as never;
+    const malformed = { businessRead: { statement: "x", kind: "unknown", evidenceIds: ["current-hypothesis"], hypothesisIds: [] } };
+    expect(analyzeBriefEvidenceScope(malformed, inputs)).toMatchObject({ outOfScopeCount: 1, category: "hypothesis_id_as_evidence" });
+    const schema = buildFirstWorkingSessionBriefSchema(inputs) as any;
+    expect(schema.properties.businessRead.properties.evidenceIds.items.enum).toEqual(["current-evidence"]);
   });
   it("never exposes private brief through the owner API", async () => {
     const route = await readFile("app/api/onboarding/direct-hire/working-session/route.ts", "utf8");

@@ -45,31 +45,34 @@ type Scope = { ownerId: string; businessId: string; businessRepresentationId: st
 type BriefInputs = { evidence: EvidenceInput[]; observations: ObservationInput[]; hypotheses: CurrentPreparationHypothesis[] };
 type BriefGenerator = (prompt: string, schema: Record<string, unknown>) => Promise<unknown>;
 
-const statementSchema = {
-  type: "object", additionalProperties: false,
-  properties: {
-    statement: { type: "string", minLength: 1 },
-    kind: { type: "string", enum: ["supported_finding", "interpretation", "working_opinion", "unknown", "contradiction"] },
-    evidenceIds: { type: "array", items: { type: "string" } },
-    hypothesisIds: { type: "array", items: { type: "string" } },
-  },
-  required: ["statement", "kind", "evidenceIds", "hypothesisIds"],
-};
 const arraySectionNames = ["commercialSignals", "contradictions", "unknowns", "workingOpinions", "formationPriorities", "openingInsights", "questions", "authorityGaps"] as const;
 const singletonSectionNames = ["businessRead", "offerRead", "customerRead", "problemOutcomeRead", "positioningRead"] as const;
-const briefSchema = {
-  type: "object", additionalProperties: false,
-  properties: {
-    ...Object.fromEntries(singletonSectionNames.map((name) => [name, statementSchema])),
-    ...Object.fromEntries(arraySectionNames.map((name) => [name, { type: "array", items: statementSchema }])),
-    governance: {
-      type: "object", additionalProperties: false,
-      properties: { canonical: { type: "boolean", const: false }, containsChainOfThought: { type: "boolean", const: false } },
-      required: ["canonical", "containsChainOfThought"],
+
+export function buildFirstWorkingSessionBriefSchema(inputs: BriefInputs) {
+  const statementSchema = {
+    type: "object", additionalProperties: false,
+    properties: {
+      statement: { type: "string", minLength: 1 },
+      kind: { type: "string", enum: ["supported_finding", "interpretation", "working_opinion", "unknown", "contradiction"] },
+      evidenceIds: { type: "array", items: { type: "string", enum: inputs.evidence.map((item) => item.id) } },
+      hypothesisIds: { type: "array", items: { type: "string", enum: inputs.hypotheses.map((item) => item.id) } },
     },
-  },
-  required: [...singletonSectionNames, ...arraySectionNames, "governance"],
-};
+    required: ["statement", "kind", "evidenceIds", "hypothesisIds"],
+  };
+  return {
+    type: "object", additionalProperties: false,
+    properties: {
+      ...Object.fromEntries(singletonSectionNames.map((name) => [name, statementSchema])),
+      ...Object.fromEntries(arraySectionNames.map((name) => [name, { type: "array", items: statementSchema }])),
+      governance: {
+        type: "object", additionalProperties: false,
+        properties: { canonical: { type: "boolean", const: false }, containsChainOfThought: { type: "boolean", const: false } },
+        required: ["canonical", "containsChainOfThought"],
+      },
+    },
+    required: [...singletonSectionNames, ...arraySectionNames, "governance"],
+  };
+}
 
 export function buildFirstWorkingSessionBriefPrompt(inputs: BriefInputs): string {
   return `Create an executive preparation brief for a first working session from the governed inputs below.
@@ -87,7 +90,17 @@ Do not invent contradiction resolution, authority, pricing, guarantees, promises
 Return conclusions only: never chain-of-thought, hidden reasoning, or provider commentary.
 GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
 GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
-CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses)}`;
+CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses.map((hypothesis) => ({
+  id: hypothesis.id,
+  constitutionalDomain: hypothesis.constitutionalDomain,
+  epistemicState: hypothesis.epistemicState,
+  currentBelief: hypothesis.currentBelief,
+  confidence: hypothesis.confidence,
+  representationRisk: hypothesis.representationRisk,
+  riskReason: hypothesis.riskReason,
+  verificationNeed: hypothesis.verificationNeed,
+  ownerDecision: hypothesis.ownerDecision,
+})))}`;
 }
 
 function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
@@ -95,6 +108,51 @@ function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
     ...singletonSectionNames.map((key) => brief[key]),
     ...arraySectionNames.flatMap((key) => brief[key]),
   ];
+}
+
+export type BriefEvidenceScopeDiagnostic = {
+  effectiveEvidenceCount: number;
+  citedEvidenceCount: number;
+  outOfScopeCount: number;
+  category: "none" | "hypothesis_id_as_evidence" | "predecessor_id_as_evidence" | "historical_hypothesis_basis" | "unknown_id";
+};
+
+export function analyzeBriefEvidenceScope(value: unknown, inputs: BriefInputs): BriefEvidenceScopeDiagnostic {
+  const effectiveIds = new Set(inputs.evidence.map((item) => item.id));
+  const hypothesisIds = new Set(inputs.hypotheses.map((item) => item.id));
+  const predecessorIds = new Set(inputs.hypotheses.map((item) => item.previousHypothesisId).filter((id): id is string => Boolean(id)));
+  const historicalBasisIds = new Set(inputs.hypotheses.flatMap((item) => item.sourceEvidenceIds).filter((id) => !effectiveIds.has(id)));
+  const candidate = value as Partial<FirstWorkingSessionBrief> | null;
+  const citedIds = new Set<string>();
+  if (candidate && typeof candidate === "object") {
+    for (const key of singletonSectionNames) {
+      const item = candidate[key];
+      if (item && Array.isArray(item.evidenceIds)) item.evidenceIds.forEach((id) => citedIds.add(id));
+    }
+    for (const key of arraySectionNames) {
+      const items = candidate[key];
+      if (Array.isArray(items)) items.forEach((item) => item?.evidenceIds?.forEach((id) => citedIds.add(id)));
+    }
+  }
+  const outOfScope = [...citedIds].filter((id) => !effectiveIds.has(id));
+  const category = outOfScope.length === 0 ? "none"
+    : outOfScope.some((id) => hypothesisIds.has(id)) ? "hypothesis_id_as_evidence"
+      : outOfScope.some((id) => predecessorIds.has(id)) ? "predecessor_id_as_evidence"
+        : outOfScope.some((id) => historicalBasisIds.has(id)) ? "historical_hypothesis_basis"
+          : "unknown_id";
+  return { effectiveEvidenceCount: effectiveIds.size, citedEvidenceCount: citedIds.size, outOfScopeCount: outOfScope.length, category };
+}
+
+export function buildBriefCitationLineage(
+  brief: FirstWorkingSessionBrief,
+  effectiveEvidenceIds: Set<string>,
+  currentHypothesisIds: Set<string>,
+): { sourceEvidenceIds: string[]; sourceHypothesisIds: string[] } {
+  const sourceEvidenceIds = [...new Set(statements(brief).flatMap((item) => item.evidenceIds))].sort();
+  const sourceHypothesisIds = [...new Set(statements(brief).flatMap((item) => item.hypothesisIds))].sort();
+  if (sourceEvidenceIds.some((id) => !effectiveEvidenceIds.has(id))) throw new Error("brief_evidence_out_of_scope");
+  if (sourceHypothesisIds.some((id) => !currentHypothesisIds.has(id))) throw new Error("brief_hypothesis_out_of_scope");
+  return { sourceEvidenceIds, sourceHypothesisIds };
 }
 
 const STOP_WORDS = new Set("a an and are as at be been by do does for from how i if in into is it may more must my of on or our should than that the their this to we what when where which who why with you your".split(" "));
@@ -125,6 +183,11 @@ export function validateFirstWorkingSessionBrief(
   value: unknown, inputs: BriefInputs,
 ): FirstWorkingSessionBrief {
   if (!value || typeof value !== "object") throw new Error("brief_invalid_shape");
+  const scopeDiagnostic = analyzeBriefEvidenceScope(value, inputs);
+  if (scopeDiagnostic.outOfScopeCount > 0) {
+    console.error("[first-working-session-brief] brief_evidence_out_of_scope", scopeDiagnostic);
+    throw new Error("brief_evidence_out_of_scope");
+  }
   const brief = value as FirstWorkingSessionBrief;
   if (!brief.governance || brief.governance.canonical !== false || brief.governance.containsChainOfThought !== false) {
     throw new Error("brief_invalid_governance");
@@ -191,7 +254,7 @@ async function defaultGenerator(prompt: string, schema: Record<string, unknown>)
 export async function synthesizeFirstWorkingSessionBrief(
   inputs: BriefInputs, generator: BriefGenerator = defaultGenerator,
 ): Promise<FirstWorkingSessionBrief> {
-  const value = await generator(buildFirstWorkingSessionBriefPrompt(inputs), briefSchema);
+  const value = await generator(buildFirstWorkingSessionBriefPrompt(inputs), buildFirstWorkingSessionBriefSchema(inputs));
   return validateFirstWorkingSessionBrief(value, inputs);
 }
 
@@ -202,8 +265,11 @@ export async function buildFirstWorkingSessionBrief(client: SupabaseClient, scop
   const evidence = toEvidenceInput(snapshot.evidence);
   const observations = toObservationInput(snapshot.observations);
   const brief = await synthesizeFirstWorkingSessionBrief({ evidence, observations, hypotheses });
-  const sourceEvidenceIds = [...new Set(statements(brief).flatMap((item) => item.evidenceIds))].sort();
-  const sourceHypothesisIds = [...new Set(statements(brief).flatMap((item) => item.hypothesisIds))].sort();
+  const { sourceEvidenceIds, sourceHypothesisIds } = buildBriefCitationLineage(
+    brief,
+    new Set(evidence.map((item) => item.id)),
+    new Set(hypotheses.map((item) => item.id)),
+  );
   const hypothesisTraceFingerprint = createHash("sha256").update(hypotheses
     .map((item) => `${item.id}:${item.hypothesisVersion}:${item.requestTraceId ?? ""}`)
     .sort().join("|"))
