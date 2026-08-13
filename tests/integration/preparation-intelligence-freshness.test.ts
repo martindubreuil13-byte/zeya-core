@@ -28,6 +28,7 @@ function currentSet(trace: string): CurrentPreparationHypothesis[] {
     previousHypothesisId: null,
     ownerDecision: null,
     requestTraceId: trace,
+    createdByActor: 'zeya_reasoning_service',
   }));
 }
 
@@ -165,5 +166,23 @@ describe('Preparation intelligence snapshot freshness', () => {
     const link2 = evidence({ id: 'link-2', induction_material_type: 'link', induction_material_label: 'Reference' });
     const note = evidence({ id: 'note', induction_material_type: 'note', induction_material_label: 'Owner notes' });
     expect(normalizeEffectivePreparationEvidence([link1, link2, note]).map(item => item.id)).toEqual(['note']);
+  });
+
+  it('keeps only the newest content snapshot per website page while retaining all current sections', () => {
+    const page = (id: string, hash: string, retrieved: string, kind: string) => evidence({
+      id, source_type: 'public_website', induction_material_type: null,
+      induction_material_label: null, canonical_source_url: 'https://example.com/about',
+      requested_source_url: 'https://example.com/about', source_content_hash: hash,
+      source_retrieved_at: retrieved, source_evidence_kind: kind,
+    });
+    const rows = [
+      page('old-title', 'old-hash', '2026-08-12T08:00:00.000Z', 'title'),
+      page('old-section', 'old-hash', '2026-08-12T08:00:00.000Z', 'section_text'),
+      page('new-title', 'new-hash', '2026-08-13T08:00:00.000Z', 'title'),
+      page('new-section', 'new-hash', '2026-08-13T08:00:00.000Z', 'section_text'),
+    ];
+    expect(normalizeEffectivePreparationEvidence(rows).map(item => item.id))
+      .toEqual(['new-title', 'new-section']);
+    expect(rows).toHaveLength(4);
   });
 });

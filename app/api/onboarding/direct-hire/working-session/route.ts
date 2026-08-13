@@ -15,6 +15,7 @@ type WorkingSessionRow = {
   scheduled_at: string;
   scheduling_timezone: string;
   status: "scheduled" | "cancelled" | "completed";
+  preparation_status: "pending" | "running" | "ready" | "failed";
 };
 
 function failure(error: string, status: number) {
@@ -30,6 +31,7 @@ function project(row: WorkingSessionRow): DirectHireWorkingSession {
     scheduledAt: row.scheduled_at,
     schedulingTimezone: row.scheduling_timezone,
     status: row.status,
+    preparationStatus: row.preparation_status,
   };
 }
 
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
 
   const result = await auth.supabase
     .from("direct_hire_working_sessions")
-    .select("id,owner_id,direct_hire_onboarding_session_id,formation_session_id,session_kind,scheduled_at,scheduling_timezone,status")
+    .select("id,owner_id,direct_hire_onboarding_session_id,formation_session_id,session_kind,scheduled_at,scheduling_timezone,status,preparation_status")
     .eq("owner_id", auth.user.id)
     .eq("session_kind", "first_working_session")
     .eq("status", "scheduled")

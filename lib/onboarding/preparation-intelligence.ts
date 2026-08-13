@@ -33,6 +33,7 @@ export interface CurrentPreparationHypothesis {
   previousHypothesisId: string | null;
   ownerDecision: 'approved' | 'rejected' | 'deferred' | null;
   requestTraceId: string | null;
+  createdByActor: string;
 }
 
 export interface PreparationProjectionDomain {
@@ -91,6 +92,7 @@ type HypothesisRow = {
   hypothesis_version: number;
   previous_hypothesis_id: string | null;
   request_trace_id: string | null;
+  created_by_actor: string;
 };
 
 const DOMAIN_LABELS: Record<PreparationDomain, string> = {
@@ -135,7 +137,7 @@ export async function loadCurrentPreparationHypotheses(
   await loadSession(client, scope);
   const result = await client
     .from('hypotheses')
-    .select('id, constitutional_domain, epistemic_state, current_belief, confidence, representation_risk, risk_reason, source_evidence_ids, hypothesis_version, previous_hypothesis_id, request_trace_id')
+    .select('id, constitutional_domain, epistemic_state, current_belief, confidence, representation_risk, risk_reason, source_evidence_ids, hypothesis_version, previous_hypothesis_id, request_trace_id, created_by_actor')
     .eq('owner_id', scope.ownerId)
     .eq('business_id', scope.businessId)
     .eq('business_representation_id', scope.businessRepresentationId)
@@ -196,6 +198,7 @@ export async function loadCurrentPreparationHypotheses(
     previousHypothesisId: row.previous_hypothesis_id,
     ownerDecision: decisions.get(row.id) ?? null,
     requestTraceId: row.request_trace_id,
+    createdByActor: row.created_by_actor,
   }));
 }
 
@@ -226,7 +229,13 @@ export function hasCurrentReasoningSnapshot(
 export async function ensurePreparationIntelligence(
   client: SupabaseClient,
   scope: Scope,
+  options: { preserveOwnerCorrections?: boolean } = {},
 ): Promise<CurrentPreparationHypothesis[]> {
+  if (options.preserveOwnerCorrections) {
+    const current = await loadCurrentPreparationHypotheses(client, scope);
+    if (current.length === PREPARATION_DOMAINS.length
+      && current.some((hypothesis) => hypothesis.createdByActor === 'owner_correction')) return current;
+  }
   const existing = await loadFreshCurrentPreparationHypotheses(client, scope);
   if (existing.length === PREPARATION_DOMAINS.length) return existing;
   const result = await persistReasonedHypothesesForPreparation(client, scope.onboardingSessionId, scope.ownerId);

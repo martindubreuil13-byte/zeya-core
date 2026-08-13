@@ -161,12 +161,23 @@ export function normalizeEffectivePreparationEvidence(
   evidence: DatabaseEvidence[],
 ): DatabaseEvidence[] {
   const effectiveFixedSlots = new Map<string, DatabaseEvidence>();
+  const latestWebsiteSnapshot = new Map<string, DatabaseEvidence>();
   const ungrouped: DatabaseEvidence[] = [];
 
   for (const row of evidence) {
     // Historical link rows record an owner-supplied location, not acquired
     // source content. They remain durable but are not substantive Evidence.
     if (row.source_type === 'direct_hire_induction' && row.induction_material_type === 'link') {
+      continue;
+    }
+    if (row.source_type === 'public_website' && row.source_content_hash) {
+      const pageIdentity = row.registered_public_source_id
+        ? `registered:${row.registered_public_source_id}`
+        : `website:${row.canonical_source_url ?? row.requested_source_url ?? row.source_authority_key ?? ''}`;
+      const previous = latestWebsiteSnapshot.get(pageIdentity);
+      const rowTime = row.source_retrieved_at ?? row.created_at;
+      const previousTime = previous?.source_retrieved_at ?? previous?.created_at ?? '';
+      if (!previous || rowTime > previousTime) latestWebsiteSnapshot.set(pageIdentity, row);
       continue;
     }
     if (row.source_type !== 'direct_hire_induction'
@@ -183,7 +194,18 @@ export function normalizeEffectivePreparationEvidence(
     effectiveFixedSlots.set(slot, row);
   }
 
-  return [...ungrouped, ...effectiveFixedSlots.values()]
+  const currentWebsiteHashes = new Map(
+    [...latestWebsiteSnapshot.entries()].map(([identity, row]) => [identity, row.source_content_hash]),
+  );
+  const currentWebsite = evidence.filter((row) => {
+    if (row.source_type !== 'public_website' || !row.source_content_hash) return false;
+    const identity = row.registered_public_source_id
+      ? `registered:${row.registered_public_source_id}`
+      : `website:${row.canonical_source_url ?? row.requested_source_url ?? row.source_authority_key ?? ''}`;
+    return currentWebsiteHashes.get(identity) === row.source_content_hash;
+  });
+
+  return [...ungrouped, ...currentWebsite, ...effectiveFixedSlots.values()]
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }
 
@@ -269,7 +291,7 @@ export function toEvidenceInput(dbEvidence: DatabaseEvidence[]): EvidenceInput[]
 /**
  * Convert database Observation rows to ObservationInput for reasoning service.
  */
-function toObservationInput(dbObservations: DatabaseObservation[]): ObservationInput[] {
+export function toObservationInput(dbObservations: DatabaseObservation[]): ObservationInput[] {
   return dbObservations.map(o => ({
     id: o.id,
     evidenceId: o.evidence_id,

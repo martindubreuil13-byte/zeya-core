@@ -26,6 +26,7 @@ export function DirectHireWorkingSessionScheduler() {
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renderedAt] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     if (!session) return;
@@ -127,10 +128,17 @@ export function DirectHireWorkingSessionScheduler() {
   if (loading) return <p className="text-zeya-taupe" role="status">Loading our schedule…</p>;
 
   if (workingSession && !editing) {
+    const preparationHeadline = workingSession.preparationStatus === "ready"
+      ? "I’m ready for our first working session."
+      : new Date(workingSession.scheduledAt).getTime() <= renderedAt
+        ? "I’m still preparing for our working session."
+        : "I’m preparing before we speak.";
     return (
       <section className="mx-auto max-w-2xl text-center" aria-labelledby="scheduled-title">
         <p className="mb-5 text-xs uppercase tracking-[0.28em] text-zeya-champagne">First working session</p>
-        <h1 id="scheduled-title" className="font-serif text-4xl leading-tight sm:text-5xl">I’m preparing before we speak.</h1>
+        <h1 id="scheduled-title" className="font-serif text-4xl leading-tight sm:text-5xl">
+          {preparationHeadline}
+        </h1>
         <p className="mt-7 text-lg text-zeya-ivory">Our first working session is scheduled for:</p>
         <p className="mt-2 font-medium text-zeya-champagne">{formattedSchedule}</p>
         <p className="mt-1 text-sm text-zeya-taupe">{workingSession.schedulingTimezone}</p>
