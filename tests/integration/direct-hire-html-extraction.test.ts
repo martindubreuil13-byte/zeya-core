@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evidenceFromExtractedPage, extractWebsitePage } from "../../lib/research/html-extraction";
+import {
+  classifyBusinessLink,
+  discoverBusinessPages,
+  evidenceFromExtractedPage,
+  extractWebsitePage,
+} from "../../lib/research/html-extraction";
 
 const html = `<!doctype html><html><head>
   <title>AI Architecture Academy</title>
@@ -58,5 +63,64 @@ describe("Direct Hire deterministic HTML extraction", () => {
     });
     const kinds = evidenceFromExtractedPage(page).map((item) => item.kind);
     expect(kinds.filter((kind) => kind === "explicit_absence")).toHaveLength(3);
+  });
+
+  it("classifies the expanded business-page taxonomy from labels and paths", () => {
+    const cases = [
+      ["", "/our-story", "about"], ["Solutions", "/work", "products_services"],
+      ["Packages", "/buy", "pricing"], ["", "/success-stories", "case_studies"],
+      ["Who we serve", "/work", "customers"], ["", "/use-cases", "industries"],
+      ["Our approach", "/work", "methodology"], ["Reviews", "/proof", "testimonials"],
+      ["Leadership", "/people", "team"], ["Common questions", "/help", "faq"],
+      ["Get in touch", "/hello", "contact"], ["Insights", "/learn", "resources"],
+    ] as const;
+    for (const [label, path, expected] of cases) expect(classifyBusinessLink(label, path)).toBe(expected);
+  });
+
+  it("discovers before ranking, normalizes fragments/tracking, and deduplicates equivalent URLs", () => {
+    const links = `
+      <a href="/blog">Blog</a><a href="/contact">Contact</a><a href="/team">Team</a>
+      <a href="/services?utm_source=nav#top">Services</a>
+      <a href="https://www.example.com/services/">What we do</a>
+      <a href="/pricing">Plans</a><a href="/case-studies">Success stories</a>
+      <a href="https://elsewhere.test/about">About somebody else</a>`;
+    const discovered = discoverBusinessPages(links, "https://example.com/");
+    expect(discovered.slice(0, 3).map(item => item.pageType)).toEqual([
+      "products_services", "pricing", "case_studies",
+    ]);
+    expect(discovered.filter(item => item.pageType === "products_services")).toHaveLength(1);
+    expect(discovered[0]?.url).toBe("https://example.com/services");
+    expect(discovered.every(item => !item.url.includes("#") && !item.url.includes("utm_"))).toBe(true);
+  });
+
+  it("extracts meaningful sections with structural provenance and removes chrome", () => {
+    const page = extractWebsitePage({
+      html: `<header>Repeated navigation</header><main><h1>Consulting</h1>
+        <h2>Packages and pricing</h2><div><p>Growth package starts at $2,500 per month for advisory support.</p></div>
+        <h2>Our process</h2><div><ol><li>Discover the need</li><li>Design the plan</li><li>Deliver the work</li></ol></div>
+      </main><footer>Cookie preferences</footer>`,
+      requestedUrl: "https://example.com/pricing", finalUrl: "https://example.com/pricing", pageType: "pricing",
+    });
+    const evidence = evidenceFromExtractedPage(page);
+    expect(evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "pricing_block", selector: "main heading[1] (h2)" }),
+      expect.objectContaining({ kind: "section_list", selector: "main heading[2] (h2)" }),
+    ]));
+    expect(evidence.map(item => item.excerpt).join(" ")).not.toContain("Cookie preferences");
+  });
+
+  it("suppresses cookie and repeated CTA-style low-information sections", () => {
+    const page = extractWebsitePage({
+      html: `<main><h1>Advisory</h1>
+        <h2>Cookie preferences</h2><p>Manage consent and accept all cookies to continue browsing this website.</p>
+        <h2>Ready to begin?</h2><p>Book a call and get started today.</p>
+        <h2>Who we help</h2><p>We support owner-led professional service firms that need a repeatable commercial operating model.</p>
+      </main>`,
+      requestedUrl: "https://example.com/services", finalUrl: "https://example.com/services", pageType: "products_services",
+    });
+    const text = evidenceFromExtractedPage(page).map(item => item.excerpt).join(" ");
+    expect(text).toContain("owner-led professional service firms");
+    expect(text).not.toContain("accept all cookies");
+    expect(text).not.toContain("Book a call");
   });
 });

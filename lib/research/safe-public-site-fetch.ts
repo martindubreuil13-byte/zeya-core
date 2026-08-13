@@ -3,16 +3,16 @@ import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 
 export const WEBSITE_RESEARCH_LIMITS = {
-  maxPages: 3,
-  maxDiscoveredLinks: 2,
+  maxPages: 10,
+  maxDiscoveredLinks: 40,
   maxRedirects: 3,
   maxPageBytes: 512 * 1024,
-  maxRunBytes: 1_310_720,
-  maxExtractedCharactersPerPage: 20_000,
-  maxRetainedCharactersPerRun: 40_000,
+  maxRunBytes: 5 * 1024 * 1024,
+  maxExtractedCharactersPerPage: 30_000,
+  maxRetainedCharactersPerRun: 120_000,
   headerTimeoutMs: 5_000,
   pageTimeoutMs: 10_000,
-  runTimeoutMs: 25_000,
+  runTimeoutMs: 45_000,
   robotsMaxBytes: 64 * 1024,
 } as const;
 

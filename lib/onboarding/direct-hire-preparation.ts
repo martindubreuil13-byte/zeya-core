@@ -119,7 +119,9 @@ export function createDeterministicWebsiteObservations(
   });
 
   const services = evidence.find((item) =>
-    item.kind === "products_services_excerpt" && item.rawStatement.length >= 80,
+    item.pageType === "products_services" &&
+    ["section_text", "section_list", "products_services_excerpt"].includes(item.kind) &&
+    item.rawStatement.length >= 80,
   );
   if (services) observations.push({
     observationKey: hash(`services|${services.sourceKey}`),
@@ -136,6 +138,30 @@ export function createDeterministicWebsiteObservations(
     interpretedMeaning: "The current homepage may not clearly state one of the basic signals used to understand the business.",
     confidence: 40,
     affectedDomains: ["business_identity", "positioning"],
+  });
+  for (const [pageType, observationKey, meaning, domains] of [
+    ["pricing", "pricing-present", "The public website contains explicit pricing or package information.", ["whatYouSell", "authorityBoundaries"]],
+    ["case_studies", "proof-present", "The public website contains case-study or customer-outcome material.", ["whyCustomersShouldCare"]],
+    ["customers", "customers-present", "The public website identifies customers or customer segments.", ["whoItIsFor"]],
+    ["methodology", "methodology-present", "The public website describes a methodology, process, or way of working.", ["whatYouSell", "whyCustomersShouldCare"]],
+  ] as const) {
+    const source = evidence.find((item) => item.pageType === pageType && item.kind !== "title");
+    if (source) observations.push({
+      observationKey: hash(`${observationKey}|${source.sourceKey}`),
+      evidenceSourceKey: source.sourceKey,
+      interpretedMeaning: meaning,
+      confidence: 60,
+      affectedDomains: [...domains],
+    });
+  }
+  const representedTypes = new Set(evidence.map((item) => item.pageType).filter((type) => type !== "homepage"));
+  const breadthSource = evidence.find((item) => item.pageType !== "homepage");
+  if (breadthSource && representedTypes.size >= 3) observations.push({
+    observationKey: hash(`research-breadth|${[...representedTypes].sort().join("|")}|${breadthSource.sourceKey}`),
+    evidenceSourceKey: breadthSource.sourceKey,
+    interpretedMeaning: `The website provides substantive business information across ${representedTypes.size} distinct page categories.`,
+    confidence: 60,
+    affectedDomains: ["business_identity", "offer", "positioning"],
   });
   return observations.slice(0, 3);
 }
@@ -199,6 +225,7 @@ export async function executeDirectHirePreparation(
   let failedPageCount = 0;
   let totalHtmlBytes = 0;
   let retainedCharacters = 0;
+  const retainedContentByPage = new Set<string>();
   const controller = new AbortController();
   const runTimer = setTimeout(() => controller.abort(), WEBSITE_RESEARCH_LIMITS.runTimeoutMs);
   const fetchPage = dependencies.safeFetch ?? safeFetchPublicSite;
@@ -236,7 +263,12 @@ export async function executeDirectHirePreparation(
       pageType: "homepage",
       retrievedAt: (dependencies.now ?? (() => new Date()))().toISOString(),
     });
-    const homepageEvidence = toEvidence(dependencies.sourceScope, homepagePage);
+    const homepageEvidence = toEvidence(dependencies.sourceScope, homepagePage).filter((item) => {
+      const contentKey = `${item.finalUrl}|${hash(item.rawStatement.toLowerCase().replace(/\s+/g, " ").trim())}`;
+      if (retainedContentByPage.has(contentKey)) return false;
+      retainedContentByPage.add(contentKey);
+      return true;
+    });
     evidence.push(...homepageEvidence);
     retainedCharacters += homepageEvidence.reduce((sum, item) => sum + item.rawStatement.length, 0);
 
@@ -249,20 +281,26 @@ export async function executeDirectHirePreparation(
       WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
     );
     totalHtmlBytes += robots?.totalBytes ?? 0;
-    for (const discovered of homepagePage.discoveredPages.slice(0, 2)) {
-      const progressKey = discovered.pageType === "about" ? "about" : "products_services";
-      const path = new URL(discovered.url).pathname;
-      if (robots && !robotsAllowsPath(robots.text, path)) {
-        progress[progressKey] = "skipped";
+    const selectedPages = homepagePage.discoveredPages.slice(0, WEBSITE_RESEARCH_LIMITS.maxPages - 1);
+    for (const discovered of selectedPages) {
+      const progressKey = discovered.pageType === "about" || discovered.pageType === "products_services"
+        ? discovered.pageType
+        : null;
+      const discoveredUrl = new URL(discovered.url);
+      const robotsPath = `${discoveredUrl.pathname}${discoveredUrl.search}`;
+      if (robots && !robotsAllowsPath(robots.text, robotsPath)) {
+        if (progressKey) progress[progressKey] = "skipped";
         failedPageCount += 1;
         continue;
       }
-      progress[progressKey] = "running";
+      if (progressKey) progress[progressKey] = "running";
       try {
+        const remainingBytes = WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes;
+        if (remainingBytes <= 0) throw new SafeFetchError("response_too_large");
         const page = await fetchPage(discovered.url, {
           maxBytes: Math.min(
             WEBSITE_RESEARCH_LIMITS.maxPageBytes,
-            WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
+            remainingBytes,
           ),
           signal: controller.signal,
           dependencies: dependencies.safeFetchDependencies,
@@ -279,9 +317,12 @@ export async function executeDirectHirePreparation(
           retrievedAt: (dependencies.now ?? (() => new Date()))().toISOString(),
         });
         const pageEvidence = toEvidence(dependencies.sourceScope, extracted).filter((item) => {
+          const contentKey = `${item.finalUrl}|${hash(item.rawStatement.toLowerCase().replace(/\s+/g, " ").trim())}`;
+          if (retainedContentByPage.has(contentKey)) return false;
           if (retainedCharacters + item.rawStatement.length > WEBSITE_RESEARCH_LIMITS.maxRetainedCharactersPerRun) {
             return false;
           }
+          retainedContentByPage.add(contentKey);
           retainedCharacters += item.rawStatement.length;
           return true;
         });
@@ -290,10 +331,10 @@ export async function executeDirectHirePreparation(
         }
         evidence.push(...pageEvidence);
         successfulPageCount += 1;
-        progress[progressKey] = "complete";
+        if (progressKey) progress[progressKey] = "complete";
       } catch {
         failedPageCount += 1;
-        progress[progressKey] = "failed";
+        if (progressKey) progress[progressKey] = "failed";
       }
     }
 

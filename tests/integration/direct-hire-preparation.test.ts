@@ -5,6 +5,7 @@ import {
   type WebsiteEvidenceDraft,
 } from "../../lib/onboarding/direct-hire-preparation";
 import { SafeFetchError, type SafeFetchResult } from "../../lib/research/safe-public-site-fetch";
+import { WEBSITE_RESEARCH_LIMITS } from "../../lib/research/safe-public-site-fetch";
 
 function page(url: string, html: string): SafeFetchResult {
   return {
@@ -150,5 +151,46 @@ describe("Direct Hire preparation execution", () => {
       selector: "h1", extractionVersion: "direct-hire-web-v1", affectedDomains: ["positioning"],
     }];
     expect(createDeterministicWebsiteObservations(weak)).toEqual([]);
+  });
+
+  it("fetches the best nine pages rather than the first nine links in DOM order", async () => {
+    const links = [
+      ["/resource-1", "Resources"], ["/contact", "Contact"], ["/faq", "FAQ"],
+      ["/team", "Team"], ["/testimonials", "Testimonials"], ["/method", "Our approach"],
+      ["/industries", "Industries"], ["/about", "About"], ["/customers", "Customers"],
+      ["/case-studies", "Case studies"], ["/pricing", "Pricing"], ["/services", "Services"],
+    ];
+    const fetched: string[] = [];
+    const safeFetch = async (url: string) => {
+      fetched.push(url);
+      if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
+      if (url === "https://example.com/") return page(url, `<nav>${links.map(([href, label]) => `<a href="${href}">${label}</a>`).join("")}</nav><main><h1>Home</h1><p>${"Business context. ".repeat(10)}</p></main>`);
+      return page(url, optional(new URL(url).pathname));
+    };
+    const result = await executeDirectHirePreparation("https://example.com/", {
+      sourceScope: "budget-test", safeFetch: safeFetch as never,
+    });
+    const pageCalls = fetched.filter(url => !url.endsWith("robots.txt"));
+    expect(pageCalls).toHaveLength(WEBSITE_RESEARCH_LIMITS.maxPages);
+    expect(pageCalls).toContain("https://example.com/services");
+    expect(pageCalls).toContain("https://example.com/pricing");
+    expect(pageCalls).not.toContain("https://example.com/resource-1");
+    expect(result.successfulPageCount).toBe(WEBSITE_RESEARCH_LIMITS.maxPages);
+  });
+
+  it("suppresses duplicates within a page without erasing cross-page provenance", async () => {
+    const repeated = "The same substantive sourced public information. ".repeat(8);
+    const safeFetch = async (url: string) => {
+      if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
+      if (url === "https://example.com/") return page(url, `<nav><a href="/about">About</a><a href="/services">Services</a></nav><main><h1>Home</h1><p>${"Homepage context. ".repeat(8)}</p></main>`);
+      return page(url, `<main><h1>Shared heading</h1><p>${repeated}</p></main>`);
+    };
+    const result = await executeDirectHirePreparation("https://example.com/", { sourceScope: "dedupe-test", safeFetch: safeFetch as never });
+    const shared = result.evidence.filter(item => item.rawStatement === "Shared heading");
+    expect(shared).toHaveLength(2);
+    expect(new Set(shared.map(item => item.finalUrl))).toEqual(new Set([
+      "https://example.com/about", "https://example.com/services",
+    ]));
+    expect(result.status).toBe("ready");
   });
 });
