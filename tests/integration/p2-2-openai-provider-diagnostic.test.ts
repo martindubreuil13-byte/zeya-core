@@ -4,8 +4,11 @@ import type OpenAI from "openai";
 import { runP22DeployedProviderDiagnostic } from "../../app/api/internal/diagnostics/p2-2-openai/route";
 import {
   buildFirstWorkingSessionBriefPrompt,
+  buildFirstWorkingSessionBriefArtifact,
   buildFirstWorkingSessionBriefProviderRequest,
+  buildFirstWorkingSessionBriefProviderContract,
   buildFirstWorkingSessionBriefSchema,
+  createCompactFirstWorkingSessionBriefGenerator,
   collectFirstWorkingSessionBriefValidation,
   synthesizeFirstWorkingSessionBriefWithRevisions,
   validateFirstWorkingSessionBriefCandidates,
@@ -48,6 +51,25 @@ function validFixtureBrief() {
     authorityGaps: [{ statement: "Pricing, promises, negotiation, commitments, and escalation authority remain unknown.", kind: "unknown", evidenceIds: [], hypothesisIds: [authority.id] }],
     governance: { canonical: false, containsChainOfThought: false },
   };
+}
+
+function providerAliasBrief(brief: ReturnType<typeof validFixtureBrief>) {
+  const { inputs } = buildP22LiveShapedDiagnosticInputs();
+  const contract = buildFirstWorkingSessionBriefProviderContract(inputs);
+  const value = structuredClone(brief) as Record<string, unknown>;
+  const mapStatement = (candidate: unknown) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+    const statement = candidate as { evidenceIds: string[]; hypothesisIds: string[] };
+    statement.evidenceIds = statement.evidenceIds.map((id) => contract.evidenceIdToAlias.get(id)!);
+    statement.hypothesisIds = statement.hypothesisIds.map((id) => contract.hypothesisIdToAlias.get(id)!);
+  };
+  for (const key of ["businessRead", "offerRead", "customerRead", "problemOutcomeRead", "positioningRead"]) {
+    mapStatement(value[key]);
+  }
+  for (const key of ["commercialSignals", "contradictions", "unknowns", "workingOpinions", "formationPriorities", "openingInsights", "questions", "authorityGaps"]) {
+    (value[key] as unknown[]).forEach(mapStatement);
+  }
+  return value;
 }
 
 describe("P2.2 deployed OpenAI provider diagnostic", () => {
@@ -207,6 +229,32 @@ describe("P2.2 bounded semantic revision", () => {
       return invalidCustomerCitation();
     })).rejects.toThrow("brief_semantic_revision_exhausted");
     expect(calls).toBe(3);
+  });
+
+  it("repairs provider citation aliases in prose before UUID lineage and persistence", async () => {
+    const { inputs, reasoningRunId } = buildP22LiveShapedDiagnosticInputs();
+    const leakedUuidCandidate = validFixtureBrief();
+    leakedUuidCandidate.businessRead.statement = "Architecture is central (E2, H1).";
+    const leakageReport = collectFirstWorkingSessionBriefValidation(leakedUuidCandidate, inputs);
+    expect(leakageReport.repairable).toBe(true);
+    expect(leakageReport.defects[0].validatorRule)
+      .toBe("provider_citation_alias_not_allowed_in_statement");
+    const leaked = providerAliasBrief(validFixtureBrief());
+    (leaked.businessRead as { statement: string }).statement = "Architecture is central (E2, H1).";
+    const clean = providerAliasBrief(validFixtureBrief());
+    const outputs = [leaked, clean];
+    let calls = 0;
+    const artifact = await buildFirstWorkingSessionBriefArtifact(
+      inputs,
+      reasoningRunId,
+      createCompactFirstWorkingSessionBriefGenerator(async () => outputs[calls++]),
+      { maxRevisions: 2 },
+    );
+    expect(calls).toBe(2);
+    expect(artifact.telemetry.initialValidationCategory).toBe("brief_semantic_interpretation_invalid");
+    expect(JSON.stringify(artifact.brief)).not.toMatch(/\b(?:E|H)\d+\b/);
+    expect(artifact.sourceEvidenceIds.every((id) => /^[0-9a-f-]{36}$/i.test(id))).toBe(true);
+    expect(artifact.sourceHypothesisIds.every((id) => /^[0-9a-f-]{36}$/i.test(id))).toBe(true);
   });
 
   it("does not revise an out-of-scope namespace failure", async () => {

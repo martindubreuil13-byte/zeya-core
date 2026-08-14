@@ -32,12 +32,13 @@ candidate_lineage AS (
   WHERE working_session.session_kind = 'first_working_session'
     AND working_session.status = 'scheduled'
     AND working_session.preparation_status = 'ready'
-    AND working_session.preparation_contract_version = 'first-working-session-preparation-v1'
-    AND EXISTS (
-      SELECT 1
+    AND working_session.preparation_contract_version = 'first-working-session-preparation-v4'
+    AND 1 = (
+      SELECT count(*)
       FROM public.direct_hire_first_working_session_briefs AS current_brief
       WHERE current_brief.direct_hire_working_session_id = working_session.id
         AND current_brief.current
+        AND current_brief.preparation_contract_version = 'first-working-session-preparation-v4'
     )
 ),
 target AS (
@@ -177,6 +178,18 @@ current_hypotheses AS (
   FROM hypothesis_history AS history
   WHERE history.current_rank = 1
 ),
+current_hypothesis_status AS (
+  SELECT hypothesis.*,
+    latest_verification.decision AS owner_decision
+  FROM current_hypotheses AS hypothesis
+  LEFT JOIN LATERAL (
+    SELECT verification.decision
+    FROM public.hypothesis_verifications AS verification
+    WHERE verification.hypothesis_id = hypothesis.id
+    ORDER BY verification.verification_sequence DESC
+    LIMIT 1
+  ) AS latest_verification ON true
+),
 brief_history AS (
   SELECT brief.*
   FROM target
@@ -188,7 +201,29 @@ brief_history AS (
    AND brief.direct_hire_onboarding_session_id = target.direct_hire_onboarding_session_id
 ),
 current_briefs AS (
-  SELECT brief.* FROM brief_history AS brief WHERE brief.current
+  SELECT brief.*
+  FROM brief_history AS brief
+  WHERE brief.current
+    AND brief.preparation_contract_version = 'first-working-session-preparation-v4'
+),
+brief_statements AS (
+  SELECT brief.id AS brief_id, statement_item.value->>'statement' AS statement_text
+  FROM current_briefs AS brief
+  CROSS JOIN LATERAL (
+    SELECT brief.brief->'businessRead' AS value
+    UNION ALL SELECT brief.brief->'offerRead'
+    UNION ALL SELECT brief.brief->'customerRead'
+    UNION ALL SELECT brief.brief->'problemOutcomeRead'
+    UNION ALL SELECT brief.brief->'positioningRead'
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'commercialSignals') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'contradictions') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'unknowns') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'workingOpinions') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'formationPriorities') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'openingInsights') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'questions') AS item
+    UNION ALL SELECT item FROM jsonb_array_elements(brief.brief->'authorityGaps') AS item
+  ) AS statement_item
 ),
 reasoning_fingerprint AS (
   SELECT encode(extensions.digest(array_to_string(
@@ -213,7 +248,7 @@ hypothesis_fingerprint AS (
 expected_brief_snapshot AS (
   SELECT encode(extensions.digest(array_to_string(
     ARRAY[
-      'first-working-session-preparation-v1',
+      'first-working-session-preparation-v4',
       reasoning.fingerprint,
       hypothesis_trace.fingerprint
     ]
@@ -272,7 +307,15 @@ quality_counts AS (
     (SELECT count(*) FROM effective_evidence) AS evidence_artifacts,
     (SELECT count(*) FROM effective_observations) AS observations,
     (SELECT count(*) FROM current_hypotheses) AS current_hypothesis_count,
-    (SELECT count(*) FROM current_briefs) AS current_brief_count
+    (SELECT count(*) FROM current_briefs) AS current_brief_count,
+    (SELECT count(*) FROM brief_history
+      WHERE preparation_contract_version = 'first-working-session-preparation-v1') AS historical_v1_brief_count,
+    (SELECT count(*) FROM brief_history
+      WHERE preparation_contract_version = 'first-working-session-preparation-v1' AND current) AS current_v1_brief_count,
+    (SELECT count(*) FROM brief_history
+      WHERE preparation_contract_version = 'first-working-session-preparation-v3') AS historical_v3_brief_count,
+    (SELECT count(*) FROM brief_history
+      WHERE preparation_contract_version = 'first-working-session-preparation-v3' AND current) AS current_v3_brief_count
 ),
 inspection AS (
   SELECT '00 TARGET RESOLUTION'::text AS section, 0::bigint AS item_order,
@@ -281,7 +324,7 @@ inspection AS (
       'eligible_ready_lineage_matches', coalesce((SELECT max(candidate_count) FROM candidate_lineage), 0),
       'safe_to_inspect', (SELECT count(*) FROM qa_identity) = 1
         AND coalesce((SELECT max(candidate_count) FROM candidate_lineage), 0) = 1,
-      'expected', 'exactly one QA Auth identity and one scheduled ready P2.2 lineage'
+      'expected', 'exactly one QA Auth identity and one scheduled ready v4 P2.2 lineage with one current v4 brief'
     ) AS result
 
   UNION ALL
@@ -391,9 +434,10 @@ inspection AS (
       'request_trace_id', hypothesis.request_trace_id,
       'evidence_cutoff_at', hypothesis.evidence_cutoff_at,
       'created_by_actor', hypothesis.created_by_actor,
+      'owner_decision', hypothesis.owner_decision,
       'created_at', hypothesis.created_at
     )
-  FROM current_hypotheses AS hypothesis
+  FROM current_hypothesis_status AS hypothesis
 
   UNION ALL
   SELECT '06 PRIVATE FIRST-WORKING-SESSION BRIEF', row_number() OVER (ORDER BY brief.current DESC, brief.generated_at DESC),
@@ -422,6 +466,15 @@ inspection AS (
       'current_hypotheses', counts.current_hypothesis_count,
       'exactly_one_current_private_brief', counts.current_brief_count = 1,
       'current_private_brief_count', counts.current_brief_count,
+      'preparation_status_is_ready', target.preparation_status = 'ready',
+      'preparation_contract_is_v4', target.preparation_contract_version = 'first-working-session-preparation-v4',
+      'current_brief_contract_is_v4', brief.preparation_contract_version = 'first-working-session-preparation-v4',
+      'historical_v3_brief_count', counts.historical_v3_brief_count,
+      'historical_v3_brief_remains_non_current', counts.historical_v3_brief_count >= 1
+        AND counts.current_v3_brief_count = 0,
+      'historical_v1_brief_count', counts.historical_v1_brief_count,
+      'historical_v1_brief_remains_non_current', counts.historical_v1_brief_count >= 1
+        AND counts.current_v1_brief_count = 0,
       'computed_reasoning_snapshot_fingerprint', reasoning.fingerprint,
       'computed_current_hypothesis_trace_fingerprint', hypothesis_trace.fingerprint,
       'computed_expected_brief_snapshot_fingerprint', expected_snapshot.fingerprint,
@@ -437,10 +490,35 @@ inspection AS (
         SELECT 1 FROM unnest(brief.source_hypothesis_ids) AS supplied(hypothesis_id)
         WHERE NOT EXISTS (SELECT 1 FROM current_hypotheses AS hypothesis WHERE hypothesis.id = supplied.hypothesis_id)
       ),
+      'persisted_statement_text_contains_no_provider_aliases', NOT EXISTS (
+        SELECT 1
+        FROM brief_statements AS statement
+        WHERE statement.statement_text ~ '(^|[^A-Za-z0-9_])[EH][1-9][0-9]*([^A-Za-z0-9_]|$)'
+      ),
+      'governance_canonical_is_false', brief.brief->'governance'->>'canonical' = 'false',
+      'governance_contains_chain_of_thought_is_false',
+        brief.brief->'governance'->>'containsChainOfThought' = 'false',
+      'authority_gaps_present_when_required', NOT EXISTS (
+        SELECT 1
+        FROM current_hypothesis_status AS authority
+        WHERE authority.constitutional_domain = 'authorityBoundaries'
+          AND (authority.epistemic_state = 'unknown' OR authority.representation_risk = 'high')
+          AND coalesce(jsonb_array_length(brief.brief->'authorityGaps'), 0) = 0
+      ),
+      'formation_priorities_count_valid_when_unresolved_risk_remains', NOT EXISTS (
+        SELECT 1
+        FROM current_hypothesis_status AS hypothesis
+        WHERE hypothesis.representation_risk IN ('medium', 'high')
+          AND (hypothesis.epistemic_state <> 'supported' OR hypothesis.owner_decision IS DISTINCT FROM 'approved')
+      ) OR coalesce(jsonb_array_length(brief.brief->'formationPriorities'), 0) BETWEEN 3 AND 7,
       'lineage_consistent',
         counts.current_hypothesis_count = 7
         AND counts.current_brief_count = 1
         AND target.preparation_status = 'ready'
+        AND target.preparation_contract_version = 'first-working-session-preparation-v4'
+        AND brief.preparation_contract_version = 'first-working-session-preparation-v4'
+        AND counts.historical_v3_brief_count >= 1
+        AND counts.current_v3_brief_count = 0
         AND target.preparation_snapshot_fingerprint = brief.source_snapshot_fingerprint
         AND hypothesis_trace.fingerprint = brief.hypothesis_trace_fingerprint
         AND expected_snapshot.fingerprint = target.preparation_snapshot_fingerprint
@@ -452,6 +530,12 @@ inspection AS (
           SELECT 1 FROM unnest(brief.source_hypothesis_ids) AS supplied(hypothesis_id)
           WHERE NOT EXISTS (SELECT 1 FROM current_hypotheses AS hypothesis WHERE hypothesis.id = supplied.hypothesis_id)
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM brief_statements AS statement
+          WHERE statement.statement_text ~ '(^|[^A-Za-z0-9_])[EH][1-9][0-9]*([^A-Za-z0-9_]|$)'
+        )
+        AND brief.brief->'governance'->>'canonical' = 'false'
+        AND brief.brief->'governance'->>'containsChainOfThought' = 'false'
     )
   FROM quality_counts AS counts
   CROSS JOIN target

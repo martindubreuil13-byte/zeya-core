@@ -16,7 +16,7 @@ export const FIRST_WORKING_SESSION_BRIEF_MODEL = "gpt-4o";
 export const FIRST_WORKING_SESSION_OPENAI_SDK_VERSION = "6.39.0";
 
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
-  "first-working-session-preparation-v3";
+  "first-working-session-preparation-v4";
 
 export type BriefStatementKind =
   | "supported_finding" | "interpretation" | "working_opinion"
@@ -270,6 +270,7 @@ Be specific enough that the facilitator sounds genuinely prepared. Avoid generic
 Every supported_finding must cite supplied Evidence. An interpretation or working_opinion must cite supplied Evidence and/or a current hypothesis. A contradiction must cite a contradicted current hypothesis and at least two genuinely conflicting Evidence items.
 Describe an owner-supplied customer target as owner-stated unless public Evidence corroborates it. Working opinions must use explicitly provisional language such as "appears", "working interpretation", or "provisional view".
 Use hypothesisIds only for supplied current hypothesis IDs. A working opinion is useful noncanonical judgment, never approved truth.
+Citation aliases such as E1 or H1 belong only in evidenceIds and hypothesisIds arrays. Never include citation aliases in statement prose, parentheticals, labels, or headings.
 Every unknown, formation priority, and question must cite Evidence and/or a current hypothesis that makes it necessary. Use only interpretation, working_opinion, or unknown for formationPriorities; use only interpretation or unknown for questions.
 Use kind=contradiction for every contradictions item, kind=unknown for every unknowns and authorityGaps item, and kind=working_opinion for every workingOpinions item. Do not place contradiction items outside contradictions.
 When any medium/high-risk hypothesis is unresolved, return 3-7 ranked formationPriorities, highest value first.
@@ -574,6 +575,13 @@ function collectKindAwareDefects(
   inputs: BriefInputs,
 ): BriefSemanticDefect[] {
   const defects: BriefSemanticDefect[] = [];
+  const containsProviderAlias = /\b(?:E|H)[1-9]\d*\b/.test(item.statement);
+  if (containsProviderAlias) {
+    defects.push(semanticDefect(
+      section, statementIndex, item, semanticCategory(item),
+      "provider_citation_alias_not_allowed_in_statement",
+    ));
+  }
   const evidenceBasis = item.evidenceIds.map((id) => evidenceById.get(id)?.rawStatement ?? "");
   const hypothesisBasis = item.hypothesisIds.flatMap((id) => {
     const hypothesis = hypothesesById.get(id);

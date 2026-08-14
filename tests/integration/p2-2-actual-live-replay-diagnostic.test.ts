@@ -21,6 +21,27 @@ import {
 const routePath = "app/api/internal/diagnostics/p2-2-live-replay/route.ts";
 
 describe("P2.2 actual-live replay diagnostic", () => {
+  it("keeps the v4 live-quality inspection read-only and current", () => {
+    const sql = readFileSync("supabase/manual/20260813_p2_2_live_quality_inspection.sql", "utf8");
+    expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|MERGE|CALL)\b/i);
+    expect(sql).not.toMatch(/\.rpc\s*\(/i);
+    for (const check of [
+      "first-working-session-preparation-v4",
+      "exactly_one_current_private_brief",
+      "appointment_and_brief_snapshot_match",
+      "computed_hypothesis_trace_matches_brief",
+      "brief_evidence_ids_are_effective",
+      "brief_hypothesis_ids_are_current",
+      "persisted_statement_text_contains_no_provider_aliases",
+      "governance_canonical_is_false",
+      "governance_contains_chain_of_thought_is_false",
+      "authority_gaps_present_when_required",
+      "formation_priorities_count_valid_when_unresolved_risk_remains",
+      "historical_v1_brief_remains_non_current",
+      "historical_v3_brief_remains_non_current",
+    ]) expect(sql).toContain(check);
+  });
+
   it("is exact-session, secret-protected, and read-only", () => {
     const source = readFileSync(routePath, "utf8");
     expect(source).toContain("DIRECT_HIRE_PREPARATION_WORKER_SECRET");

@@ -201,11 +201,11 @@ describe("P2.2 forensic live-shaped end-to-end contract", () => {
     expect(payload.p_snapshot_fingerprint).toMatch(/^[0-9a-f]{64}$/);
 
     const durableContext = {
-      websiteCheckpointPresent: true, recovery: { from: "first-working-session-preparation-v2", to: FIRST_WORKING_SESSION_PREPARATION_VERSION },
+      websiteCheckpointPresent: true, recovery: { from: "first-working-session-preparation-v3", to: FIRST_WORKING_SESSION_PREPARATION_VERSION },
       retiredBrief: { contract: "first-working-session-preparation-v1", current: false },
     };
     expect(durableContext.websiteCheckpointPresent).toBe(true);
-    expect(durableContext.recovery.to).toBe("first-working-session-preparation-v3");
+    expect(durableContext.recovery.to).toBe("first-working-session-preparation-v4");
     expect(durableContext.retiredBrief.current).toBe(false);
   });
 
