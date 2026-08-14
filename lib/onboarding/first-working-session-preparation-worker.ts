@@ -4,7 +4,9 @@ import { acquirePendingRegisteredPublicSources } from "./registered-public-sourc
 import { ensurePreparationIntelligence } from "./preparation-intelligence";
 import {
   buildFirstWorkingSessionBrief,
+  buildFirstWorkingSessionFinalizationPayload,
   FIRST_WORKING_SESSION_PREPARATION_VERSION,
+  FirstWorkingSessionPreparationStageError,
 } from "./first-working-session-brief";
 import { PreparationReasoningStageError } from "./hypothesis-reasoning-service";
 
@@ -24,7 +26,7 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
     p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
     p_lease_seconds: 600,
   });
-  if (claimResult.error) throw new Error(`preparation_claim_failed:${claimResult.error.code}`);
+  if (claimResult.error) throw new Error("preparation_claim_failed");
   const claim = claimResult.data?.[0] as Claim | undefined;
   if (!claim) return { claimed: false as const };
 
@@ -61,28 +63,33 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
       onboardingSessionId: claim.onboarding_session_id,
     };
     await ensurePreparationIntelligence(client, scope);
-    const synthesis = await buildFirstWorkingSessionBrief(client, scope);
-    const completion = await client.rpc("zeya_finalize_first_working_session_preparation", {
-      p_working_session_id: claim.working_session_id,
-      p_lease_id: claim.lease_id,
-      p_snapshot_fingerprint: synthesis.sourceSnapshotFingerprint,
-      p_hypothesis_trace_fingerprint: synthesis.hypothesisTraceFingerprint,
-      p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
-      p_brief: synthesis.brief,
-      p_source_evidence_ids: synthesis.sourceEvidenceIds,
-      p_source_hypothesis_ids: synthesis.sourceHypothesisIds,
-    });
-    if (completion.error) throw new Error(`brief_persistence_failed:${completion.error.code}`);
+    let synthesis;
+    try {
+      synthesis = await buildFirstWorkingSessionBrief(client, scope);
+    } catch (error) {
+      if (error instanceof FirstWorkingSessionPreparationStageError) throw error;
+      throw new FirstWorkingSessionPreparationStageError("brief_input_snapshot_invalid");
+    }
+    const payload = buildFirstWorkingSessionFinalizationPayload(
+      claim.working_session_id, claim.lease_id, synthesis,
+    );
+    const completion = await client.rpc("zeya_finalize_first_working_session_preparation", payload);
+    if (completion.error) {
+      throw new FirstWorkingSessionPreparationStageError("brief_database_finalization_failed");
+    }
     return { claimed: true as const, ready: true as const, sourceOutcomes };
   } catch (error) {
     const failureCode = error instanceof PreparationReasoningStageError
       ? error.stageCode
+      : error instanceof FirstWorkingSessionPreparationStageError
+        ? error.stageCode
       : error instanceof Error ? error.message.split(":")[0] : "preparation_failed";
-    await client.rpc("zeya_fail_first_working_session_preparation", {
+    const failed = await client.rpc("zeya_fail_first_working_session_preparation", {
       p_working_session_id: claim.working_session_id,
       p_lease_id: claim.lease_id,
       p_failure_code: failureCode,
     });
+    if (failed.error) console.error("[first-working-session-preparation] preparation_failure_recording_failed");
     throw error;
   }
 }

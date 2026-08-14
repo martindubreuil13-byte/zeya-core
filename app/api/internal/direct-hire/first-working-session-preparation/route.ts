@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
 import { executeOneFirstWorkingSessionPreparation } from "@/lib/onboarding/first-working-session-preparation-worker";
 import { PreparationReasoningStageError } from "@/lib/onboarding/hypothesis-reasoning-service";
+import { FirstWorkingSessionPreparationStageError } from "@/lib/onboarding/first-working-session-brief";
 
 export const maxDuration = 300;
 
@@ -23,8 +24,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const safeStage = error instanceof PreparationReasoningStageError
       ? error.stageCode
+      : error instanceof FirstWorkingSessionPreparationStageError
+        ? error.stageCode
+        : error instanceof Error && /^[a-z][a-z0-9_]{2,119}$/.test(error.message)
+          ? error.message
       : "preparation_failed";
     console.error("[first-working-session-preparation]", safeStage);
-    return NextResponse.json({ success: false, error: "preparation_failed" }, { status: 503 });
+    return NextResponse.json({ success: false, error: safeStage }, { status: 503 });
   }
 }

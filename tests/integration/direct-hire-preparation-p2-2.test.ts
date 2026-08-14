@@ -4,6 +4,7 @@ import { analyzeBriefEvidenceScope, buildBriefCitationLineage, buildFirstWorking
 
 const migration = "supabase/migrations/20260813010000_direct_hire_first_working_session_preparation.sql";
 const recoveryMigration = "supabase/migrations/20260813020000_direct_hire_first_working_session_preparation_recovery.sql";
+const recoveryActorMigration = "supabase/migrations/20260813030000_direct_hire_first_working_session_preparation_recovery_actor.sql";
 
 describe("P2.2 durable eligibility and leases", () => {
   it("requires scheduled, employed, induction-complete lineage", async () => {
@@ -66,6 +67,18 @@ describe("P2.2 orchestration", () => {
     expect(route).toContain("timingSafeEqual");
     expect(route).toContain("await executeOneFirstWorkingSessionPreparation");
     expect(route).not.toContain("void executeOne");
+    expect(route).toContain("error: safeStage");
+    expect(route).toContain("FirstWorkingSessionPreparationStageError");
+  });
+  it("reuses the website checkpoint and classifies finalization boundaries", async () => {
+    const worker = await readFile("lib/onboarding/first-working-session-preparation-worker.ts", "utf8");
+    expect(worker).toContain("if (!claim.website_persisted)");
+    expect(worker).toContain("buildFirstWorkingSessionFinalizationPayload(");
+    expect(worker).toContain('"brief_database_finalization_failed"');
+    expect(worker).toContain('"brief_input_snapshot_invalid"');
+    expect(worker.indexOf("buildFirstWorkingSessionFinalizationPayload(")).toBeLessThan(
+      worker.indexOf('client.rpc("zeya_finalize_first_working_session_preparation"'),
+    );
   });
   it("does not mutate Formation or canonical Representation", async () => {
     const worker = await readFile("lib/onboarding/first-working-session-preparation-worker.ts", "utf8");
@@ -135,7 +148,7 @@ describe("P2.2 private brief governance", () => {
       questions: [{ statement: "What specific techniques ensure scalable solution architecture across different markets?", kind: "unknown", evidenceIds: [], hypothesisIds: [] }],
       authorityGaps: [], governance: { canonical: false, containsChainOfThought: false },
     };
-    await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid)).rejects.toThrow(/brief_(untraceable_language|formation_priorities_required|question_untraceable|authority_gaps_required)/);
+    await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid)).rejects.toThrow("brief_citation_scope_invalid");
   });
   it("rejects unsupported concrete facts while permitting governed synthesis", async () => {
     const inputs = {
@@ -181,7 +194,7 @@ describe("P2.2 private brief governance", () => {
     for (const statement of unsupported) {
       const invalid = { ...valid, businessRead: cited(statement, "supported_finding") };
       await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => invalid))
-        .rejects.toThrow("brief_unsupported_concrete_claim");
+        .rejects.toThrow("brief_semantic_supported_finding_invalid");
     }
 
     const unsupportedContradiction = {
@@ -189,7 +202,7 @@ describe("P2.2 private brief governance", () => {
       contradictions: [{ statement: "The offer descriptions conflict.", kind: "contradiction", evidenceIds: ["e1"], hypothesisIds: [] }],
     };
     await expect(synthesizeFirstWorkingSessionBrief(inputs, async () => unsupportedContradiction))
-      .rejects.toThrow("brief_contradiction_without_conflicting_basis");
+      .rejects.toThrow("brief_contradiction_invalid");
   });
   it("keeps live-shaped brief citations in the exact effective Evidence namespace", async () => {
     const effectiveIds = ["v2-home", "v2-qualify", "v2-contact", "owner-offer", "owner-target"];
@@ -225,7 +238,7 @@ describe("P2.2 private brief governance", () => {
       governance: { canonical: false, containsChainOfThought: false },
     };
     const generated = await synthesizeFirstWorkingSessionBrief(inputs, async (_prompt, schema) => {
-      const properties = (schema as any).properties.businessRead.properties;
+      const properties = (schema as any).properties.businessRead.anyOf[0].properties;
       expect(properties.evidenceIds.items.enum).toEqual(effectiveIds);
       expect(properties.hypothesisIds.items.enum).toEqual(inputs.hypotheses.map((item: any) => item.id));
       return brief;
@@ -241,7 +254,7 @@ describe("P2.2 private brief governance", () => {
     const malformed = { businessRead: { statement: "x", kind: "unknown", evidenceIds: ["current-hypothesis"], hypothesisIds: [] } };
     expect(analyzeBriefEvidenceScope(malformed, inputs)).toMatchObject({ outOfScopeCount: 1, category: "hypothesis_id_as_evidence" });
     const schema = buildFirstWorkingSessionBriefSchema(inputs) as any;
-    expect(schema.properties.businessRead.properties.evidenceIds.items.enum).toEqual(["current-evidence"]);
+    expect(schema.properties.businessRead.anyOf[0].properties.evidenceIds.items.enum).toEqual(["current-evidence"]);
   });
   it("never exposes private brief through the owner API", async () => {
     const route = await readFile("app/api/onboarding/direct-hire/working-session/route.ts", "utf8");
@@ -290,12 +303,54 @@ describe("P2.2 exhausted-job recovery", () => {
       expect(sql).toContain("pg_catalog");
       expect(sql).toContain("aclexplode(coalesce(");
       expect(sql).not.toContain("has_function_privilege('PUBLIC'");
-      expect(sql).not.toMatch(/\b(?:INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM|ALTER\s+(?:TABLE|FUNCTION)|CREATE\s+(?:TABLE|FUNCTION)|DROP\s+(?:TABLE|FUNCTION)|TRUNCATE)\b/i);
+      expect(sql).not.toMatch(/^\s*(?:INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM|ALTER\s+(?:TABLE|FUNCTION)|CREATE\s+(?:TABLE|FUNCTION)|DROP\s+(?:TABLE|FUNCTION)|TRUNCATE)\b/im);
     }
     expect(files[0]).toContain("recovery_objects_absent");
     expect(files[0]).not.toContain("715f4971-4d3f-4f53-9b89-a9dd703349d8");
     expect(files[1]).toContain("immutable_trigger");
     expect(files[1]).toContain("current_version_id is null");
+  });
+  it("corrects SQL Editor audit identity without broadening the API boundary", async () => {
+    const sql = await readFile(recoveryActorMigration, "utf8");
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.zeya_recover_first_working_session_preparation(");
+    expect(sql).toContain("v_jwt_role text := auth.role()");
+    expect(sql).toContain("v_database_role text := session_user::text");
+    expect(sql).toContain("v_jwt_role IS DISTINCT FROM 'service_role'");
+    expect(sql).toContain("v_database_role NOT IN ('postgres', 'service_role')");
+    expect(sql).toContain("WHEN v_jwt_role = 'service_role' THEN 'service_role'");
+    expect(sql).toContain("ELSE v_database_role");
+    expect(sql).toContain("recovered_by_role IN ('service_role', 'postgres')");
+    expect(sql).toContain("v_session.preparation_failure_code, v_recovery_actor");
+    expect(sql).not.toContain("v_session.preparation_failure_code, auth.role()");
+    expect(sql).toContain("REVOKE ALL ON FUNCTION public.zeya_recover_first_working_session_preparation(uuid,text,text,text)\n  FROM PUBLIC, anon, authenticated");
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.zeya_recover_first_working_session_preparation(uuid,text,text,text)\n  TO service_role");
+
+    const ledgerInsert = sql.indexOf("INSERT INTO public.direct_hire_first_working_session_preparation_recoveries");
+    const attemptReset = sql.indexOf("UPDATE public.direct_hire_working_sessions");
+    expect(ledgerInsert).toBeGreaterThan(0);
+    expect(attemptReset).toBeGreaterThan(ledgerInsert);
+    for (const unchanged of [
+      "FOR UPDATE", "IF EXISTS", "preparation_attempt_count <> 3",
+      "preparation_lease_id IS NOT NULL", "representation.current_version_id IS NULL",
+      "p_exhausted_contract_version <> 'first-working-session-preparation-v2'",
+      "p_recovery_contract_version <> 'first-working-session-preparation-v3'",
+    ]) expect(sql).toContain(unchanged);
+  });
+  it("ships read-only corrective-migration preflight and postcheck diagnostics", async () => {
+    const files = await Promise.all([
+      readFile("supabase/manual/20260813_direct_hire_first_working_session_preparation_recovery_actor_preflight.sql", "utf8"),
+      readFile("supabase/manual/20260813_direct_hire_first_working_session_preparation_recovery_actor_postcheck.sql", "utf8"),
+    ]);
+    for (const sql of files) {
+      expect(sql).toContain("PASS");
+      expect(sql).toContain("aclexplode(");
+      expect(sql).not.toContain("has_function_privilege('PUBLIC'");
+      expect(sql).not.toMatch(/^\s*(?:INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM|ALTER\s+(?:TABLE|FUNCTION)|CREATE\s+(?:TABLE|FUNCTION)|DROP\s+(?:TABLE|FUNCTION)|TRUNCATE)\b/im);
+    }
+    expect(files[0]).toContain("failed_transaction_left_ledger_empty");
+    expect(files[0]).not.toContain("715f4971-4d3f-4f53-9b89-a9dd703349d8");
+    expect(files[1]).toContain("session_user::text");
+    expect(files[1]).toContain("recovery_object_scope_unchanged");
   });
 });
 
