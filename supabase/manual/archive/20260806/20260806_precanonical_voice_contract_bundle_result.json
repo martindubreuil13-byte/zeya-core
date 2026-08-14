@@ -1,0 +1,192 @@
+{
+	"acl": {
+		"entries": [
+			{
+				"grantee": "postgres",
+				"grantor": "postgres",
+				"is_grantable": false,
+				"privilege_type": "EXECUTE"
+			},
+			{
+				"grantee": "service_role",
+				"grantor": "postgres",
+				"is_grantable": false,
+				"privilege_type": "EXECUTE"
+			}
+		],
+		"anon_execute": false,
+		"public_execute": false,
+		"service_role_execute": true,
+		"authenticated_execute": false
+	},
+	"columns": [
+		{
+			"udt_name": "uuid",
+			"data_type": "uuid",
+			"table_name": "voice_conversation_outputs",
+			"udt_schema": "pg_catalog",
+			"column_name": "canonical_version_id",
+			"is_nullable": "YES",
+			"is_generated": "NEVER",
+			"column_default": null,
+			"ordinal_position": 6,
+			"generation_expression": null
+		},
+		{
+			"udt_name": "text",
+			"data_type": "text",
+			"table_name": "voice_conversation_outputs",
+			"udt_schema": "pg_catalog",
+			"column_name": "representation_context_mode",
+			"is_nullable": "NO",
+			"is_generated": "NEVER",
+			"column_default": "'canonical'::text",
+			"ordinal_position": 35,
+			"generation_expression": null
+		},
+		{
+			"udt_name": "uuid",
+			"data_type": "uuid",
+			"table_name": "voice_representation_lineage",
+			"udt_schema": "pg_catalog",
+			"column_name": "canonical_version_id",
+			"is_nullable": "YES",
+			"is_generated": "NEVER",
+			"column_default": null,
+			"ordinal_position": 9,
+			"generation_expression": null
+		},
+		{
+			"udt_name": "text",
+			"data_type": "text",
+			"table_name": "voice_representation_lineage",
+			"udt_schema": "pg_catalog",
+			"column_name": "representation_context_mode",
+			"is_nullable": "NO",
+			"is_generated": "NEVER",
+			"column_default": "'canonical'::text",
+			"ordinal_position": 20,
+			"generation_expression": null
+		}
+	],
+	"indexes": [
+		{
+			"indexname": "voice_conversation_outputs_id_tenant_user_id_business_id_bu_key",
+			"definition": "CREATE UNIQUE INDEX voice_conversation_outputs_id_tenant_user_id_business_id_bu_key ON public.voice_conversation_outputs USING btree (id, tenant_user_id, business_id, business_representation_id, canonical_version_id)",
+			"table_name": "voice_conversation_outputs"
+		},
+		{
+			"indexname": "voice_outputs_governed_learning_identity_idx",
+			"definition": "CREATE UNIQUE INDEX voice_outputs_governed_learning_identity_idx ON public.voice_conversation_outputs USING btree (id, voice_context_id, tenant_user_id, business_id, business_representation_id, canonical_version_id)",
+			"table_name": "voice_conversation_outputs"
+		},
+		{
+			"indexname": "voice_outputs_review_identity_idx",
+			"definition": "CREATE UNIQUE INDEX voice_outputs_review_identity_idx ON public.voice_conversation_outputs USING btree (id, voice_context_id, tenant_user_id, business_id, business_representation_id, canonical_version_id)",
+			"table_name": "voice_conversation_outputs"
+		},
+		{
+			"indexname": "voice_lineage_identity_idx",
+			"definition": "CREATE UNIQUE INDEX voice_lineage_identity_idx ON public.voice_representation_lineage USING btree (voice_context_id, tenant_user_id, business_id, business_representation_id, canonical_version_id)",
+			"table_name": "voice_representation_lineage"
+		},
+		{
+			"indexname": "voice_lineage_version_idx",
+			"definition": "CREATE INDEX voice_lineage_version_idx ON public.voice_representation_lineage USING btree (canonical_version_id)",
+			"table_name": "voice_representation_lineage"
+		}
+	],
+	"function": {
+		"owner_role": "postgres",
+		"result_type": "void",
+		"function_name": "zeya_create_pre_canonical_voice_representation_lineage",
+		"security_definer": true,
+		"function_settings": [
+			"search_path=\"\""
+		],
+		"identity_arguments": "p_voice_context_id uuid, p_worker_brief_id text, p_mission_id text, p_conversation_id text, p_tenant_user_id uuid, p_business_id uuid, p_business_representation_id uuid, p_canonical_version_id uuid, p_context_generated_at timestamp with time zone, p_authorized_element_keys text[], p_provisional_mode boolean, p_agent_id text, p_agent_type text, p_agent_role text, p_context_schema_version text, p_prompt_assembly_version text",
+		"function_definition": "CREATE OR REPLACE FUNCTION public.zeya_create_pre_canonical_voice_representation_lineage(p_voice_context_id uuid, p_worker_brief_id text, p_mission_id text, p_conversation_id text, p_tenant_user_id uuid, p_business_id uuid, p_business_representation_id uuid, p_canonical_version_id uuid, p_context_generated_at timestamp with time zone, p_authorized_element_keys text[], p_provisional_mode boolean, p_agent_id text, p_agent_type text, p_agent_role text, p_context_schema_version text, p_prompt_assembly_version text)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\nDECLARE\n  locked_representation_id uuid;\nBEGIN\n  IF auth.role() IS DISTINCT FROM 'service_role' THEN\n    RAISE EXCEPTION USING\n      ERRCODE = '42501',\n      MESSAGE = 'lineage write not authorized';\n  END IF;\n\n  IF p_voice_context_id IS NULL\n     OR p_worker_brief_id IS NULL\n     OR btrim(p_worker_brief_id) = ''\n     OR p_mission_id IS NULL\n     OR btrim(p_mission_id) = ''\n     OR p_conversation_id IS NULL\n     OR btrim(p_conversation_id) = ''\n     OR p_tenant_user_id IS NULL\n     OR p_business_id IS NULL\n     OR p_business_representation_id IS NULL\n     OR p_context_generated_at IS NULL\n     OR p_agent_id IS NULL\n     OR btrim(p_agent_id) = ''\n     OR p_agent_type IS NULL\n     OR btrim(p_agent_type) = ''\n     OR p_agent_role IS NULL\n     OR btrim(p_agent_role) = ''\n     OR p_context_schema_version IS NULL\n     OR btrim(p_context_schema_version) = ''\n     OR p_prompt_assembly_version IS NULL\n     OR btrim(p_prompt_assembly_version) = '' THEN\n    RAISE EXCEPTION USING\n      ERRCODE = '22023',\n      MESSAGE = 'invalid pre-canonical lineage identity';\n  END IF;\n\n  IF p_canonical_version_id IS NOT NULL\n     OR p_provisional_mode IS DISTINCT FROM true\n     OR COALESCE(\n       cardinality(p_authorized_element_keys),\n       0\n     ) <> 0 THEN\n    RAISE EXCEPTION USING\n      ERRCODE = '22023',\n      MESSAGE = 'invalid pre-canonical lineage';\n  END IF;\n\n  -- Lock the exact Representation before checking Version absence.\n  -- This prevents a concurrent foreign-key-backed Version insertion from\n  -- crossing this clean-owner validation boundary.\n  SELECT representation.id\n  INTO locked_representation_id\n  FROM public.business_representations AS representation\n  WHERE representation.id =\n      p_business_representation_id\n    AND representation.business_id =\n      p_business_id\n    AND representation.user_id =\n      p_tenant_user_id\n  FOR UPDATE;\n\n  IF locked_representation_id IS NULL THEN\n    RAISE EXCEPTION USING\n      ERRCODE = 'PZ404',\n      MESSAGE = 'pre-canonical context not found';\n  END IF;\n\n  IF NOT EXISTS (\n    SELECT 1\n    FROM public.businesses AS business\n    WHERE business.id = p_business_id\n      AND business.user_id = p_tenant_user_id\n  ) THEN\n    RAISE EXCEPTION USING\n      ERRCODE = 'PZ404',\n      MESSAGE = 'pre-canonical context not found';\n  END IF;\n\n  IF EXISTS (\n    SELECT 1\n    FROM public.business_representations AS representation\n    WHERE representation.id =\n        locked_representation_id\n      AND representation.current_version_id IS NOT NULL\n  ) THEN\n    RAISE EXCEPTION USING\n      ERRCODE = 'PZ409',\n      MESSAGE = 'pre-canonical context unavailable';\n  END IF;\n\n  IF EXISTS (\n    SELECT 1\n    FROM public.representation_versions AS version\n    WHERE version.business_representation_id =\n      locked_representation_id\n  ) THEN\n    RAISE EXCEPTION USING\n      ERRCODE = 'PZ409',\n      MESSAGE = 'pre-canonical context unavailable';\n  END IF;\n\n  INSERT INTO public.voice_representation_lineage (\n    voice_context_id,\n    worker_brief_id,\n    mission_id,\n    conversation_id,\n    tenant_user_id,\n    business_id,\n    business_representation_id,\n    canonical_version_id,\n    representation_context_mode,\n    context_generated_at,\n    authorized_element_keys,\n    provisional_mode,\n    agent_id,\n    agent_type,\n    agent_role,\n    context_schema_version,\n    prompt_assembly_version\n  )\n  VALUES (\n    p_voice_context_id,\n    p_worker_brief_id,\n    p_mission_id,\n    p_conversation_id,\n    p_tenant_user_id,\n    p_business_id,\n    locked_representation_id,\n    NULL,\n    'pre_canonical',\n    p_context_generated_at,\n    ARRAY[]::text[],\n    true,\n    p_agent_id,\n    p_agent_type,\n    p_agent_role,\n    p_context_schema_version,\n    p_prompt_assembly_version\n  );\nEND\n$function$\n",
+		"credential_shaped_literal_detected": false
+	},
+	"triggers": [
+		{
+			"definition": "CREATE TRIGGER zeya_voice_output_immutability BEFORE UPDATE ON voice_conversation_outputs FOR EACH ROW EXECUTE FUNCTION zeya_enforce_voice_output_immutability()",
+			"table_name": "voice_conversation_outputs",
+			"trigger_name": "zeya_voice_output_immutability",
+			"trigger_function_identity_arguments": ""
+		},
+		{
+			"definition": "CREATE TRIGGER zeya_voice_lineage_immutability BEFORE UPDATE ON voice_representation_lineage FOR EACH ROW EXECUTE FUNCTION zeya_enforce_voice_lineage_immutability()",
+			"table_name": "voice_representation_lineage",
+			"trigger_name": "zeya_voice_lineage_immutability",
+			"trigger_function_identity_arguments": ""
+		}
+	],
+	"dependencies": [
+		{
+			"deptype": "n",
+			"direction": "depends_on",
+			"related_object": "language plpgsql"
+		},
+		{
+			"deptype": "n",
+			"direction": "depends_on",
+			"related_object": "schema public"
+		}
+	],
+	"foreign_keys": [
+		{
+			"definition": "FOREIGN KEY (voice_context_id, tenant_user_id, business_id, business_representation_id, canonical_version_id) REFERENCES voice_representation_lineage(voice_context_id, tenant_user_id, business_id, business_representation_id, canonical_version_id) ON DELETE RESTRICT",
+			"table_name": "voice_conversation_outputs",
+			"constraint_name": "voice_output_lineage_identity_fk"
+		},
+		{
+			"definition": "FOREIGN KEY (canonical_version_id, business_representation_id) REFERENCES representation_versions(id, business_representation_id)",
+			"table_name": "voice_representation_lineage",
+			"constraint_name": "voice_lineage_version_representation_fk"
+		},
+		{
+			"definition": "FOREIGN KEY (canonical_version_id) REFERENCES representation_versions(id) ON DELETE RESTRICT",
+			"table_name": "voice_representation_lineage",
+			"constraint_name": "voice_representation_lineage_canonical_version_id_fkey"
+		}
+	],
+	"check_constraints": [
+		{
+			"definition": "CHECK (representation_context_mode = 'canonical'::text AND canonical_version_id IS NOT NULL OR representation_context_mode = 'pre_canonical'::text AND canonical_version_id IS NULL)",
+			"table_name": "voice_conversation_outputs",
+			"constraint_name": "voice_output_context_mode_check"
+		},
+		{
+			"definition": "CHECK (representation_context_mode = 'canonical'::text AND canonical_version_id IS NOT NULL OR representation_context_mode = 'pre_canonical'::text AND canonical_version_id IS NULL AND provisional_mode)",
+			"table_name": "voice_representation_lineage",
+			"constraint_name": "voice_lineage_context_mode_check"
+		}
+	],
+	"trigger_functions": [
+		{
+			"owner_role": "postgres",
+			"result_type": "trigger",
+			"function_name": "zeya_enforce_voice_lineage_immutability",
+			"security_definer": false,
+			"function_settings": [
+				"search_path=\"\""
+			],
+			"identity_arguments": "",
+			"function_definition": "CREATE OR REPLACE FUNCTION public.zeya_enforce_voice_lineage_immutability()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\nBEGIN\n  IF NEW.voice_context_id IS DISTINCT FROM OLD.voice_context_id\n     OR NEW.worker_brief_id IS DISTINCT FROM OLD.worker_brief_id\n     OR NEW.mission_id IS DISTINCT FROM OLD.mission_id\n     OR NEW.tenant_user_id IS DISTINCT FROM OLD.tenant_user_id\n     OR NEW.business_id IS DISTINCT FROM OLD.business_id\n     OR NEW.business_representation_id IS DISTINCT FROM OLD.business_representation_id\n     OR NEW.canonical_version_id IS DISTINCT FROM OLD.canonical_version_id\n     OR NEW.context_generated_at IS DISTINCT FROM OLD.context_generated_at\n     OR NEW.authorized_element_keys IS DISTINCT FROM OLD.authorized_element_keys\n     OR NEW.provisional_mode IS DISTINCT FROM OLD.provisional_mode\n     OR NEW.agent_id IS DISTINCT FROM OLD.agent_id\n     OR NEW.agent_type IS DISTINCT FROM OLD.agent_type\n     OR NEW.agent_role IS DISTINCT FROM OLD.agent_role\n     OR NEW.context_schema_version IS DISTINCT FROM OLD.context_schema_version\n     OR NEW.prompt_assembly_version IS DISTINCT FROM OLD.prompt_assembly_version\n     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'voice lineage provenance is immutable';\n  END IF;\n\n  RETURN NEW;\nEND;\n$function$\n",
+			"credential_shaped_literal_detected": false
+		},
+		{
+			"owner_role": "postgres",
+			"result_type": "trigger",
+			"function_name": "zeya_enforce_voice_output_immutability",
+			"security_definer": false,
+			"function_settings": [
+				"search_path=\"\""
+			],
+			"identity_arguments": "",
+			"function_definition": "CREATE OR REPLACE FUNCTION public.zeya_enforce_voice_output_immutability()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\nDECLARE\n  v_delayed_finalization BOOLEAN;\n  v_extraction_completion BOOLEAN;\nBEGIN\n  v_delayed_finalization :=\n    OLD.capture_source = 'status_only'\n    AND OLD.transcript_status IN ('missing', 'pending', 'unavailable')\n    AND OLD.transcript = '[]'::jsonb\n    AND OLD.transcript_trust_level = 'status_only'\n    AND NOT OLD.provider_attested\n    AND NEW.capture_source = OLD.capture_source\n    AND NEW.transcript_status = 'finalized'\n    AND jsonb_array_length(NEW.transcript) > 0\n    AND NEW.transcript_trust_level = 'provider_attested'\n    AND NEW.provider_attested;\n\n  v_extraction_completion :=\n    OLD.completed_extraction_schema_version IS NULL\n    AND OLD.extraction_result_hash IS NULL\n    AND OLD.extracted_candidate_count IS NULL\n    AND NEW.completed_extraction_schema_version IS NOT NULL\n    AND NEW.extraction_result_hash IS NOT NULL\n    AND NEW.extracted_candidate_count IS NOT NULL\n    AND NEW.extracted_candidate_count >= 0\n    AND NEW.completed_extraction_schema_version = NEW.extraction_schema_version\n    AND NEW.processing_status = 'completed';\n\n  IF NEW.id IS DISTINCT FROM OLD.id\n     OR NEW.voice_context_id IS DISTINCT FROM OLD.voice_context_id\n     OR NEW.tenant_user_id IS DISTINCT FROM OLD.tenant_user_id\n     OR NEW.business_id IS DISTINCT FROM OLD.business_id\n     OR NEW.business_representation_id IS DISTINCT FROM OLD.business_representation_id\n     OR NEW.canonical_version_id IS DISTINCT FROM OLD.canonical_version_id\n     OR NEW.agent_id IS DISTINCT FROM OLD.agent_id\n     OR NEW.agent_type IS DISTINCT FROM OLD.agent_type\n     OR NEW.provider IS DISTINCT FROM OLD.provider\n     OR NEW.conversation_id IS DISTINCT FROM OLD.conversation_id\n     OR NEW.provider_call_id IS DISTINCT FROM OLD.provider_call_id\n     OR NEW.channel IS DISTINCT FROM OLD.channel\n     OR NEW.capture_source IS DISTINCT FROM OLD.capture_source\n     OR NEW.submitted_by IS DISTINCT FROM OLD.submitted_by\n     OR NEW.started_at IS DISTINCT FROM OLD.started_at\n     OR NEW.transcript_schema_version IS DISTINCT FROM OLD.transcript_schema_version\n     OR NEW.extraction_schema_version IS DISTINCT FROM OLD.extraction_schema_version\n     OR NEW.worker_brief_id IS DISTINCT FROM OLD.worker_brief_id\n     OR NEW.mission_id IS DISTINCT FROM OLD.mission_id\n     OR NEW.safe_metadata IS DISTINCT FROM OLD.safe_metadata\n     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'conversation output provenance is immutable';\n  END IF;\n  IF (NEW.transcript IS DISTINCT FROM OLD.transcript\n      OR NEW.transcript_status IS DISTINCT FROM OLD.transcript_status\n      OR NEW.transcript_trust_level IS DISTINCT FROM OLD.transcript_trust_level\n      OR NEW.provider_attested IS DISTINCT FROM OLD.provider_attested)\n     AND NOT v_delayed_finalization THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'transcript state is immutable';\n  END IF;\n  IF (NEW.completed_at IS DISTINCT FROM OLD.completed_at\n      OR NEW.conversation_status IS DISTINCT FROM OLD.conversation_status\n      OR NEW.completion_reason IS DISTINCT FROM OLD.completion_reason)\n     AND NOT v_delayed_finalization THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'conversation completion is immutable';\n  END IF;\n  IF (NEW.completed_extraction_schema_version IS DISTINCT FROM OLD.completed_extraction_schema_version\n      OR NEW.extraction_result_hash IS DISTINCT FROM OLD.extraction_result_hash\n      OR NEW.extracted_candidate_count IS DISTINCT FROM OLD.extracted_candidate_count)\n     AND NOT v_extraction_completion THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'extraction result identity is immutable';\n  END IF;\n  IF NEW.processing_status IS DISTINCT FROM OLD.processing_status\n     AND NOT v_extraction_completion\n     AND NOT (v_delayed_finalization AND NEW.processing_status = 'captured')\n     AND NOT (\n       (OLD.processing_status = 'captured' AND NEW.processing_status IN ('extracting', 'failed'))\n       OR (OLD.processing_status = 'extracting' AND NEW.processing_status = 'failed')\n       OR (OLD.processing_status = 'failed' AND NEW.processing_status = 'extracting')\n     ) THEN\n    RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'invalid conversation processing transition';\n  END IF;\n  RETURN NEW;\nEND;\n$function$\n",
+			"credential_shaped_literal_detected": false
+		}
+	]
+}

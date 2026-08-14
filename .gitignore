@@ -16,3 +16,6 @@ pnpm-debug.log*
 # Local tooling and generated TypeScript state
 .claude/
 *.tsbuildinfo
+
+# Local generated architecture export
+/ZEYA_Customer_Journey_Architecture_v1.pdf
