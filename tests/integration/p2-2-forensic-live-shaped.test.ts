@@ -188,6 +188,7 @@ describe("P2.2 forensic live-shaped end-to-end contract", () => {
     expect(schema.properties.formationPriorities.maxItems).toBe(7);
     expect(schema.properties.contradictions.items.properties.evidenceIds.minItems).toBe(2);
     expect(schema.properties.authorityGaps.items.properties.hypothesisIds.items.enum).toEqual([fixture.hypotheses[5].id]);
+    expect(JSON.stringify(schema)).not.toContain("uniqueItems");
 
     const first = await buildFirstWorkingSessionBriefArtifact(inputs, fixture.reasoningRunId, async () => brief);
     const replay = await buildFirstWorkingSessionBriefArtifact(inputs, fixture.reasoningRunId, async () => brief);
@@ -215,6 +216,7 @@ describe("P2.2 forensic live-shaped end-to-end contract", () => {
     ["authority gap without authority hypothesis", (brief: any) => ({ ...brief, authorityGaps: [{ ...brief.authorityGaps[0], hypothesisIds: [] }] }), "brief_authority_gap_invalid"],
     ["formation priority without basis", (brief: any) => ({ ...brief, formationPriorities: [{ ...brief.formationPriorities[0], evidenceIds: [], hypothesisIds: [] }, ...brief.formationPriorities.slice(1)] }), "brief_semantic_interpretation_invalid"],
     ["contradiction without conflicting basis", (brief: any) => ({ ...brief, contradictions: [{ statement: "The sources conflict.", kind: "contradiction", evidenceIds: [IDS.v2Home], hypothesisIds: [brief.businessRead.hypothesisIds[0]] }] }), "brief_contradiction_invalid"],
+    ["duplicate citation", (brief: any) => ({ ...brief, businessRead: { ...brief.businessRead, evidenceIds: [IDS.v2Home, IDS.v2Home] } }), "brief_citation_scope_invalid"],
   ])("fails %s at a stable category", async (_label, mutate, category) => {
     const fixture = liveFixture();
     const inputs = { evidence: toEvidenceInput(fixture.effective), observations: toObservationInput(fixture.observations), hypotheses: fixture.hypotheses };

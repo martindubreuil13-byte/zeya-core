@@ -76,7 +76,7 @@ export function buildFirstWorkingSessionBriefSchema(inputs: BriefInputs) {
   const authorityHypothesisIds = inputs.hypotheses
     .filter((item) => item.constitutionalDomain === "authorityBoundaries").map((item) => item.id);
   const citationArray = (ids: string[], minItems = 0) => ({
-    type: "array", items: { type: "string", enum: ids }, minItems, uniqueItems: true,
+    type: "array", items: { type: "string", enum: ids }, minItems,
   });
   const statementObject = (
     kinds: BriefStatementKind[], evidenceMinimum: number,
