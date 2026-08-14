@@ -12,6 +12,9 @@ import {
 } from "./persist-hypotheses-orchestration";
 import type { EvidenceInput, ObservationInput } from "./hypothesis-reasoning-types";
 
+export const FIRST_WORKING_SESSION_BRIEF_MODEL = "gpt-4o";
+export const FIRST_WORKING_SESSION_OPENAI_SDK_VERSION = "6.39.0";
+
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
   "first-working-session-preparation-v3";
 
@@ -155,6 +158,7 @@ Questions must reduce representation risk or improve outbound business-developme
 Questions and verification priorities may ask whether an unsupported matter is true, but must not assert that it is true. Authority gaps may name pricing, negotiation, promises, commitments, and escalation specifically as unknown categories.
 Business Read and working opinions must synthesize distinctive patterns across inputs rather than paraphrase a meta description.
 Do not invent contradiction resolution, market size, geography, customer segment, regulatory status, authority, pricing, timelines, guarantees, promises, commitments, superlatives, quantitative performance, jargon, or facts. Concrete assertions must appear in the cited governed basis: supported findings use cited Evidence; interpretations and working opinions may also use cited current hypotheses.
+Do not use guarded superlative words such as "leading", "best", "largest", or "number one" merely to mean prominent or central; use neutral wording unless the exact claim is present in the cited governed basis.
 Return conclusions only: never chain-of-thought, hidden reasoning, or provider commentary.
 GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
 GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
@@ -460,17 +464,37 @@ export function validateFirstWorkingSessionBrief(
   return brief;
 }
 
+export function buildFirstWorkingSessionBriefProviderRequest(
+  prompt: string,
+  schema: Record<string, unknown>,
+) {
+  return {
+    model: FIRST_WORKING_SESSION_BRIEF_MODEL,
+    instructions: prompt,
+    input: [{ role: "user" as const, content: "Produce the governed first-working-session brief." }],
+    text: {
+      format: {
+        type: "json_schema" as const,
+        name: "first_working_session_brief",
+        schema,
+        strict: true,
+      },
+    },
+  };
+}
+
+export function createFirstWorkingSessionBriefOpenAIClient(): OpenAI {
+  return new OpenAI();
+}
+
 async function defaultGenerator(prompt: string, schema: Record<string, unknown>): Promise<unknown> {
   if (!process.env.OPENAI_API_KEY) {
     throw new FirstWorkingSessionPreparationStageError("brief_provider_unavailable");
   }
   try {
-    const response = await new OpenAI().responses.create({
-      model: "gpt-4o",
-      instructions: prompt,
-      input: [{ role: "user", content: "Produce the governed first-working-session brief." }],
-      text: { format: { type: "json_schema", name: "first_working_session_brief", schema, strict: true } },
-    });
+    const response = await createFirstWorkingSessionBriefOpenAIClient().responses.create(
+      buildFirstWorkingSessionBriefProviderRequest(prompt, schema),
+    );
     try {
       return JSON.parse(response.output_text);
     } catch {
