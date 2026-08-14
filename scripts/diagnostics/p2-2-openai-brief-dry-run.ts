@@ -6,6 +6,7 @@ import {
   buildFirstWorkingSessionBriefProviderRequest,
   buildFirstWorkingSessionBriefSchema,
   buildFirstWorkingSessionFinalizationPayload,
+  collectFirstWorkingSessionBriefValidation,
   createFirstWorkingSessionBriefOpenAIClient,
   FIRST_WORKING_SESSION_BRIEF_MODEL,
   FIRST_WORKING_SESSION_OPENAI_SDK_VERSION,
@@ -263,6 +264,82 @@ async function main() {
     required: ["ok"],
     additionalProperties: false,
   };
+
+  const stabilityArgument = process.argv.find((argument) => argument.startsWith("--stability-runs="));
+  if (stabilityArgument) {
+    const runCount = Number.parseInt(stabilityArgument.split("=")[1] ?? "", 10);
+    if (!Number.isInteger(runCount) || runCount < 1 || runCount > 50) {
+      throw new Error("--stability-runs must be an integer from 1 to 50");
+    }
+    const results: Array<{
+      run: number; result: "PASS" | "FAIL"; providerCalls: number; revisionCount: number;
+      initialCategory: string | null; terminalCategory: string | null; validatorRule: string | null;
+      durationMs: number;
+    }> = [];
+    for (let run = 1; run <= runCount; run += 1) {
+      const startedAt = Date.now();
+      let providerCalls = 0;
+      let initialCategory: string | null = null;
+      try {
+        const artifact = await buildFirstWorkingSessionBriefArtifact(
+          inputs,
+          reasoningRunId,
+          async (providerPrompt, providerSchema) => {
+            providerCalls += 1;
+            const response = await client.responses.create(
+              buildFirstWorkingSessionBriefProviderRequest(providerPrompt, providerSchema),
+            );
+            const candidate = JSON.parse(response.output_text);
+            if (providerCalls === 1) {
+              initialCategory = collectFirstWorkingSessionBriefValidation(candidate, inputs).terminalCategory;
+            }
+            return candidate;
+          },
+          { maxRevisions: 2 },
+        );
+        buildFirstWorkingSessionFinalizationPayload(IDS.workingSession, IDS.lease, artifact);
+        results.push({
+          run, result: "PASS", providerCalls, revisionCount: artifact.telemetry.revisionCount,
+          initialCategory, terminalCategory: null, validatorRule: null,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (error) {
+        const stageError = error as {
+          stageCode?: string;
+          validatorRule?: string;
+        };
+        const providerError = safeOpenAIProviderError(error);
+        const terminalCategory = stageError.stageCode
+          ?? [providerError.httpStatus, providerError.openaiErrorType, providerError.openaiErrorCode]
+            .filter((value) => value !== null && value !== undefined).join(":")
+          ?? "provider_failure";
+        results.push({
+          run, result: "FAIL", providerCalls, revisionCount: Math.max(0, providerCalls - 1),
+          initialCategory, terminalCategory: terminalCategory || "provider_failure",
+          validatorRule: stageError.validatorRule ?? null,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+      console.log("STABILITY PROGRESS", { completed: run, total: runCount });
+      if (run < runCount) await new Promise((resolve) => setTimeout(resolve, 10_000));
+    }
+    const durations = results.map((result) => result.durationMs).sort((a, b) => a - b);
+    const passCount = results.filter((result) => result.result === "PASS").length;
+    console.log("\nSTABILITY RESULTS", results);
+    console.log("\nSTABILITY SUMMARY", {
+      initialPassCount: results.filter((result) => result.result === "PASS" && result.providerCalls === 1).length,
+      revision1RecoveryCount: results.filter((result) => result.result === "PASS" && result.providerCalls === 2).length,
+      revision2RecoveryCount: results.filter((result) => result.result === "PASS" && result.providerCalls === 3).length,
+      terminalFailures: runCount - passCount,
+      finalPassCount: passCount,
+      averageProviderCalls: results.reduce((sum, result) => sum + result.providerCalls, 0) / runCount,
+      maxProviderCalls: Math.max(...results.map((result) => result.providerCalls)),
+      durationMs: { min: durations[0], median: durations[Math.floor(durations.length / 2)], max: durations.at(-1) },
+      failureCategories: Object.fromEntries([...new Set(results.filter((result) => result.result === "FAIL").map((result) => result.terminalCategory))]
+        .map((category) => [category, results.filter((result) => result.terminalCategory === category).length])),
+    });
+    return;
+  }
 
   console.log({ openaiSdkVersion: FIRST_WORKING_SESSION_OPENAI_SDK_VERSION, model: FIRST_WORKING_SESSION_BRIEF_MODEL });
   const used = [...schemaKeywords(schema)].sort();

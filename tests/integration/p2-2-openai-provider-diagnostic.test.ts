@@ -6,6 +6,8 @@ import {
   buildFirstWorkingSessionBriefPrompt,
   buildFirstWorkingSessionBriefProviderRequest,
   buildFirstWorkingSessionBriefSchema,
+  collectFirstWorkingSessionBriefValidation,
+  synthesizeFirstWorkingSessionBriefWithRevisions,
   validateFirstWorkingSessionBriefCandidates,
   FIRST_WORKING_SESSION_BRIEF_MODEL,
   FIRST_WORKING_SESSION_OPENAI_SDK_VERSION,
@@ -95,7 +97,7 @@ describe("P2.2 deployed OpenAI provider diagnostic", () => {
     const invalid = validFixtureBrief();
     invalid.businessRead.evidenceIds = [];
     invalid.businessRead.hypothesisIds = [];
-    const outputs = [{ ok: true }, {}, invalid];
+    const outputs = [{ ok: true }, {}, invalid, invalid, invalid];
     let callIndex = 0;
     const client = {
       responses: {
@@ -111,7 +113,7 @@ describe("P2.2 deployed OpenAI provider diagnostic", () => {
     expect(calls[2].validationFailure).toEqual({
       section: "businessRead",
       kind: "interpretation",
-      category: "brief_semantic_interpretation_invalid",
+      category: "brief_semantic_revision_exhausted",
       validatorRule: "interpretation_or_working_opinion_basis_required",
     });
     expect(JSON.stringify(calls[2])).not.toContain(invalid.businessRead.statement);
@@ -167,5 +169,125 @@ describe("P2.2 deployed OpenAI provider diagnostic", () => {
     }])[0];
     expect(result.accepted).toBe(expectedAccepted);
     expect(result.validatorRule).toBe(expectedRule);
+  });
+});
+
+describe("P2.2 bounded semantic revision", () => {
+  const invalidCustomerCitation = () => {
+    const brief = validFixtureBrief();
+    brief.businessRead = {
+      ...brief.businessRead,
+      statement: "The business provides architecture for startups.",
+    };
+    return brief;
+  };
+
+  it.each([
+    { label: "initial pass", outputs: () => [validFixtureBrief()], calls: 1, revisions: 0 },
+    { label: "revision one recovery", outputs: () => [invalidCustomerCitation(), validFixtureBrief()], calls: 2, revisions: 1 },
+    { label: "revision two recovery", outputs: () => [invalidCustomerCitation(), invalidCustomerCitation(), validFixtureBrief()], calls: 3, revisions: 2 },
+  ])("supports $label", async ({ outputs, calls, revisions }) => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    const queue = outputs();
+    const prompts: string[] = [];
+    const result = await synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async (prompt) => {
+      prompts.push(prompt);
+      return structuredClone(queue[prompts.length - 1]);
+    });
+    expect(prompts).toHaveLength(calls);
+    expect(result.telemetry.revisionCount).toBe(revisions);
+    expect(result.telemetry.finalValidationPassed).toBe(true);
+  });
+
+  it("exhausts after exactly two unsuccessful revisions", async () => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async () => {
+      calls += 1;
+      return invalidCustomerCitation();
+    })).rejects.toThrow("brief_semantic_revision_exhausted");
+    expect(calls).toBe(3);
+  });
+
+  it("does not revise an out-of-scope namespace failure", async () => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    const invalid = validFixtureBrief();
+    invalid.businessRead.evidenceIds = ["90000000-0000-4000-8000-000000000001"];
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async () => {
+      calls += 1;
+      return invalid;
+    })).rejects.toThrow("brief_citation_scope_invalid");
+    expect(calls).toBe(1);
+  });
+
+  it("stops on revision provider transport failure", async () => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("transport failed");
+      return invalidCustomerCitation();
+    })).rejects.toThrow("transport failed");
+    expect(calls).toBe(2);
+  });
+
+  it("does not begin a revision without the reserved execution budget", async () => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(
+      inputs,
+      async () => { calls += 1; return invalidCustomerCitation(); },
+      { deadlineMs: Date.now() + 79_000 },
+    )).rejects.toThrow("brief_semantic_revision_time_budget_exhausted");
+    expect(calls).toBe(1);
+  });
+
+  it("revalidates the complete candidate and restores required sections", async () => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    const missingAuthority = validFixtureBrief();
+    missingAuthority.authorityGaps = [];
+    const missingPriorities = validFixtureBrief();
+    missingPriorities.formationPriorities = [];
+    const outputs = [invalidCustomerCitation(), missingAuthority, missingPriorities];
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async () => outputs[calls++]))
+      .rejects.toThrow("brief_semantic_revision_exhausted");
+    expect(calls).toBe(3);
+  });
+
+  it("freezes governed inputs and includes all safe defects", async () => {
+    const fixture = buildP22LiveShapedDiagnosticInputs();
+    const before = JSON.stringify(fixture.inputs);
+    const invalid = invalidCustomerCitation();
+    invalid.offerRead = { ...invalid.offerRead, statement: "The leading offer costs $5,000." };
+    const report = collectFirstWorkingSessionBriefValidation(invalid, fixture.inputs);
+    expect(report.defects.length).toBeGreaterThanOrEqual(3);
+    expect(report.defects.every((defect) => defect.section && defect.validatorRule)).toBe(true);
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(fixture.inputs, async () => invalid))
+      .rejects.toThrow("brief_semantic_revision_exhausted");
+    expect(JSON.stringify(fixture.inputs)).toBe(before);
+  });
+
+  it.each([
+    ["fake price", "The package costs $5,000."],
+    ["fake segment", "The business serves Series A SaaS founders."],
+    ["fake geography", "The business serves North American startups."],
+    ["fake compliance", "The company is GDPR compliant."],
+    ["fake guarantee", "The service guarantees scalable growth."],
+    ["fake performance", "Clients grow by 25%."],
+    ["fake superlative", "The company is the leading consultancy."],
+    ["fake timeline", "The team will deliver within 30 days."],
+    ["unauthorized commitment", "Zeya is authorized to commit to delivery."],
+  ])("never launders %s through revision", async (_label, statement) => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    const invalid = validFixtureBrief();
+    invalid.businessRead = { ...invalid.businessRead, statement, kind: "supported_finding" };
+    let calls = 0;
+    await expect(synthesizeFirstWorkingSessionBriefWithRevisions(inputs, async () => {
+      calls += 1;
+      return invalid;
+    })).rejects.toThrow("brief_semantic_revision_exhausted");
+    expect(calls).toBe(3);
   });
 });

@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import type OpenAI from "openai";
 import {
   buildFirstWorkingSessionBriefArtifact,
-  buildFirstWorkingSessionBriefPrompt,
   buildFirstWorkingSessionBriefProviderRequest,
   buildFirstWorkingSessionBriefSchema,
   buildFirstWorkingSessionFinalizationPayload,
@@ -41,6 +40,8 @@ type ProviderCallResult = {
     category: string;
     validatorRule: string | null;
   } | null;
+  generationCount?: number;
+  revisionCount?: number;
 };
 
 function authorized(request: NextRequest): boolean {
@@ -137,7 +138,6 @@ export async function runP22DeployedProviderDiagnostic(
 ) {
   const { inputs, reasoningRunId } = buildP22LiveShapedDiagnosticInputs();
   const productionSchema = buildFirstWorkingSessionBriefSchema(inputs);
-  const productionPrompt = buildFirstWorkingSessionBriefPrompt(inputs);
   const basicSchema = {
     type: "object",
     properties: { ok: { type: "boolean" } },
@@ -152,24 +152,54 @@ export async function runP22DeployedProviderDiagnostic(
     "Return a valid object matching the supplied first-working-session brief schema.",
     productionSchema,
   );
-  const call3 = await runProviderCall(
-    client,
-    "FULL FIXTURE REQUEST",
-    productionPrompt,
-    productionSchema,
-    async (value) => {
-      const artifact = await buildFirstWorkingSessionBriefArtifact(
-        inputs,
-        reasoningRunId,
-        async () => value,
-      );
-      buildFirstWorkingSessionFinalizationPayload(
-        P2_2_DIAGNOSTIC_IDS.workingSession,
-        P2_2_DIAGNOSTIC_IDS.lease,
-        artifact,
-      );
-    },
-  );
+  const startedAt = Date.now();
+  let generationCount = 0;
+  let revisionCount = 0;
+  let call3: ProviderCallResult;
+  try {
+    const artifact = await buildFirstWorkingSessionBriefArtifact(
+      inputs,
+      reasoningRunId,
+      async (prompt, schema) => {
+        generationCount += 1;
+        const response = await client.responses.create(
+          buildFirstWorkingSessionBriefProviderRequest(prompt, schema),
+        );
+        return JSON.parse(response.output_text);
+      },
+      { maxRevisions: 2 },
+    );
+    revisionCount = artifact.telemetry.revisionCount;
+    buildFirstWorkingSessionFinalizationPayload(
+      P2_2_DIAGNOSTIC_IDS.workingSession,
+      P2_2_DIAGNOSTIC_IDS.lease,
+      artifact,
+    );
+    call3 = {
+      name: "FULL FIXTURE REQUEST", success: true, durationMs: Date.now() - startedAt,
+      httpStatus: 200, requestId: null, errorName: null, errorType: null, errorCode: null,
+      errorParam: null, safeMessage: null, responseReceived: true,
+      structuredOutputParsed: true, validationPassed: true, validationFailure: null,
+      generationCount, revisionCount,
+    };
+  } catch (error) {
+    const stageError = error instanceof FirstWorkingSessionPreparationStageError ? error : null;
+    const diagnostic = safeOpenAIProviderError(error);
+    call3 = {
+      name: "FULL FIXTURE REQUEST", success: false, durationMs: Date.now() - startedAt,
+      httpStatus: diagnostic.httpStatus ?? (generationCount > 0 ? 200 : null), requestId: null,
+      errorName: error instanceof Error ? error.constructor.name : typeof error,
+      errorType: diagnostic.openaiErrorType, errorCode: diagnostic.openaiErrorCode,
+      errorParam: diagnostic.param, safeMessage: stageError ? stageError.stageCode : safeMessage(diagnostic.providerMessage),
+      responseReceived: generationCount > 0, structuredOutputParsed: generationCount > 0,
+      validationPassed: false,
+      validationFailure: stageError?.stageCode.startsWith("brief_semantic_") ? {
+        section: stageError.section ?? null, kind: stageError.statementKind ?? null,
+        category: stageError.stageCode, validatorRule: stageError.validatorRule ?? null,
+      } : null,
+      generationCount, revisionCount: Math.max(0, generationCount - 1),
+    };
+  }
   return [call1, call2, call3];
 }
 

@@ -51,7 +51,8 @@ export type FirstWorkingSessionPreparationStageCode =
   | "brief_semantic_interpretation_invalid" | "brief_semantic_working_opinion_invalid"
   | "brief_authority_gap_invalid" | "brief_formation_priority_invalid"
   | "brief_contradiction_invalid" | "brief_finalization_payload_invalid"
-  | "brief_database_finalization_failed";
+  | "brief_database_finalization_failed" | "brief_semantic_revision_exhausted"
+  | "brief_semantic_revision_time_budget_exhausted";
 
 export class FirstWorkingSessionPreparationStageError extends Error {
   constructor(
@@ -59,6 +60,8 @@ export class FirstWorkingSessionPreparationStageError extends Error {
     public readonly section?: BriefSection,
     public readonly statementKind?: BriefStatementKind,
     public readonly validatorRule?: string,
+    public readonly statementIndex?: number | null,
+    public readonly revisionTelemetry?: BriefRevisionTelemetry,
   ) {
     super(stageCode);
     this.name = "FirstWorkingSessionPreparationStageError";
@@ -67,7 +70,7 @@ export class FirstWorkingSessionPreparationStageError extends Error {
 
 type Scope = { ownerId: string; businessId: string; businessRepresentationId: string; onboardingSessionId: string };
 export type BriefInputs = { evidence: EvidenceInput[]; observations: ObservationInput[]; hypotheses: CurrentPreparationHypothesis[] };
-type BriefGenerator = (prompt: string, schema: Record<string, unknown>) => Promise<unknown>;
+export type BriefGenerator = (prompt: string, schema: Record<string, unknown>) => Promise<unknown>;
 
 const arraySectionNames = ["commercialSignals", "contradictions", "unknowns", "workingOpinions", "formationPriorities", "openingInsights", "questions", "authorityGaps"] as const;
 const singletonSectionNames = ["businessRead", "offerRead", "customerRead", "problemOutcomeRead", "positioningRead"] as const;
@@ -176,6 +179,26 @@ CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses.map((hypothesis) => ({
 })))}`;
 }
 
+export function buildFirstWorkingSessionBriefRevisionPrompt(
+  inputs: BriefInputs,
+  candidate: unknown,
+  defects: BriefSemanticDefect[],
+  revisionNumber: 1 | 2,
+): string {
+  return `Repair this brief only to satisfy the supplied validation defects.
+Preserve valid content where possible.
+Remove unsupported premises when governed support does not exist.
+Add citations only when the supplied governed Evidence directly supports that premise.
+Do not introduce new factual premises, Evidence, hypotheses, authority, commitments, pricing, performance claims, customer segments, geography, compliance claims, guarantees, or conclusions.
+Return the complete corrected brief. Do not return a patch, explanation, or reasoning.
+REVISION NUMBER:\n${revisionNumber}
+CURRENT CANDIDATE:\n${JSON.stringify(candidate)}
+VALIDATION DEFECTS:\n${JSON.stringify(defects)}
+FROZEN GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
+FROZEN GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
+FROZEN CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses)}`;
+}
+
 function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
   return [
     ...singletonSectionNames.map((key) => brief[key]),
@@ -183,7 +206,7 @@ function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
   ];
 }
 
-type BriefSection = typeof singletonSectionNames[number] | typeof arraySectionNames[number];
+export type BriefSection = typeof singletonSectionNames[number] | typeof arraySectionNames[number];
 
 function statementEntries(brief: FirstWorkingSessionBrief): Array<{ section: BriefSection; item: BriefStatement }> {
   return [
@@ -289,25 +312,44 @@ function claimSupported(claim: GuardedClaim, basis: string): boolean {
   return markerTokens.every((token) => normalizedBasis.split(" ").includes(token));
 }
 
+export type BriefSemanticDefect = {
+  section: BriefSection;
+  statementIndex: number | null;
+  kind: BriefStatementKind;
+  category: FirstWorkingSessionPreparationStageCode;
+  validatorRule: string;
+  guardedClaimClass?: GuardedClaimClass;
+  detectedMarker?: string;
+  citedEvidenceIds: string[];
+  citedHypothesisIds: string[];
+  candidateSupportingEvidenceIds?: string[];
+};
+
+function semanticDefect(
+  section: BriefSection,
+  statementIndex: number | null,
+  item: BriefStatement,
+  category: FirstWorkingSessionPreparationStageCode,
+  validatorRule: string,
+  claim?: GuardedClaim,
+  inputs?: BriefInputs,
+): BriefSemanticDefect {
+  const candidateSupportingEvidenceIds = claim && inputs
+    ? inputs.evidence.filter((evidence) => claimSupported(claim, evidence.rawStatement)).map((evidence) => evidence.id)
+    : undefined;
+  return {
+    section, statementIndex, kind: item.kind, category, validatorRule,
+    ...(claim ? { guardedClaimClass: claim.claimClass, detectedMarker: claim.marker } : {}),
+    citedEvidenceIds: [...item.evidenceIds],
+    citedHypothesisIds: [...item.hypothesisIds],
+    ...(candidateSupportingEvidenceIds?.length ? { candidateSupportingEvidenceIds } : {}),
+  };
+}
+
 function isVerificationFraming(section: BriefSection, item: BriefStatement): boolean {
   if (item.kind === "unknown" || section === "questions" || section === "authorityGaps") return true;
   return section === "formationPriorities"
     && /\b(?:clarify|verify|determine|confirm|investigate|whether|review)\b/i.test(item.statement);
-}
-
-function rejectBriefStatement(
-  section: BriefSection,
-  item: BriefStatement,
-  category: FirstWorkingSessionPreparationStageCode,
-  validatorRule: string,
-): never {
-  console.error("[first-working-session-brief] validation_failed", {
-    section,
-    kind: item.kind,
-    category,
-    validatorRule,
-  });
-  throw new FirstWorkingSessionPreparationStageError(category, section, item.kind, validatorRule);
 }
 
 function semanticCategory(item: BriefStatement): FirstWorkingSessionPreparationStageCode {
@@ -317,12 +359,15 @@ function semanticCategory(item: BriefStatement): FirstWorkingSessionPreparationS
   return "brief_semantic_interpretation_invalid";
 }
 
-function validateKindAwareTraceability(
+function collectKindAwareDefects(
   section: BriefSection,
+  statementIndex: number | null,
   item: BriefStatement,
   evidenceById: Map<string, EvidenceInput>,
   hypothesesById: Map<string, CurrentPreparationHypothesis>,
-) {
+  inputs: BriefInputs,
+): BriefSemanticDefect[] {
+  const defects: BriefSemanticDefect[] = [];
   const evidenceBasis = item.evidenceIds.map((id) => evidenceById.get(id)?.rawStatement ?? "");
   const hypothesisBasis = item.hypothesisIds.flatMap((id) => {
     const hypothesis = hypothesesById.get(id);
@@ -333,20 +378,20 @@ function validateKindAwareTraceability(
     : [...evidenceBasis, ...hypothesisBasis].join(" ");
 
   if (item.kind === "supported_finding" && item.evidenceIds.length === 0) {
-    rejectBriefStatement(section, item, "brief_semantic_supported_finding_invalid", "supported_finding_evidence_required");
+    defects.push(semanticDefect(section, statementIndex, item, "brief_semantic_supported_finding_invalid", "supported_finding_evidence_required"));
   }
   if (["interpretation", "working_opinion"].includes(item.kind)
       && item.evidenceIds.length + item.hypothesisIds.length === 0) {
-    rejectBriefStatement(section, item, semanticCategory(item), "interpretation_or_working_opinion_basis_required");
+    defects.push(semanticDefect(section, statementIndex, item, semanticCategory(item), "interpretation_or_working_opinion_basis_required"));
   }
   if (item.kind === "unknown" && item.evidenceIds.length + item.hypothesisIds.length === 0) {
-    rejectBriefStatement(
-      section, item,
+    defects.push(semanticDefect(
+      section, statementIndex, item,
       section === "authorityGaps" ? "brief_authority_gap_invalid"
         : section === "formationPriorities" ? "brief_formation_priority_invalid"
           : "brief_citation_scope_invalid",
       "unknown_basis_required",
-    );
+    ));
   }
   if (item.kind === "contradiction") {
     const citesContradictedHypothesis = item.hypothesisIds.some(
@@ -354,23 +399,41 @@ function validateKindAwareTraceability(
     );
     const distinctEvidenceStatements = new Set(evidenceBasis.map(normalized).filter(Boolean));
     if (!citesContradictedHypothesis || distinctEvidenceStatements.size < 2) {
-      rejectBriefStatement(section, item, "brief_contradiction_invalid", "contradiction_requires_conflicting_evidence_and_contradicted_hypothesis");
+      defects.push(semanticDefect(section, statementIndex, item, "brief_contradiction_invalid", "contradiction_requires_conflicting_evidence_and_contradicted_hypothesis"));
     }
   }
 
   if (!isVerificationFraming(section, item)
       && ["supported_finding", "interpretation", "working_opinion", "contradiction"].includes(item.kind)) {
-    const unsupportedClaim = guardedClaims(item.statement)
-      .find((claim) => !claimSupported(claim, semanticBasis));
-    if (unsupportedClaim) {
-      rejectBriefStatement(
-        section,
-        item,
-        semanticCategory(item),
+    const unsupportedClaims = guardedClaims(item.statement)
+      .filter((claim) => !claimSupported(claim, semanticBasis));
+    for (const unsupportedClaim of unsupportedClaims) {
+      defects.push(semanticDefect(
+        section, statementIndex, item, semanticCategory(item),
         `guarded_concrete_claim_supported_by_cited_basis:${unsupportedClaim.claimClass}`,
-      );
+        unsupportedClaim, inputs,
+      ));
     }
   }
+  return defects;
+}
+
+function validateKindAwareTraceability(
+  section: BriefSection,
+  item: BriefStatement,
+  evidenceById: Map<string, EvidenceInput>,
+  hypothesesById: Map<string, CurrentPreparationHypothesis>,
+  inputs: BriefInputs,
+  statementIndex: number | null = null,
+) {
+  const defect = collectKindAwareDefects(section, statementIndex, item, evidenceById, hypothesesById, inputs)[0];
+  if (!defect) return;
+  console.error("[first-working-session-brief] validation_failed", {
+    section: defect.section, kind: defect.kind, category: defect.category, validatorRule: defect.validatorRule,
+  });
+  throw new FirstWorkingSessionPreparationStageError(
+    defect.category, defect.section, defect.kind, defect.validatorRule, defect.statementIndex,
+  );
 }
 
 export type BriefStatementValidationCandidate = { section: BriefSection; item: BriefStatement };
@@ -391,7 +454,7 @@ export function validateFirstWorkingSessionBriefCandidates(
           || item.hypothesisIds.some((id) => !hypothesesById.has(id))) {
         return { accepted: false, category: "brief_citation_scope_invalid", section, kind: item.kind, validatorRule: "citation_ids_must_be_in_effective_scope" };
       }
-      validateKindAwareTraceability(section, item, evidenceById, hypothesesById);
+      validateKindAwareTraceability(section, item, evidenceById, hypothesesById, inputs);
       return { accepted: true, category: null, section, kind: item.kind, validatorRule: null };
     } catch (error) {
       const category = error instanceof FirstWorkingSessionPreparationStageError
@@ -449,7 +512,7 @@ export function validateFirstWorkingSessionBrief(
         || item.hypothesisIds.some((id) => !hypothesesById.has(id))) {
       throw new FirstWorkingSessionPreparationStageError("brief_citation_scope_invalid");
     }
-    validateKindAwareTraceability(section, item, evidenceById, hypothesesById);
+    validateKindAwareTraceability(section, item, evidenceById, hypothesesById, inputs);
     if (item.kind === "contradiction" && section !== "contradictions") {
       throw new FirstWorkingSessionPreparationStageError("brief_contradiction_invalid");
     }
@@ -484,6 +547,137 @@ export function validateFirstWorkingSessionBrief(
   return brief;
 }
 
+export type BriefValidationReport = {
+  valid: boolean;
+  repairable: boolean;
+  defects: BriefSemanticDefect[];
+  terminalCategory: FirstWorkingSessionPreparationStageCode | null;
+};
+
+export function isRepairableBriefDefect(defect: BriefSemanticDefect): boolean {
+  if (defect.validatorRule === "citation_ids_must_be_in_effective_scope") return false;
+  return [
+    "brief_semantic_supported_finding_invalid",
+    "brief_semantic_interpretation_invalid",
+    "brief_semantic_working_opinion_invalid",
+    "brief_authority_gap_invalid",
+    "brief_formation_priority_invalid",
+    "brief_contradiction_invalid",
+    "brief_citation_scope_invalid",
+  ].includes(defect.category);
+}
+
+function globalDefect(
+  section: BriefSection,
+  category: FirstWorkingSessionPreparationStageCode,
+  validatorRule: string,
+  kind: BriefStatementKind,
+  item?: BriefStatement,
+): BriefSemanticDefect {
+  return {
+    section, statementIndex: null, kind, category, validatorRule,
+    citedEvidenceIds: item ? [...item.evidenceIds] : [],
+    citedHypothesisIds: item ? [...item.hypothesisIds] : [],
+  };
+}
+
+export function collectFirstWorkingSessionBriefValidation(
+  value: unknown,
+  inputs: BriefInputs,
+): BriefValidationReport {
+  try {
+    validateFirstWorkingSessionBrief(value, inputs);
+    return { valid: true, repairable: false, defects: [], terminalCategory: null };
+  } catch (error) {
+    if (!(error instanceof FirstWorkingSessionPreparationStageError)) {
+      return { valid: false, repairable: false, defects: [], terminalCategory: "brief_schema_invalid" };
+    }
+    if (["brief_schema_invalid", "brief_input_snapshot_invalid"].includes(error.stageCode)) {
+      return { valid: false, repairable: false, defects: [], terminalCategory: error.stageCode };
+    }
+    const scope = analyzeBriefEvidenceScope(value, inputs);
+    if (scope.outOfScopeCount > 0) {
+      return { valid: false, repairable: false, defects: [], terminalCategory: "brief_citation_scope_invalid" };
+    }
+  }
+
+  const brief = value as FirstWorkingSessionBrief;
+  const evidenceById = new Map(inputs.evidence.map((item) => [item.id, item]));
+  const hypothesesById = new Map(inputs.hypotheses.map((item) => [item.id, item]));
+  const defects: BriefSemanticDefect[] = [];
+  for (const section of singletonSectionNames) {
+    const item = brief[section];
+    if (item.evidenceIds.some((id) => !evidenceById.has(id)) || item.hypothesisIds.some((id) => !hypothesesById.has(id))) {
+      return { valid: false, repairable: false, defects: [], terminalCategory: "brief_citation_scope_invalid" };
+    }
+    if (new Set(item.evidenceIds).size !== item.evidenceIds.length || new Set(item.hypothesisIds).size !== item.hypothesisIds.length) {
+      defects.push(semanticDefect(section, null, item, "brief_citation_scope_invalid", "citation_ids_must_be_unique"));
+    }
+    defects.push(...collectKindAwareDefects(section, null, brief[section], evidenceById, hypothesesById, inputs));
+  }
+  for (const section of arraySectionNames) {
+    brief[section].forEach((item, statementIndex) => {
+      if (item.evidenceIds.some((id) => !evidenceById.has(id)) || item.hypothesisIds.some((id) => !hypothesesById.has(id))) {
+        defects.push(semanticDefect(section, statementIndex, item, "brief_citation_scope_invalid", "citation_ids_must_be_in_effective_scope"));
+      } else if (new Set(item.evidenceIds).size !== item.evidenceIds.length || new Set(item.hypothesisIds).size !== item.hypothesisIds.length) {
+        defects.push(semanticDefect(section, statementIndex, item, "brief_citation_scope_invalid", "citation_ids_must_be_unique"));
+      }
+      defects.push(...collectKindAwareDefects(section, statementIndex, item, evidenceById, hypothesesById, inputs));
+      if (item.kind === "contradiction" && section !== "contradictions") {
+        defects.push(semanticDefect(section, statementIndex, item, "brief_contradiction_invalid", "contradiction_kind_only_allowed_in_contradictions"));
+      }
+    });
+  }
+  brief.workingOpinions.forEach((item, index) => {
+    if (item.kind !== "working_opinion") defects.push(semanticDefect("workingOpinions", index, item, "brief_semantic_working_opinion_invalid", "working_opinions_kind_required"));
+  });
+  brief.contradictions.forEach((item, index) => {
+    if (item.kind !== "contradiction") defects.push(semanticDefect("contradictions", index, item, "brief_contradiction_invalid", "contradictions_kind_required"));
+  });
+  brief.formationPriorities.forEach((item, index) => {
+    if (!["interpretation", "working_opinion", "unknown"].includes(item.kind)) {
+      defects.push(semanticDefect("formationPriorities", index, item, "brief_formation_priority_invalid", "formation_priority_kind_invalid"));
+    }
+  });
+  brief.questions.forEach((item, index) => {
+    if (!["interpretation", "unknown"].includes(item.kind)) defects.push(semanticDefect("questions", index, item, "brief_citation_scope_invalid", "question_kind_invalid"));
+  });
+  brief.authorityGaps.forEach((item, index) => {
+    if (item.kind !== "unknown") defects.push(semanticDefect("authorityGaps", index, item, "brief_authority_gap_invalid", "authority_gap_kind_required"));
+  });
+  const unresolvedRisk = inputs.hypotheses.some((item) =>
+    ["medium", "high"].includes(item.representationRisk)
+      && (item.epistemicState !== "supported" || item.ownerDecision !== "approved"));
+  if (unresolvedRisk && (brief.formationPriorities.length < 3 || brief.formationPriorities.length > 7)) {
+    defects.push(globalDefect("formationPriorities", "brief_formation_priority_invalid", "formation_priority_count_required", "unknown"));
+  }
+  const authority = inputs.hypotheses.find((item) => item.constitutionalDomain === "authorityBoundaries");
+  if (authority && (authority.epistemicState === "unknown" || authority.representationRisk === "high")) {
+    if (brief.authorityGaps.length === 0) {
+      defects.push(globalDefect("authorityGaps", "brief_authority_gap_invalid", "authority_gap_required", "unknown"));
+    } else {
+      brief.authorityGaps.forEach((item, index) => {
+        if (!item.hypothesisIds.includes(authority.id)) {
+          defects.push(semanticDefect("authorityGaps", index, item, "brief_authority_gap_invalid", "authority_hypothesis_citation_required"));
+        }
+      });
+    }
+  }
+  const unique = [...new Map(defects.map((defect) => [
+    `${defect.section}:${defect.statementIndex}:${defect.validatorRule}:${defect.detectedMarker ?? ""}`,
+    defect,
+  ])).values()];
+  if (unique.length === 0) {
+    return { valid: false, repairable: false, defects: [], terminalCategory: "brief_schema_invalid" };
+  }
+  return {
+    valid: false,
+    repairable: unique.every(isRepairableBriefDefect),
+    defects: unique,
+    terminalCategory: unique[0].category,
+  };
+}
+
 export function buildFirstWorkingSessionBriefProviderRequest(
   prompt: string,
   schema: Record<string, unknown>,
@@ -504,7 +698,7 @@ export function buildFirstWorkingSessionBriefProviderRequest(
 }
 
 export function createFirstWorkingSessionBriefOpenAIClient(): OpenAI {
-  return new OpenAI();
+  return new OpenAI({ timeout: 70_000, maxRetries: 2 });
 }
 
 async function defaultGenerator(prompt: string, schema: Record<string, unknown>): Promise<unknown> {
@@ -527,13 +721,132 @@ async function defaultGenerator(prompt: string, schema: Record<string, unknown>)
 }
 
 export async function synthesizeFirstWorkingSessionBrief(
-  inputs: BriefInputs, generator: BriefGenerator = defaultGenerator,
+  inputs: BriefInputs,
+  generator: BriefGenerator = defaultGenerator,
 ): Promise<FirstWorkingSessionBrief> {
   const value = await generator(buildFirstWorkingSessionBriefPrompt(inputs), buildFirstWorkingSessionBriefSchema(inputs));
   return validateFirstWorkingSessionBrief(value, inputs);
 }
 
-export async function buildFirstWorkingSessionBrief(client: SupabaseClient, scope: Scope) {
+export type BriefRevisionTelemetry = {
+  generationCount: number;
+  revisionCount: number;
+  initialValidationCategory: FirstWorkingSessionPreparationStageCode | null;
+  terminalValidationCategory: FirstWorkingSessionPreparationStageCode | null;
+  revisionExhausted: boolean;
+  finalValidationPassed: boolean;
+  providerDurationsMs: number[];
+};
+
+const MINIMUM_REVISION_REMAINING_MS = 80_000;
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    Object.values(value as Record<string, unknown>).forEach(deepFreeze);
+  }
+  return value;
+}
+
+export async function synthesizeFirstWorkingSessionBriefWithRevisions(
+  sourceInputs: BriefInputs,
+  generator: BriefGenerator = defaultGenerator,
+  options: { deadlineMs?: number; maxRevisions?: 0 | 1 | 2 } = {},
+): Promise<{ brief: FirstWorkingSessionBrief; telemetry: BriefRevisionTelemetry }> {
+  const inputs = deepFreeze(structuredClone(sourceInputs));
+  const schema = buildFirstWorkingSessionBriefSchema(inputs);
+  const telemetry: BriefRevisionTelemetry = {
+    generationCount: 0, revisionCount: 0, initialValidationCategory: null,
+    terminalValidationCategory: null, revisionExhausted: false,
+    finalValidationPassed: false, providerDurationsMs: [],
+  };
+  const invoke = async (prompt: string) => {
+    const startedAt = Date.now();
+    const availableMs = options.deadlineMs === undefined
+      ? undefined
+      : options.deadlineMs - Date.now() - 30_000;
+    if (availableMs !== undefined && availableMs <= 0) {
+      throw new FirstWorkingSessionPreparationStageError("brief_semantic_revision_time_budget_exhausted");
+    }
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      telemetry.generationCount += 1;
+      const request = generator(prompt, schema);
+      if (availableMs === undefined) return await request;
+      return await Promise.race([
+        request,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(
+            new FirstWorkingSessionPreparationStageError("brief_semantic_revision_time_budget_exhausted"),
+          ), availableMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      telemetry.providerDurationsMs.push(Date.now() - startedAt);
+    }
+  };
+  const fail = (
+    category: FirstWorkingSessionPreparationStageCode,
+    defect?: BriefSemanticDefect,
+  ): never => {
+    telemetry.terminalValidationCategory = category;
+    throw new FirstWorkingSessionPreparationStageError(
+      category, defect?.section, defect?.kind, defect?.validatorRule,
+      defect?.statementIndex, { ...telemetry, providerDurationsMs: [...telemetry.providerDurationsMs] },
+    );
+  };
+  let candidate: unknown;
+  try {
+    candidate = await invoke(buildFirstWorkingSessionBriefPrompt(inputs));
+  } catch (error) {
+    if (error instanceof FirstWorkingSessionPreparationStageError) fail(error.stageCode);
+    throw error;
+  }
+  let report = collectFirstWorkingSessionBriefValidation(candidate, inputs);
+  telemetry.initialValidationCategory = report.terminalCategory;
+  if (report.valid) {
+    telemetry.finalValidationPassed = true;
+    return { brief: validateFirstWorkingSessionBrief(candidate, inputs), telemetry };
+  }
+  if (!report.repairable) {
+    fail(report.terminalCategory ?? "brief_schema_invalid", report.defects[0]);
+  }
+  if (options.maxRevisions === 0) {
+    fail(report.terminalCategory ?? "brief_schema_invalid", report.defects[0]);
+  }
+  const revisionNumbers = ([1, 2] as const).slice(0, options.maxRevisions ?? 2);
+  for (const revisionNumber of revisionNumbers) {
+    if (options.deadlineMs !== undefined
+        && options.deadlineMs - Date.now() < MINIMUM_REVISION_REMAINING_MS) {
+      fail("brief_semantic_revision_time_budget_exhausted");
+    }
+    telemetry.revisionCount = revisionNumber;
+    try {
+      candidate = await invoke(buildFirstWorkingSessionBriefRevisionPrompt(inputs, candidate, report.defects, revisionNumber));
+    } catch (error) {
+      if (error instanceof FirstWorkingSessionPreparationStageError) fail(error.stageCode);
+      throw error;
+    }
+    report = collectFirstWorkingSessionBriefValidation(candidate, inputs);
+    telemetry.terminalValidationCategory = report.terminalCategory;
+    if (report.valid) {
+      telemetry.finalValidationPassed = true;
+      return { brief: validateFirstWorkingSessionBrief(candidate, inputs), telemetry };
+    }
+    if (!report.repairable) {
+      fail(report.terminalCategory ?? "brief_schema_invalid", report.defects[0]);
+    }
+  }
+  telemetry.revisionExhausted = true;
+  return fail("brief_semantic_revision_exhausted", report.defects[0]);
+}
+
+export async function buildFirstWorkingSessionBrief(
+  client: SupabaseClient,
+  scope: Scope,
+  options: { deadlineMs?: number } = {},
+) {
   const snapshot = await loadPreparationReasoningSnapshot(client, scope.onboardingSessionId, scope.ownerId);
   const hypotheses = await loadCurrentPreparationHypotheses(client, scope);
   if (hypotheses.length !== 7
@@ -544,6 +857,8 @@ export async function buildFirstWorkingSessionBrief(client: SupabaseClient, scop
   const observations = toObservationInput(snapshot.observations);
   return buildFirstWorkingSessionBriefArtifact(
     { evidence, observations, hypotheses }, snapshot.reasoningRunId,
+    undefined,
+    options,
   );
 }
 
@@ -551,22 +866,28 @@ export async function buildFirstWorkingSessionBriefArtifact(
   inputs: BriefInputs,
   reasoningRunId: string,
   generator?: BriefGenerator,
+  options: { deadlineMs?: number; maxRevisions?: 0 | 1 | 2 } = {},
 ) {
-  const brief = await synthesizeFirstWorkingSessionBrief(inputs, generator);
-  const { sourceEvidenceIds, sourceHypothesisIds } = buildBriefCitationLineage(
-    brief,
-    new Set(inputs.evidence.map((item) => item.id)),
-    new Set(inputs.hypotheses.map((item) => item.id)),
-  );
-  const hypothesisTraceFingerprint = createHash("sha256").update(inputs.hypotheses
+  const frozenInputs = deepFreeze(structuredClone(inputs));
+  const hypothesisTraceFingerprint = createHash("sha256").update(frozenInputs.hypotheses
     .map((item) => `${item.id}:${item.hypothesisVersion}:${item.requestTraceId ?? ""}`)
     .sort().join("|"))
     .digest("hex");
+  const revisionOptions = {
+    ...options,
+    maxRevisions: options.maxRevisions ?? (generator ? 0 : 2),
+  } as { deadlineMs?: number; maxRevisions: 0 | 1 | 2 };
+  const { brief, telemetry } = await synthesizeFirstWorkingSessionBriefWithRevisions(frozenInputs, generator, revisionOptions);
+  const { sourceEvidenceIds, sourceHypothesisIds } = buildBriefCitationLineage(
+    brief,
+    new Set(frozenInputs.evidence.map((item) => item.id)),
+    new Set(frozenInputs.hypotheses.map((item) => item.id)),
+  );
   const sourceSnapshotFingerprint = createHash("sha256").update([
     FIRST_WORKING_SESSION_PREPARATION_VERSION, reasoningRunId,
     hypothesisTraceFingerprint, ...sourceEvidenceIds, ...sourceHypothesisIds,
   ].join("|")).digest("hex");
-  return { brief, sourceEvidenceIds, sourceHypothesisIds, sourceSnapshotFingerprint, hypothesisTraceFingerprint };
+  return { brief, sourceEvidenceIds, sourceHypothesisIds, sourceSnapshotFingerprint, hypothesisTraceFingerprint, telemetry };
 }
 
 type FirstWorkingSessionBriefArtifact = Awaited<ReturnType<typeof buildFirstWorkingSessionBriefArtifact>>;

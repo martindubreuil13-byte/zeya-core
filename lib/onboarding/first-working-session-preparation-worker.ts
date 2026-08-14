@@ -22,6 +22,7 @@ type Claim = {
 };
 
 export async function executeOneFirstWorkingSessionPreparation(client: SupabaseClient) {
+  const executionDeadlineMs = Date.now() + 240_000;
   const claimResult = await client.rpc("zeya_claim_first_working_session_preparation", {
     p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
     p_lease_seconds: 600,
@@ -65,7 +66,7 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
     await ensurePreparationIntelligence(client, scope);
     let synthesis;
     try {
-      synthesis = await buildFirstWorkingSessionBrief(client, scope);
+      synthesis = await buildFirstWorkingSessionBrief(client, scope, { deadlineMs: executionDeadlineMs });
     } catch (error) {
       if (error instanceof FirstWorkingSessionPreparationStageError) throw error;
       throw new FirstWorkingSessionPreparationStageError("brief_input_snapshot_invalid");
@@ -73,12 +74,24 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
     const payload = buildFirstWorkingSessionFinalizationPayload(
       claim.working_session_id, claim.lease_id, synthesis,
     );
+    console.info("[first-working-session-preparation] brief_generation", {
+      generationCount: synthesis.telemetry.generationCount,
+      revisionCount: synthesis.telemetry.revisionCount,
+      initialValidationCategory: synthesis.telemetry.initialValidationCategory,
+      terminalValidationCategory: synthesis.telemetry.terminalValidationCategory,
+      revisionExhausted: synthesis.telemetry.revisionExhausted,
+      finalValidationPassed: synthesis.telemetry.finalValidationPassed,
+      providerDurationsMs: synthesis.telemetry.providerDurationsMs,
+    });
     const completion = await client.rpc("zeya_finalize_first_working_session_preparation", payload);
     if (completion.error) {
       throw new FirstWorkingSessionPreparationStageError("brief_database_finalization_failed");
     }
     return { claimed: true as const, ready: true as const, sourceOutcomes };
   } catch (error) {
+    if (error instanceof FirstWorkingSessionPreparationStageError && error.revisionTelemetry) {
+      console.info("[first-working-session-preparation] brief_generation", error.revisionTelemetry);
+    }
     const failureCode = error instanceof PreparationReasoningStageError
       ? error.stageCode
       : error instanceof FirstWorkingSessionPreparationStageError

@@ -53,7 +53,7 @@ describe("P2.2 orchestration", () => {
     const source = worker.lastIndexOf("acquirePendingRegisteredPublicSources(client");
     const research = worker.indexOf("executeDirectHirePreparation(claim.website_url");
     const intelligence = worker.indexOf("ensurePreparationIntelligence(client, scope)");
-    const brief = worker.indexOf("buildFirstWorkingSessionBrief(client, scope)");
+    const brief = worker.indexOf("buildFirstWorkingSessionBrief(client, scope,");
     expect(source).toBeLessThan(research);
     expect(research).toBeLessThan(intelligence);
     expect(intelligence).toBeLessThan(brief);
@@ -78,6 +78,14 @@ describe("P2.2 orchestration", () => {
     expect(worker).toContain('"brief_input_snapshot_invalid"');
     expect(worker.indexOf("buildFirstWorkingSessionFinalizationPayload(")).toBeLessThan(
       worker.indexOf('client.rpc("zeya_finalize_first_working_session_preparation"'),
+    );
+  });
+  it("keeps one finalizer and one terminal failure boundary outside provider revisions", async () => {
+    const worker = await readFile("lib/onboarding/first-working-session-preparation-worker.ts", "utf8");
+    expect(worker.match(/zeya_finalize_first_working_session_preparation/g)).toHaveLength(1);
+    expect(worker.match(/zeya_fail_first_working_session_preparation/g)).toHaveLength(1);
+    expect(worker.indexOf("buildFirstWorkingSessionBrief(client, scope,")).toBeLessThan(
+      worker.indexOf("zeya_finalize_first_working_session_preparation"),
     );
   });
   it("does not mutate Formation or canonical Representation", async () => {
