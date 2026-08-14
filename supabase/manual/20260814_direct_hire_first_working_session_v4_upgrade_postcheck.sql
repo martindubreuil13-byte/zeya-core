@@ -99,6 +99,17 @@ WITH target AS (
    AND hypothesis.direct_hire_onboarding_session_id = target.direct_hire_onboarding_session_id
   WHERE NOT EXISTS (SELECT 1 FROM public.hypotheses AS successor
                     WHERE successor.previous_hypothesis_id = hypothesis.id)
+), current_hypothesis_status AS (
+  SELECT hypothesis.*,
+    latest_verification.decision AS owner_decision
+  FROM current_hypotheses AS hypothesis
+  LEFT JOIN LATERAL (
+    SELECT verification.decision
+    FROM public.hypothesis_verifications AS verification
+    WHERE verification.hypothesis_id = hypothesis.id
+    ORDER BY verification.verification_sequence DESC
+    LIMIT 1
+  ) AS latest_verification ON true
 ), hypothesis_fingerprint AS (
   SELECT encode(extensions.digest(coalesce(string_agg(
     hypothesis.id::text || ':' || hypothesis.hypothesis_version::text || ':'
@@ -204,7 +215,7 @@ WITH target AS (
          AND coalesce(jsonb_array_length(current_v4.brief->'authorityGaps'), 0) = 0
      )
      AND (NOT EXISTS (
-       SELECT 1 FROM current_hypotheses AS hypothesis
+       SELECT 1 FROM current_hypothesis_status AS hypothesis
        WHERE hypothesis.representation_risk IN ('medium', 'high')
          AND (hypothesis.epistemic_state <> 'supported' OR hypothesis.owner_decision IS DISTINCT FROM 'approved')
      ) OR coalesce(jsonb_array_length(current_v4.brief->'formationPriorities'), 0) BETWEEN 3 AND 7) AS ok
