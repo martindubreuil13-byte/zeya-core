@@ -12,3 +12,7 @@ pnpm-debug.log*
 .DS_Store
 .vercel
 .test-artifacts/
+
+# Local tooling and generated TypeScript state
+.claude/
+*.tsbuildinfo
