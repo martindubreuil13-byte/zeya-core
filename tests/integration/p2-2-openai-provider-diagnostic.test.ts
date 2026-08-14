@@ -6,6 +6,7 @@ import {
   buildFirstWorkingSessionBriefPrompt,
   buildFirstWorkingSessionBriefProviderRequest,
   buildFirstWorkingSessionBriefSchema,
+  validateFirstWorkingSessionBriefCandidates,
   FIRST_WORKING_SESSION_BRIEF_MODEL,
   FIRST_WORKING_SESSION_OPENAI_SDK_VERSION,
 } from "../../lib/onboarding/first-working-session-brief";
@@ -90,8 +91,81 @@ describe("P2.2 deployed OpenAI provider diagnostic", () => {
     expect(route).not.toMatch(/\.rpc\(|claim|finalize_direct_hire|fail_direct_hire/);
   });
 
+  it("returns only safe rule metadata for semantic failures", async () => {
+    const invalid = validFixtureBrief();
+    invalid.businessRead.evidenceIds = [];
+    invalid.businessRead.hypothesisIds = [];
+    const outputs = [{ ok: true }, {}, invalid];
+    let callIndex = 0;
+    const client = {
+      responses: {
+        create: async () => ({
+          status: "completed",
+          output_text: JSON.stringify(outputs[callIndex++]),
+          _request_id: `req_safe_${callIndex}`,
+        }),
+      },
+    } as unknown as OpenAI;
+
+    const calls = await runP22DeployedProviderDiagnostic(client);
+    expect(calls[2].validationFailure).toEqual({
+      section: "businessRead",
+      kind: "interpretation",
+      category: "brief_semantic_interpretation_invalid",
+      validatorRule: "interpretation_or_working_opinion_basis_required",
+    });
+    expect(JSON.stringify(calls[2])).not.toContain(invalid.businessRead.statement);
+    expect(JSON.stringify(calls[2])).not.toContain(P2_2_DIAGNOSTIC_IDS.v2Home);
+  });
+
   it("uses only synthetic UUIDs for finalization preflight", () => {
     expect(P2_2_DIAGNOSTIC_IDS.workingSession).toBe("10000000-0000-4000-8000-000000000003");
     expect(P2_2_DIAGNOSTIC_IDS.lease).toBe("10000000-0000-4000-8000-000000000004");
+  });
+
+  it.each([
+    {
+      name: "accepts interpretation with an in-scope cited basis",
+      statement: "Architecture is central to the public positioning.",
+      evidence: "home",
+      expectedAccepted: true,
+      expectedRule: null,
+    },
+    {
+      name: "rejects interpretation without Evidence or hypothesis basis",
+      statement: "Architecture is central to the public positioning.",
+      evidence: "none",
+      expectedAccepted: false,
+      expectedRule: "interpretation_or_working_opinion_basis_required",
+    },
+    {
+      name: "accepts guarded synthesis explicitly present in its cited basis",
+      statement: "The owner-stated target is global startups in western developed English-speaking markets.",
+      evidence: "target",
+      expectedAccepted: true,
+      expectedRule: null,
+    },
+    {
+      name: "rejects a guarded concrete claim absent from its cited basis",
+      statement: "The business targets North American technology startups.",
+      evidence: "target",
+      expectedAccepted: false,
+      expectedRule: "guarded_concrete_claim_supported_by_cited_basis:geography",
+    },
+  ])("$name", ({ statement, evidence, expectedAccepted, expectedRule }) => {
+    const { inputs } = buildP22LiveShapedDiagnosticInputs();
+    const home = inputs.evidence.find((item) => item.rawStatement.startsWith("You don’t need another idea"))!;
+    const target = inputs.evidence.find((item) => item.rawStatement.startsWith("Startups globally"))!;
+    const result = validateFirstWorkingSessionBriefCandidates(inputs, [{
+      section: "businessRead",
+      item: {
+        statement,
+        kind: "interpretation",
+        evidenceIds: evidence === "home" ? [home.id] : evidence === "target" ? [target.id] : [],
+        hypothesisIds: [],
+      },
+    }])[0];
+    expect(result.accepted).toBe(expectedAccepted);
+    expect(result.validatorRule).toBe(expectedRule);
   });
 });

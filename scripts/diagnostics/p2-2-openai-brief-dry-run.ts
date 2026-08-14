@@ -310,17 +310,18 @@ async function main() {
       sourceHypothesisIds: payload.p_source_hypothesis_ids.length,
     });
   } catch (error) {
-    const stageError = error as { section?: string; statementKind?: string };
-    const candidate = stageError.section
-      ? (call3.value as Record<string, unknown>)[stageError.section]
-      : undefined;
+    const stageError = error as {
+      section?: string;
+      statementKind?: string;
+      stageCode?: string;
+      validatorRule?: string;
+    };
     console.log("\nLOCAL VALIDATION", {
       result: "FAIL",
-      constructor: error instanceof Error ? error.constructor.name : typeof error,
-      message: error instanceof Error ? error.message : String(error),
       section: stageError.section ?? null,
-      statementKind: stageError.statementKind ?? null,
-      syntheticCandidate: candidate ?? null,
+      kind: stageError.statementKind ?? null,
+      category: stageError.stageCode ?? "brief_schema_invalid",
+      validatorRule: stageError.validatorRule ?? null,
     });
   }
 }

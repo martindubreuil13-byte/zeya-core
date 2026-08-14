@@ -58,6 +58,7 @@ export class FirstWorkingSessionPreparationStageError extends Error {
     public readonly stageCode: FirstWorkingSessionPreparationStageCode,
     public readonly section?: BriefSection,
     public readonly statementKind?: BriefStatementKind,
+    public readonly validatorRule?: string,
   ) {
     super(stageCode);
     this.name = "FirstWorkingSessionPreparationStageError";
@@ -262,6 +263,7 @@ function normalized(value: string): string {
 function normalizedConcept(value: string): string {
   return normalized(value)
     .replace(/\bstartups\b/g, "startup")
+    .replace(/\bglobally\b/g, "global")
     .replace(/\bmarkets?\b|\bcountries\b|\bcountry\b/g, "market")
     .replace(/\bcompanies\b/g, "company");
 }
@@ -294,14 +296,18 @@ function isVerificationFraming(section: BriefSection, item: BriefStatement): boo
 }
 
 function rejectBriefStatement(
-  section: BriefSection, item: BriefStatement, category: FirstWorkingSessionPreparationStageCode,
+  section: BriefSection,
+  item: BriefStatement,
+  category: FirstWorkingSessionPreparationStageCode,
+  validatorRule: string,
 ): never {
   console.error("[first-working-session-brief] validation_failed", {
     section,
     kind: item.kind,
     category,
+    validatorRule,
   });
-  throw new FirstWorkingSessionPreparationStageError(category, section, item.kind);
+  throw new FirstWorkingSessionPreparationStageError(category, section, item.kind, validatorRule);
 }
 
 function semanticCategory(item: BriefStatement): FirstWorkingSessionPreparationStageCode {
@@ -327,11 +333,11 @@ function validateKindAwareTraceability(
     : [...evidenceBasis, ...hypothesisBasis].join(" ");
 
   if (item.kind === "supported_finding" && item.evidenceIds.length === 0) {
-    rejectBriefStatement(section, item, "brief_semantic_supported_finding_invalid");
+    rejectBriefStatement(section, item, "brief_semantic_supported_finding_invalid", "supported_finding_evidence_required");
   }
   if (["interpretation", "working_opinion"].includes(item.kind)
       && item.evidenceIds.length + item.hypothesisIds.length === 0) {
-    rejectBriefStatement(section, item, semanticCategory(item));
+    rejectBriefStatement(section, item, semanticCategory(item), "interpretation_or_working_opinion_basis_required");
   }
   if (item.kind === "unknown" && item.evidenceIds.length + item.hypothesisIds.length === 0) {
     rejectBriefStatement(
@@ -339,6 +345,7 @@ function validateKindAwareTraceability(
       section === "authorityGaps" ? "brief_authority_gap_invalid"
         : section === "formationPriorities" ? "brief_formation_priority_invalid"
           : "brief_citation_scope_invalid",
+      "unknown_basis_required",
     );
   }
   if (item.kind === "contradiction") {
@@ -347,7 +354,7 @@ function validateKindAwareTraceability(
     );
     const distinctEvidenceStatements = new Set(evidenceBasis.map(normalized).filter(Boolean));
     if (!citesContradictedHypothesis || distinctEvidenceStatements.size < 2) {
-      rejectBriefStatement(section, item, "brief_contradiction_invalid");
+      rejectBriefStatement(section, item, "brief_contradiction_invalid", "contradiction_requires_conflicting_evidence_and_contradicted_hypothesis");
     }
   }
 
@@ -356,7 +363,12 @@ function validateKindAwareTraceability(
     const unsupportedClaim = guardedClaims(item.statement)
       .find((claim) => !claimSupported(claim, semanticBasis));
     if (unsupportedClaim) {
-      rejectBriefStatement(section, item, semanticCategory(item));
+      rejectBriefStatement(
+        section,
+        item,
+        semanticCategory(item),
+        `guarded_concrete_claim_supported_by_cited_basis:${unsupportedClaim.claimClass}`,
+      );
     }
   }
 }
@@ -364,7 +376,7 @@ function validateKindAwareTraceability(
 export type BriefStatementValidationCandidate = { section: BriefSection; item: BriefStatement };
 export type BriefStatementValidationResult = {
   accepted: boolean; category: FirstWorkingSessionPreparationStageCode | null;
-  section: BriefSection; kind: BriefStatementKind;
+  section: BriefSection; kind: BriefStatementKind; validatorRule: string | null;
 };
 
 export function validateFirstWorkingSessionBriefCandidates(
@@ -377,14 +389,22 @@ export function validateFirstWorkingSessionBriefCandidates(
     try {
       if (item.evidenceIds.some((id) => !evidenceById.has(id))
           || item.hypothesisIds.some((id) => !hypothesesById.has(id))) {
-        return { accepted: false, category: "brief_citation_scope_invalid", section, kind: item.kind };
+        return { accepted: false, category: "brief_citation_scope_invalid", section, kind: item.kind, validatorRule: "citation_ids_must_be_in_effective_scope" };
       }
       validateKindAwareTraceability(section, item, evidenceById, hypothesesById);
-      return { accepted: true, category: null, section, kind: item.kind };
+      return { accepted: true, category: null, section, kind: item.kind, validatorRule: null };
     } catch (error) {
       const category = error instanceof FirstWorkingSessionPreparationStageError
         ? error.stageCode : "brief_schema_invalid";
-      return { accepted: false, category, section, kind: item.kind };
+      return {
+        accepted: false,
+        category,
+        section,
+        kind: item.kind,
+        validatorRule: error instanceof FirstWorkingSessionPreparationStageError
+          ? error.validatorRule ?? null
+          : null,
+      };
     }
   });
 }

@@ -10,6 +10,7 @@ import {
   createFirstWorkingSessionBriefOpenAIClient,
   FIRST_WORKING_SESSION_BRIEF_MODEL,
   FIRST_WORKING_SESSION_OPENAI_SDK_VERSION,
+  FirstWorkingSessionPreparationStageError,
 } from "../../../../../lib/onboarding/first-working-session-brief";
 import {
   buildP22LiveShapedDiagnosticInputs,
@@ -34,6 +35,12 @@ type ProviderCallResult = {
   responseReceived: boolean;
   structuredOutputParsed: boolean;
   validationPassed: boolean | null;
+  validationFailure: {
+    section: string | null;
+    kind: string | null;
+    category: string;
+    validatorRule: string | null;
+  } | null;
 };
 
 function authorized(request: NextRequest): boolean {
@@ -79,6 +86,15 @@ async function runProviderCall(
       postResponseError = error;
     }
     const postResponseFailure = postResponseError instanceof Error ? postResponseError : null;
+    const semanticFailure = postResponseError instanceof FirstWorkingSessionPreparationStageError
+      && postResponseError.stageCode.startsWith("brief_semantic_")
+      ? {
+          section: postResponseError.section ?? null,
+          kind: postResponseError.statementKind ?? null,
+          category: postResponseError.stageCode,
+          validatorRule: postResponseError.validatorRule ?? null,
+        }
+      : null;
     return {
       name,
       success: response.status === "completed" && parsed && validationPassed !== false,
@@ -93,6 +109,7 @@ async function runProviderCall(
       responseReceived: true,
       structuredOutputParsed: parsed,
       validationPassed,
+      validationFailure: semanticFailure,
     };
   } catch (error) {
     const diagnostic = safeOpenAIProviderError(error);
@@ -110,6 +127,7 @@ async function runProviderCall(
       responseReceived: diagnostic.httpStatus !== null,
       structuredOutputParsed: false,
       validationPassed: false,
+      validationFailure: null,
     };
   }
 }
