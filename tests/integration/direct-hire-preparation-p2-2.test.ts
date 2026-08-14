@@ -5,6 +5,7 @@ import { analyzeBriefEvidenceScope, buildBriefCitationLineage, buildFirstWorking
 const migration = "supabase/migrations/20260813010000_direct_hire_first_working_session_preparation.sql";
 const recoveryMigration = "supabase/migrations/20260813020000_direct_hire_first_working_session_preparation_recovery.sql";
 const recoveryActorMigration = "supabase/migrations/20260813030000_direct_hire_first_working_session_preparation_recovery_actor.sql";
+const v3RequeueMigration = "supabase/migrations/20260814000000_direct_hire_first_working_session_v3_requeue.sql";
 
 describe("P2.2 durable eligibility and leases", () => {
   it("requires scheduled, employed, induction-complete lineage", async () => {
@@ -375,5 +376,71 @@ describe("P2.2 manual verification bundle", () => {
     }
     expect(files[0]).toContain("zeya_finalize_direct_hire_preparation");
     expect(files[1]).toContain("zeya_claim_first_working_session_preparation");
+  });
+});
+
+describe("P2.2 governed same-contract v3 requeue", () => {
+  it("reuses the immutable ledger without inventing a v4 contract", async () => {
+    const sql = await readFile(v3RequeueMigration, "utf8");
+    expect(sql).toContain("corrected_application_defect_requeue");
+    expect(sql).toContain("exhausted_contract_version = 'first-working-session-preparation-v3'");
+    expect(sql).toContain("recovery_contract_version = exhausted_contract_version");
+    expect(sql).not.toContain("first-working-session-preparation-v4");
+    expect(sql).toContain("direct_hire_first_working_session_recovery_event_key");
+    expect(sql).toContain("previous_attempt_count, previous_failure_code");
+    expect(sql.indexOf("INSERT INTO public.direct_hire_first_working_session_preparation_recoveries")).toBeLessThan(
+      sql.indexOf("UPDATE public.direct_hire_working_sessions AS working_session"),
+    );
+  });
+
+  it("is exact-session, serialized, idempotent, and strictly eligible", async () => {
+    const sql = await readFile(v3RequeueMigration, "utf8");
+    for (const required of [
+      "working_session.id = p_working_session_id", "FOR UPDATE", "IF EXISTS",
+      "v_session.status <> 'scheduled'", "v_session.preparation_status <> 'failed'",
+      "v_session.preparation_attempt_count <> 3",
+      "v_session.preparation_contract_version IS DISTINCT FROM 'first-working-session-preparation-v3'",
+      "v_session.preparation_failure_code IS DISTINCT FROM p_expected_failure_code",
+      "v_session.preparation_lease_id IS NOT NULL", "v_session.preparation_lease_expires_at IS NOT NULL",
+      "onboarding.onboarding_state = 'employment_accepted'",
+      "onboarding.induction_state = 'preparation_pending'",
+      "representation.current_version_id IS NULL",
+    ]) expect(sql).toContain(required);
+    expect(sql).toContain("preparation_status = 'pending'");
+    expect(sql).toContain("preparation_attempt_count = 0");
+    expect(sql).toContain("preparation_snapshot_fingerprint = NULL");
+    expect(sql).toContain("preparation_contract_version = 'first-working-session-preparation-v3'");
+  });
+
+  it("preserves checkpoint, governed history, canonical state, and Formation", async () => {
+    const sql = await readFile(v3RequeueMigration, "utf8");
+    expect(sql).not.toMatch(/preparation_website_persisted_at\s*=/i);
+    expect(sql).not.toMatch(/(?:UPDATE|DELETE FROM) public\.(?:evidence|observations|hypotheses|direct_hire_first_working_session_briefs|representation_formation_sessions|representation_versions)/i);
+    expect(sql).not.toContain("current_version_id =");
+  });
+
+  it("allows only service-role or privileged postgres execution", async () => {
+    const sql = await readFile(v3RequeueMigration, "utf8");
+    expect(sql).toContain("v_jwt_role IS DISTINCT FROM 'service_role'");
+    expect(sql).toContain("v_database_role NOT IN ('postgres', 'service_role')");
+    expect(sql).toContain("REVOKE ALL ON FUNCTION public.zeya_requeue_first_working_session_preparation_v3(uuid,text,text)\n  FROM PUBLIC, anon, authenticated, service_role");
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.zeya_requeue_first_working_session_preparation_v3(uuid,text,text)\n  TO service_role");
+  });
+
+  it("ships an exact-target read-only preflight and postcheck", async () => {
+    const files = await Promise.all([
+      readFile("supabase/manual/20260814_direct_hire_first_working_session_v3_requeue_preflight.sql", "utf8"),
+      readFile("supabase/manual/20260814_direct_hire_first_working_session_v3_requeue_postcheck.sql", "utf8"),
+    ]);
+    for (const sql of files) {
+      expect(sql).toContain("715f4971-4d3f-4f53-9b89-a9dd703349d8");
+      expect(sql).toContain("PASS");
+      expect(sql).toContain("pg_catalog");
+      expect(sql).not.toContain("has_function_privilege('PUBLIC'");
+      expect(sql).not.toMatch(/^\s*(?:INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM|ALTER\s+(?:TABLE|FUNCTION)|CREATE\s+(?:TABLE|FUNCTION)|DROP\s+(?:TABLE|FUNCTION)|TRUNCATE)\b/im);
+    }
+    expect(files[0]).toContain("exact_exhausted_v3_target");
+    expect(files[1]).toContain("exactly_one_immutable_audit_event");
+    expect(files[1]).toContain("aclexplode(");
   });
 });

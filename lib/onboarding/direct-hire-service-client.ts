@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { assertCurrentPreviewEnvironmentIsolation } from "@/lib/experience/preview-environment-guard";
+import { assertCurrentPreviewEnvironmentIsolation } from "../experience/preview-environment-guard";
 
 export function createDirectHireServiceClient(): SupabaseClient {
   assertCurrentPreviewEnvironmentIsolation();

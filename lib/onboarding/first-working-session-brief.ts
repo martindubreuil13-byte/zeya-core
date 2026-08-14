@@ -46,6 +46,7 @@ export type FirstWorkingSessionBrief = {
 
 export type FirstWorkingSessionPreparationStageCode =
   | "brief_provider_unavailable" | "brief_provider_request_failed" | "brief_schema_invalid"
+  | "brief_provider_rate_limited"
   | "brief_input_snapshot_invalid"
   | "brief_citation_scope_invalid" | "brief_semantic_supported_finding_invalid"
   | "brief_semantic_interpretation_invalid" | "brief_semantic_working_opinion_invalid"
@@ -70,12 +71,77 @@ export class FirstWorkingSessionPreparationStageError extends Error {
 
 type Scope = { ownerId: string; businessId: string; businessRepresentationId: string; onboardingSessionId: string };
 export type BriefInputs = { evidence: EvidenceInput[]; observations: ObservationInput[]; hypotheses: CurrentPreparationHypothesis[] };
-export type BriefGenerator = (prompt: string, schema: Record<string, unknown>) => Promise<unknown>;
+export type BriefProviderCallContext = { logicalGeneration: number; revisionNumber: 0 | 1 | 2 };
+export type BriefGenerator = (
+  prompt: string,
+  schema: Record<string, unknown>,
+  context?: BriefProviderCallContext,
+) => Promise<unknown>;
+export type BriefProviderCallDiagnostic = BriefProviderCallContext & {
+  success: boolean;
+  durationMs: number;
+  httpStatus: number | null;
+  errorType: string | null;
+  errorCode: string | null;
+  errorParam: string | null;
+  requestId: string | null;
+  safeMessage: string | null;
+  retryAfter: string | null;
+  sdkRetryCount: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  promptCharacterCount: number;
+  schemaBytes: number;
+  serializedRequestBytes: number;
+  providerRequestSha256: string;
+};
+
+type CompactEvidenceInput = {
+  id: string;
+  sourceType: EvidenceInput["sourceType"];
+  rawStatement: string;
+  affectedDomains: string[];
+  pageType?: string;
+  evidenceKind?: string;
+  logicalSourceKey?: string;
+  authorityType?: EvidenceInput["authority_type"];
+  authorityKey?: string;
+};
+type CompactObservationInput = {
+  evidenceId: string;
+  meaning: string;
+  confidence: number;
+  affectedDomains: string[];
+};
+type CompactHypothesisInput = {
+  id: string;
+  constitutionalDomain: CurrentPreparationHypothesis["constitutionalDomain"];
+  epistemicState: CurrentPreparationHypothesis["epistemicState"];
+  currentBelief: string | null;
+  confidence: CurrentPreparationHypothesis["confidence"];
+  representationRisk: CurrentPreparationHypothesis["representationRisk"];
+  riskReason: string | null;
+  verificationNeed: string | null;
+  ownerDecision: CurrentPreparationHypothesis["ownerDecision"];
+};
+type CompactBriefInputs = {
+  evidence: CompactEvidenceInput[];
+  observations: CompactObservationInput[];
+  hypotheses: CompactHypothesisInput[];
+};
+export type FirstWorkingSessionBriefProviderContract = {
+  inputs: CompactBriefInputs;
+  evidenceAliasToId: ReadonlyMap<string, string>;
+  evidenceIdToAlias: ReadonlyMap<string, string>;
+  hypothesisAliasToId: ReadonlyMap<string, string>;
+  hypothesisIdToAlias: ReadonlyMap<string, string>;
+};
 
 const arraySectionNames = ["commercialSignals", "contradictions", "unknowns", "workingOpinions", "formationPriorities", "openingInsights", "questions", "authorityGaps"] as const;
 const singletonSectionNames = ["businessRead", "offerRead", "customerRead", "problemOutcomeRead", "positioningRead"] as const;
 
-export function buildFirstWorkingSessionBriefSchema(inputs: BriefInputs) {
+export function buildFirstWorkingSessionBriefSchema(inputs: BriefInputs | CompactBriefInputs) {
   const evidenceIds = inputs.evidence.map((item) => item.id);
   const hypothesisIds = inputs.hypotheses.map((item) => item.id);
   const contradictedHypothesisIds = inputs.hypotheses
@@ -146,6 +212,57 @@ export function buildFirstWorkingSessionBriefSchema(inputs: BriefInputs) {
   };
 }
 
+export function buildFirstWorkingSessionBriefProviderContract(
+  inputs: BriefInputs,
+): FirstWorkingSessionBriefProviderContract {
+  const evidence = [...inputs.evidence].sort((left, right) => left.id.localeCompare(right.id));
+  const hypotheses = [...inputs.hypotheses].sort((left, right) =>
+    left.constitutionalDomain.localeCompare(right.constitutionalDomain));
+  const evidenceAliasToId = new Map(evidence.map((item, index) => [`E${index + 1}`, item.id]));
+  const hypothesisAliasToId = new Map(hypotheses.map((item, index) => [`H${index + 1}`, item.id]));
+  const evidenceIdToAlias = new Map([...evidenceAliasToId].map(([alias, id]) => [id, alias]));
+  const hypothesisIdToAlias = new Map([...hypothesisAliasToId].map(([alias, id]) => [id, alias]));
+  const logicalSourceAliases = new Map([...new Set(evidence
+    .map((item) => item.logical_source_key).filter((value): value is string => Boolean(value)))]
+    .sort().map((value, index) => [value, `L${index + 1}`]));
+  const authorityAliases = new Map([...new Set(evidence
+    .map((item) => item.authority_key).filter((value): value is string => Boolean(value)))]
+    .sort().map((value, index) => [value, `A${index + 1}`]));
+  return {
+    inputs: {
+      evidence: evidence.map((item) => ({
+        id: evidenceIdToAlias.get(item.id)!,
+        sourceType: item.sourceType,
+        rawStatement: item.rawStatement,
+        affectedDomains: item.affected_domains,
+        ...(item.source_page_type ? { pageType: item.source_page_type } : {}),
+        ...(item.source_evidence_kind ? { evidenceKind: item.source_evidence_kind } : {}),
+        ...(item.logical_source_key ? { logicalSourceKey: logicalSourceAliases.get(item.logical_source_key)! } : {}),
+        ...(item.authority_type ? { authorityType: item.authority_type } : {}),
+        ...(item.authority_key ? { authorityKey: authorityAliases.get(item.authority_key)! } : {}),
+      })),
+      observations: inputs.observations.map((item) => ({
+        evidenceId: evidenceIdToAlias.get(item.evidenceId)!,
+        meaning: item.interpreted_meaning,
+        confidence: item.confidence_in_interpretation,
+        affectedDomains: item.affected_domains,
+      })),
+      hypotheses: hypotheses.map((item) => ({
+        id: hypothesisIdToAlias.get(item.id)!,
+        constitutionalDomain: item.constitutionalDomain,
+        epistemicState: item.epistemicState,
+        currentBelief: item.currentBelief,
+        confidence: item.confidence,
+        representationRisk: item.representationRisk,
+        riskReason: item.riskReason,
+        verificationNeed: item.verificationNeed,
+        ownerDecision: item.ownerDecision,
+      })),
+    },
+    evidenceAliasToId, evidenceIdToAlias, hypothesisAliasToId, hypothesisIdToAlias,
+  };
+}
+
 export function buildFirstWorkingSessionBriefPrompt(inputs: BriefInputs): string {
   return `Create an executive preparation brief for a first working session from the governed inputs below.
 Synthesize independently across raw Evidence, Observations, and current hypotheses; do not merely paraphrase hypotheses.
@@ -179,6 +296,74 @@ CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses.map((hypothesis) => ({
 })))}`;
 }
 
+export function buildCompactFirstWorkingSessionBriefPrompt(
+  inputs: BriefInputs,
+  contract: FirstWorkingSessionBriefProviderContract = buildFirstWorkingSessionBriefProviderContract(inputs),
+): string {
+  const fullPrompt = buildFirstWorkingSessionBriefPrompt(inputs);
+  const governedPayloadOffset = fullPrompt.indexOf("GOVERNED EVIDENCE:\n");
+  if (governedPayloadOffset < 0) {
+    throw new FirstWorkingSessionPreparationStageError("brief_input_snapshot_invalid");
+  }
+  return `${fullPrompt.slice(0, governedPayloadOffset)}GOVERNED EVIDENCE:\n${JSON.stringify(contract.inputs.evidence)}
+GOVERNED OBSERVATIONS:\n${JSON.stringify(contract.inputs.observations)}
+CURRENT HYPOTHESES:\n${JSON.stringify(contract.inputs.hypotheses)}`;
+}
+
+export function buildCompactFirstWorkingSessionBriefSchema(
+  inputs: BriefInputs,
+  contract: FirstWorkingSessionBriefProviderContract = buildFirstWorkingSessionBriefProviderContract(inputs),
+) {
+  return buildFirstWorkingSessionBriefSchema(contract.inputs);
+}
+
+function mapProviderCitationIds(
+  ids: unknown,
+  aliases: ReadonlyMap<string, string>,
+): string[] {
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !aliases.has(id))) {
+    throw new FirstWorkingSessionPreparationStageError(
+      "brief_citation_scope_invalid", undefined, undefined, "provider_citation_alias_must_resolve",
+    );
+  }
+  return ids.map((id) => aliases.get(id)!);
+}
+
+export function expandFirstWorkingSessionBriefProviderAliases(
+  value: unknown,
+  contract: FirstWorkingSessionBriefProviderContract,
+): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const expanded = structuredClone(value) as Record<string, unknown>;
+  const expandStatement = (candidate: unknown) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+    const statement = candidate as Record<string, unknown>;
+    statement.evidenceIds = mapProviderCitationIds(statement.evidenceIds, contract.evidenceAliasToId);
+    statement.hypothesisIds = mapProviderCitationIds(statement.hypothesisIds, contract.hypothesisAliasToId);
+  };
+  for (const section of singletonSectionNames) expandStatement(expanded[section]);
+  for (const section of arraySectionNames) {
+    const items = expanded[section];
+    if (Array.isArray(items)) items.forEach(expandStatement);
+  }
+  return expanded;
+}
+
+function compactValidationDefects(
+  defects: BriefSemanticDefect[],
+  contract: FirstWorkingSessionBriefProviderContract,
+): BriefSemanticDefect[] {
+  return defects.map((defect) => ({
+    ...defect,
+    citedEvidenceIds: defect.citedEvidenceIds.map((id) => contract.evidenceIdToAlias.get(id) ?? "INVALID"),
+    citedHypothesisIds: defect.citedHypothesisIds.map((id) => contract.hypothesisIdToAlias.get(id) ?? "INVALID"),
+    ...(defect.candidateSupportingEvidenceIds ? {
+      candidateSupportingEvidenceIds: defect.candidateSupportingEvidenceIds
+        .map((id) => contract.evidenceIdToAlias.get(id) ?? "INVALID"),
+    } : {}),
+  }));
+}
+
 export function buildFirstWorkingSessionBriefRevisionPrompt(
   inputs: BriefInputs,
   candidate: unknown,
@@ -197,6 +382,27 @@ VALIDATION DEFECTS:\n${JSON.stringify(defects)}
 FROZEN GOVERNED EVIDENCE:\n${JSON.stringify(inputs.evidence)}
 FROZEN GOVERNED OBSERVATIONS:\n${JSON.stringify(inputs.observations)}
 FROZEN CURRENT HYPOTHESES:\n${JSON.stringify(inputs.hypotheses)}`;
+}
+
+export function buildCompactFirstWorkingSessionBriefRevisionPrompt(
+  inputs: BriefInputs,
+  candidate: unknown,
+  defects: BriefSemanticDefect[],
+  revisionNumber: 1 | 2,
+  contract: FirstWorkingSessionBriefProviderContract = buildFirstWorkingSessionBriefProviderContract(inputs),
+): string {
+  return `Repair this brief only to satisfy the supplied validation defects.
+Preserve valid content where possible.
+Remove unsupported premises when governed support does not exist.
+Add citations only when the supplied governed Evidence directly supports that premise.
+Do not introduce new factual premises, Evidence, hypotheses, authority, commitments, pricing, performance claims, customer segments, geography, compliance claims, guarantees, or conclusions.
+Return the complete corrected brief. Do not return a patch, explanation, or reasoning.
+REVISION NUMBER:\n${revisionNumber}
+CURRENT CANDIDATE:\n${JSON.stringify(candidate)}
+VALIDATION DEFECTS:\n${JSON.stringify(compactValidationDefects(defects, contract))}
+FROZEN GOVERNED EVIDENCE:\n${JSON.stringify(contract.inputs.evidence)}
+FROZEN GOVERNED OBSERVATIONS:\n${JSON.stringify(contract.inputs.observations)}
+FROZEN CURRENT HYPOTHESES:\n${JSON.stringify(contract.inputs.hypotheses)}`;
 }
 
 function statements(brief: FirstWorkingSessionBrief): BriefStatement[] {
@@ -701,14 +907,83 @@ export function createFirstWorkingSessionBriefOpenAIClient(): OpenAI {
   return new OpenAI({ timeout: 70_000, maxRetries: 2 });
 }
 
-async function defaultGenerator(prompt: string, schema: Record<string, unknown>): Promise<unknown> {
+function safeProviderString(value: unknown, maximumLength = 1000): string | null {
+  if (value === undefined || value === null) return null;
+  return String(value)
+    .replace(/(?:sk|sess)-[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .slice(0, maximumLength);
+}
+
+function providerErrorDiagnostic(error: unknown) {
+  const row = error as Record<string, unknown> & {
+    headers?: { get?: (name: string) => string | null };
+  };
+  const nested = row.error && typeof row.error === "object"
+    ? row.error as Record<string, unknown>
+    : {};
+  const retryHeader = row.headers?.get?.("x-stainless-retry-count")
+    ?? row.headers?.get?.("x-openai-retry-count")
+    ?? null;
+  const parsedRetries = retryHeader === null ? null : Number.parseInt(retryHeader, 10);
+  return {
+    httpStatus: typeof row.status === "number" ? row.status : null,
+    errorType: safeProviderString(row.type ?? nested.type, 200),
+    errorCode: safeProviderString(row.code ?? nested.code, 200),
+    errorParam: safeProviderString(row.param ?? nested.param, 200),
+    requestId: safeProviderString(
+      row.request_id ?? row.requestID ?? row.headers?.get?.("x-request-id"), 200,
+    ),
+    safeMessage: safeProviderString(row.message ?? nested.message ?? "provider request failed"),
+    retryAfter: safeProviderString(row.headers?.get?.("retry-after"), 200),
+    sdkRetryCount: parsedRetries !== null && Number.isFinite(parsedRetries) ? parsedRetries : null,
+  };
+}
+
+export function classifyFirstWorkingSessionProviderFailure(diagnostic: {
+  httpStatus: number | null;
+  errorType: string | null;
+  errorCode: string | null;
+}): "brief_provider_rate_limited" | "brief_provider_request_failed" {
+  return diagnostic.httpStatus === 429
+    && diagnostic.errorType === "tokens"
+    && diagnostic.errorCode === "rate_limit_exceeded"
+    ? "brief_provider_rate_limited"
+    : "brief_provider_request_failed";
+}
+
+async function runProductionProviderRequest(
+  prompt: string,
+  schema: Record<string, unknown>,
+  context: BriefProviderCallContext = { logicalGeneration: 1, revisionNumber: 0 },
+  observe?: (diagnostic: BriefProviderCallDiagnostic) => void,
+): Promise<unknown> {
   if (!process.env.OPENAI_API_KEY) {
     throw new FirstWorkingSessionPreparationStageError("brief_provider_unavailable");
   }
+  const startedAt = Date.now();
+  const providerRequest = buildFirstWorkingSessionBriefProviderRequest(prompt, schema);
+  const serializedRequest = JSON.stringify(providerRequest);
+  const requestMetrics = {
+    promptCharacterCount: prompt.length,
+    schemaBytes: Buffer.byteLength(JSON.stringify(schema), "utf8"),
+    serializedRequestBytes: Buffer.byteLength(serializedRequest, "utf8"),
+    providerRequestSha256: createHash("sha256").update(serializedRequest).digest("hex"),
+  };
   try {
     const response = await createFirstWorkingSessionBriefOpenAIClient().responses.create(
-      buildFirstWorkingSessionBriefProviderRequest(prompt, schema),
+      providerRequest,
     );
+    observe?.({
+      ...context, success: true, durationMs: Date.now() - startedAt, httpStatus: 200,
+      errorType: null, errorCode: null, errorParam: null,
+      requestId: response._request_id ?? null, safeMessage: null, retryAfter: null,
+      sdkRetryCount: null,
+      inputTokens: response.usage?.input_tokens ?? null,
+      outputTokens: response.usage?.output_tokens ?? null,
+      totalTokens: response.usage?.total_tokens ?? null,
+      ...requestMetrics,
+    });
     try {
       return JSON.parse(response.output_text);
     } catch {
@@ -716,16 +991,62 @@ async function defaultGenerator(prompt: string, schema: Record<string, unknown>)
     }
   } catch (error) {
     if (error instanceof FirstWorkingSessionPreparationStageError) throw error;
-    throw new FirstWorkingSessionPreparationStageError("brief_provider_request_failed");
+    const diagnostic = providerErrorDiagnostic(error);
+    observe?.({
+      ...context, success: false, durationMs: Date.now() - startedAt,
+      ...diagnostic, inputTokens: null, outputTokens: null, totalTokens: null,
+      ...requestMetrics,
+    });
+    throw new FirstWorkingSessionPreparationStageError(
+      classifyFirstWorkingSessionProviderFailure(diagnostic),
+    );
   }
+}
+
+const compactCitationGenerators = new WeakSet<BriefGenerator>();
+
+async function defaultGenerator(
+  prompt: string,
+  schema: Record<string, unknown>,
+  context?: BriefProviderCallContext,
+): Promise<unknown> {
+  return runProductionProviderRequest(prompt, schema, context);
+}
+compactCitationGenerators.add(defaultGenerator);
+
+export function createCompactFirstWorkingSessionBriefGenerator(
+  generator: BriefGenerator,
+): BriefGenerator {
+  compactCitationGenerators.add(generator);
+  return generator;
+}
+
+export function createObservedFirstWorkingSessionBriefGenerator(
+  observe: (diagnostic: BriefProviderCallDiagnostic) => void,
+): BriefGenerator {
+  return createCompactFirstWorkingSessionBriefGenerator(
+    (prompt, schema, context) => runProductionProviderRequest(prompt, schema, context, observe),
+  );
 }
 
 export async function synthesizeFirstWorkingSessionBrief(
   inputs: BriefInputs,
   generator: BriefGenerator = defaultGenerator,
 ): Promise<FirstWorkingSessionBrief> {
-  const value = await generator(buildFirstWorkingSessionBriefPrompt(inputs), buildFirstWorkingSessionBriefSchema(inputs));
-  return validateFirstWorkingSessionBrief(value, inputs);
+  if (!compactCitationGenerators.has(generator)) {
+    const legacyValue = await generator(
+      buildFirstWorkingSessionBriefPrompt(inputs), buildFirstWorkingSessionBriefSchema(inputs),
+    );
+    return validateFirstWorkingSessionBrief(legacyValue, inputs);
+  }
+  const contract = buildFirstWorkingSessionBriefProviderContract(inputs);
+  const value = await generator(
+    buildCompactFirstWorkingSessionBriefPrompt(inputs, contract),
+    buildCompactFirstWorkingSessionBriefSchema(inputs, contract),
+  );
+  return validateFirstWorkingSessionBrief(
+    expandFirstWorkingSessionBriefProviderAliases(value, contract), inputs,
+  );
 }
 
 export type BriefRevisionTelemetry = {
@@ -754,13 +1075,19 @@ export async function synthesizeFirstWorkingSessionBriefWithRevisions(
   options: { deadlineMs?: number; maxRevisions?: 0 | 1 | 2 } = {},
 ): Promise<{ brief: FirstWorkingSessionBrief; telemetry: BriefRevisionTelemetry }> {
   const inputs = deepFreeze(structuredClone(sourceInputs));
-  const schema = buildFirstWorkingSessionBriefSchema(inputs);
+  const usesCompactCitations = compactCitationGenerators.has(generator);
+  const providerContract = usesCompactCitations
+    ? buildFirstWorkingSessionBriefProviderContract(inputs)
+    : null;
+  const schema = providerContract
+    ? buildCompactFirstWorkingSessionBriefSchema(inputs, providerContract)
+    : buildFirstWorkingSessionBriefSchema(inputs);
   const telemetry: BriefRevisionTelemetry = {
     generationCount: 0, revisionCount: 0, initialValidationCategory: null,
     terminalValidationCategory: null, revisionExhausted: false,
     finalValidationPassed: false, providerDurationsMs: [],
   };
-  const invoke = async (prompt: string) => {
+  const invoke = async (prompt: string, revisionNumber: 0 | 1 | 2) => {
     const startedAt = Date.now();
     const availableMs = options.deadlineMs === undefined
       ? undefined
@@ -771,7 +1098,10 @@ export async function synthesizeFirstWorkingSessionBriefWithRevisions(
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       telemetry.generationCount += 1;
-      const request = generator(prompt, schema);
+      const request = generator(prompt, schema, {
+        logicalGeneration: telemetry.generationCount,
+        revisionNumber,
+      });
       if (availableMs === undefined) return await request;
       return await Promise.race([
         request,
@@ -796,9 +1126,18 @@ export async function synthesizeFirstWorkingSessionBriefWithRevisions(
       defect?.statementIndex, { ...telemetry, providerDurationsMs: [...telemetry.providerDurationsMs] },
     );
   };
+  let providerCandidate: unknown;
   let candidate: unknown;
   try {
-    candidate = await invoke(buildFirstWorkingSessionBriefPrompt(inputs));
+    providerCandidate = await invoke(
+      providerContract
+        ? buildCompactFirstWorkingSessionBriefPrompt(inputs, providerContract)
+        : buildFirstWorkingSessionBriefPrompt(inputs),
+      0,
+    );
+    candidate = providerContract
+      ? expandFirstWorkingSessionBriefProviderAliases(providerCandidate, providerContract)
+      : providerCandidate;
   } catch (error) {
     if (error instanceof FirstWorkingSessionPreparationStageError) fail(error.stageCode);
     throw error;
@@ -823,7 +1162,19 @@ export async function synthesizeFirstWorkingSessionBriefWithRevisions(
     }
     telemetry.revisionCount = revisionNumber;
     try {
-      candidate = await invoke(buildFirstWorkingSessionBriefRevisionPrompt(inputs, candidate, report.defects, revisionNumber));
+      providerCandidate = await invoke(
+        providerContract
+          ? buildCompactFirstWorkingSessionBriefRevisionPrompt(
+              inputs, providerCandidate, report.defects, revisionNumber, providerContract,
+            )
+          : buildFirstWorkingSessionBriefRevisionPrompt(
+              inputs, providerCandidate, report.defects, revisionNumber,
+            ),
+        revisionNumber,
+      );
+      candidate = providerContract
+        ? expandFirstWorkingSessionBriefProviderAliases(providerCandidate, providerContract)
+        : providerCandidate;
     } catch (error) {
       if (error instanceof FirstWorkingSessionPreparationStageError) fail(error.stageCode);
       throw error;
@@ -847,6 +1198,14 @@ export async function buildFirstWorkingSessionBrief(
   scope: Scope,
   options: { deadlineMs?: number } = {},
 ) {
+  const { inputs, reasoningRunId } = await loadFirstWorkingSessionBriefInputs(client, scope);
+  return buildFirstWorkingSessionBriefArtifact(inputs, reasoningRunId, undefined, options);
+}
+
+export async function loadFirstWorkingSessionBriefInputs(
+  client: SupabaseClient,
+  scope: Scope,
+): Promise<{ inputs: BriefInputs; reasoningRunId: string }> {
   const snapshot = await loadPreparationReasoningSnapshot(client, scope.onboardingSessionId, scope.ownerId);
   const hypotheses = await loadCurrentPreparationHypotheses(client, scope);
   if (hypotheses.length !== 7
@@ -855,11 +1214,16 @@ export async function buildFirstWorkingSessionBrief(
   }
   const evidence = toEvidenceInput(snapshot.evidence);
   const observations = toObservationInput(snapshot.observations);
-  return buildFirstWorkingSessionBriefArtifact(
-    { evidence, observations, hypotheses }, snapshot.reasoningRunId,
-    undefined,
-    options,
-  );
+  return { inputs: { evidence, observations, hypotheses }, reasoningRunId: snapshot.reasoningRunId };
+}
+
+export function buildFirstWorkingSessionHypothesisTraceFingerprint(
+  hypotheses: CurrentPreparationHypothesis[],
+): string {
+  return createHash("sha256").update(hypotheses
+    .map((item) => `${item.id}:${item.hypothesisVersion}:${item.requestTraceId ?? ""}`)
+    .sort().join("|"))
+    .digest("hex");
 }
 
 export async function buildFirstWorkingSessionBriefArtifact(
@@ -869,10 +1233,9 @@ export async function buildFirstWorkingSessionBriefArtifact(
   options: { deadlineMs?: number; maxRevisions?: 0 | 1 | 2 } = {},
 ) {
   const frozenInputs = deepFreeze(structuredClone(inputs));
-  const hypothesisTraceFingerprint = createHash("sha256").update(frozenInputs.hypotheses
-    .map((item) => `${item.id}:${item.hypothesisVersion}:${item.requestTraceId ?? ""}`)
-    .sort().join("|"))
-    .digest("hex");
+  const hypothesisTraceFingerprint = buildFirstWorkingSessionHypothesisTraceFingerprint(
+    frozenInputs.hypotheses,
+  );
   const revisionOptions = {
     ...options,
     maxRevisions: options.maxRevisions ?? (generator ? 0 : 2),
