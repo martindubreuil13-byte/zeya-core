@@ -35,6 +35,7 @@ describe('P2.3B governed text working session', () => {
     expect(classifyOwnerAnswer({ ...backed, text: "Let's come back to that later." })).toBe('defer');
     expect(classifyOwnerAnswer({ category: 'commercial', hypothesisBacked: false, text: "Yes, let's target Canada." })).toBe('commercial_decision');
     expect(classifyOwnerAnswer({ category: 'clarification', hypothesisBacked: false, text: 'This is a long but non-affirmative generic answer.' })).toBe('unclear');
+    expect(classifyOwnerAnswer({ category: 'authority', text: 'Any custom price requires my approval.' })).toBe('authority_restriction');
   });
 
   it('rejects internal identifiers, aliases, and hidden-reasoning language from durable prose', () => {

@@ -140,4 +140,29 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(sql).not.toMatch(/UPDATE public\.direct_hire_formation_decisions/i);
     expect(sql).not.toMatch(/DELETE FROM public\.direct_hire_formation_decisions/i);
   });
+
+  it('persists every synthetic readiness key and inherits it across follow-ups', async () => {
+    const sql = await readFile('supabase/migrations/20260816020000_direct_hire_readiness_semantic_propagation.sql', 'utf8');
+    for (const key of [
+      'authority_pricing', 'authority_negotiation', 'authority_customer_commitments',
+      'authority_meeting_booking', 'authority_escalation_rules', 'primary_target_segment',
+      'immediate_bd_goal', 'qualification_threshold', 'meeting_objective',
+    ]) expect(sql).toContain(key);
+    expect(sql).toContain('governed_semantic_key)');
+    expect(sql).toContain("NEW.turn_type='follow_up_question'");
+    expect(sql).toContain('SELECT prior.governed_semantic_key INTO NEW.governed_semantic_key');
+    expect(sql).toContain('zeya_reissue_direct_hire_readiness_question');
+    expect(sql).toContain("v_latest.turn_type<>'follow_up_question'");
+    expect(sql).not.toMatch(/INSERT INTO public\.representation_proposals|INSERT INTO public\.representation_versions|current_version_id\s*=|first_working_conversation_id\s*=/i);
+  });
+
+  it('classifies the exact natural pricing boundary without deriving negotiation', async () => {
+    const { classifyOwnerAnswer } = await import('../../lib/formation/direct-hire-text-conversation');
+    const answer = 'Zeya may explain the published pricing, but any discount, custom price, or change to the commercial terms requires my approval.';
+    expect(classifyOwnerAnswer({ category: 'authority', hypothesisBacked: false, text: answer })).toBe('authority_restriction');
+    expect(governedDecisionKey({ classification: 'authority_restriction', explicitSemanticKey: 'authority_pricing', constitutionalDomain: 'authorityBoundaries', frozenQuestionIntent: 'unrelated' })).toBe('authority_pricing');
+    const sql = await readFile('supabase/migrations/20260816020000_direct_hire_readiness_semantic_propagation.sql', 'utf8');
+    expect(sql).toContain("CASE WHEN v_text~*'discount' THEN 'authority_discounts'");
+    expect(answer).not.toMatch(/negotiat/i);
+  });
 });

@@ -61,6 +61,11 @@ export async function startOrResumeTextConversation(client: SupabaseClient, form
   if (response.error) throw new Error('conversation_start_failed');
   const run = await ownedRun(client, formationSessionId, ownerId);
   if (!run) throw new Error('conversation_lineage_missing');
+  const repair = await client.rpc('zeya_reissue_direct_hire_readiness_question', {
+    p_owner_id: ownerId,
+    p_run_id: run.id,
+  });
+  if (repair.error) throw new Error('conversation_semantic_resume_failed');
   return loadState(client, run);
 }
 

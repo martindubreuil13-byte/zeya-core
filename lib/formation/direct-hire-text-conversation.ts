@@ -94,7 +94,7 @@ export function governedDecisionKey(input: {
 }
 
 const DEFER = /\b(?:defer|later|not now|come back|unsure|don't know yet|do not know yet)\b/i;
-const RESTRICT = /\b(?:cannot|can't|must not|do not|don't|prohibit|never|owner approval|required approval|escalat)\b/i;
+const RESTRICT = /\b(?:cannot|can't|must not|do not|don't|prohibit|never|owner approval|required approval|requires? my approval|needs? my approval|check with me first|get my approval first|subject to my approval|escalat)\b/i;
 const GRANT = /\b(?:may|can|allowed|authori[sz]e|up to|without approval)\b/i;
 const CORRECT = /(?:^\s*no\b|\b(?:incorrect|wrong|actually|correction|not accurate)\b)/i;
 const CONFIRM = /^(?:yes\b|correct\b|confirmed\b|that's right\b|that is right\b)/i;
