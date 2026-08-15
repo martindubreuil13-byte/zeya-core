@@ -14,6 +14,7 @@ export type FormationSessionStatus =
 export type FormationInitiationSource =
   | 'public_experience_session'
   | 'representation_brief'
+  | 'direct_hire_onboarding'
   | 'callback'
   | 'owner_request';
 

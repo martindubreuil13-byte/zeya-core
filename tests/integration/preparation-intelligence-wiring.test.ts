@@ -69,13 +69,13 @@ describe('Preparation intelligence real-journey wiring', () => {
     expect(helper).toContain('Hypothesis cites Evidence outside the exact preparation scope');
   });
 
-  it('uses one projection in Summary and Formation without browser-facing internal IDs', async () => {
+  it('uses the frozen P2.3A handoff in Formation without browser-facing internal IDs', async () => {
     const summary = await readFile('app/api/onboarding/direct-hire/preparation/summary/route.ts', 'utf8');
     const formation = await readFile('app/api/formation/sessions/[sessionId]/prepared-context/route.ts', 'utf8');
     expect(summary).toContain('buildPrivatePreparationProjection');
-    expect(formation).toContain('buildPrivatePreparationProjection');
+    expect(formation).toContain('loadDirectHireFormationPreparedContext');
     expect(summary).toContain('toOwnerPreparationProjection');
-    expect(formation).toContain('toOwnerPreparationProjection');
+    expect(formation).toContain('context.ownerSafe');
     expect(formation).not.toContain('raw_statement');
     expect(formation).not.toContain('website_url');
   });

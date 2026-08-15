@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
 import { createDirectHireServiceClient } from '@/lib/onboarding/direct-hire-service-client';
 import { loadFreshCurrentPreparationHypotheses, PREPARATION_DOMAINS } from '@/lib/onboarding/preparation-intelligence';
+import { buildDirectHireFormationAgenda } from '@/lib/formation/direct-hire-agenda';
+import type { FirstWorkingSessionBrief } from '@/lib/onboarding/first-working-session-brief';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -33,50 +35,68 @@ export async function POST(request: NextRequest) {
     body = {};
   }
 
-  const partialAcknowledged = (body as any)?.partialAcknowledged === true;
+  const workingSessionId = (body as { workingSessionId?: unknown })?.workingSessionId;
+  if (typeof workingSessionId !== 'string' || !UUID.test(workingSessionId)) {
+    return failure('invalid_working_session_id', 400);
+  }
 
   try {
-    const onboardingResult = await auth.supabase
-      .from('direct_hire_onboarding_sessions')
-      .select('id, business_id, business_representation_id')
+    const workingSessionResult = await auth.supabase
+      .from('direct_hire_working_sessions')
+      .select('id,owner_id,business_id,business_representation_id,direct_hire_onboarding_session_id,status,preparation_status,preparation_contract_version,preparation_snapshot_fingerprint')
+      .eq('id', workingSessionId)
       .eq('owner_id', ownerId)
       .maybeSingle();
-    if (onboardingResult.error) return failure('onboarding_lookup_failed', 500);
-    if (!onboardingResult.data) return failure('no_direct_hire_session', 404);
+    if (workingSessionResult.error) return failure('working_session_lookup_failed', 500);
+    if (!workingSessionResult.data) return failure('working_session_not_found', 404);
+    const workingSession = workingSessionResult.data;
+    const serviceClient = createDirectHireServiceClient();
+
+    const briefResult = await serviceClient
+      .from('direct_hire_first_working_session_briefs')
+      .select('id,brief,source_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version,current')
+      .eq('direct_hire_working_session_id', workingSession.id)
+      .eq('current', true)
+      .eq('preparation_contract_version', 'first-working-session-preparation-v4')
+      .maybeSingle();
+    if (briefResult.error) return failure('preparation_brief_lookup_failed', 500);
+    if (!briefResult.data) return failure('current_v4_brief_not_found', 409);
+
     const hypotheses = await loadFreshCurrentPreparationHypotheses(auth.supabase, {
       ownerId,
-      businessId: onboardingResult.data.business_id,
-      businessRepresentationId: onboardingResult.data.business_representation_id,
-      onboardingSessionId: onboardingResult.data.id,
+      businessId: workingSession.business_id,
+      businessRepresentationId: workingSession.business_representation_id,
+      onboardingSessionId: workingSession.direct_hire_onboarding_session_id,
     });
     if (hypotheses.length !== PREPARATION_DOMAINS.length) {
       return failure('preparation_intelligence_pending', 409);
     }
+    const agenda = buildDirectHireFormationAgenda({
+      brief: briefResult.data.brief as FirstWorkingSessionBrief,
+      hypotheses,
+      snapshotFingerprint: briefResult.data.source_snapshot_fingerprint,
+    });
 
     // Use service-role client for SECURITY DEFINER RPC
     // Authenticated user's owner UUID is server-derived and cannot be overridden by request body
-    const serviceClient = createDirectHireServiceClient();
-
     // Call atomic RPC for idempotent formation initiation
     const rpcResult = await serviceClient.rpc(
-      'zeya_initiate_direct_hire_formation',
+      'zeya_initiate_direct_hire_first_working_session_formation',
       {
-        p_authenticated_user_id: ownerId,
-        p_partial_acknowledged: partialAcknowledged,
+        p_authenticated_owner_id: ownerId,
+        p_working_session_id: workingSession.id,
+        p_expected_brief_id: briefResult.data.id,
+        p_expected_snapshot_fingerprint: briefResult.data.source_snapshot_fingerprint,
+        p_expected_hypothesis_trace_fingerprint: briefResult.data.hypothesis_trace_fingerprint,
+        p_agenda: agenda,
       },
     );
 
     if (rpcResult.error) {
       const errorCode = rpcResult.error.message || 'formation_initiation_failed';
-      const status = errorCode === 'user_not_authenticated' ? 401
-        : errorCode === 'no_direct_hire_session' ? 404
-        : errorCode === 'preparation_not_ready' ? 409
-        : errorCode === 'active_formation_exists' ? 409
-        : errorCode === 'canonical_version_exists' ? 409
-        : errorCode === 'no_website_evidence' ? 409
-        : errorCode === 'partial_not_acknowledged' ? 409
-        : errorCode === 'preparation_in_progress' ? 409
-        : 500;
+      const status = rpcResult.error.code === '42501' ? 403
+        : rpcResult.error.code === 'PZ404' ? 404
+          : ['PZ409', '22023', '23505'].includes(rpcResult.error.code ?? '') ? 409 : 500;
 
       return failure(errorCode, status);
     }

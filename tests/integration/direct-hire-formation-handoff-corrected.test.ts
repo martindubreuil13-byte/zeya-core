@@ -203,13 +203,12 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
       expect(route).toContain('createAuthenticatedRepresentationContext');
     });
 
-    it('does not accept owner_id, business, or representation from body', async () => {
+    it('accepts only exact working-session identity from the owner request', async () => {
       const route = await readFile(
         'app/api/onboarding/direct-hire/formation/route.ts',
         'utf8',
       );
-      // Should only accept partialAcknowledged
-      expect(route).toContain('partialAcknowledged');
+      expect(route).toContain('workingSessionId');
       expect(route).not.toContain('(body as any)?.owner');
       expect(route).not.toContain('(body as any)?.business');
       expect(route).not.toContain('(body as any)?.representation');
@@ -221,9 +220,10 @@ describe('Direct Hire to Formation Handoff (Corrected)', () => {
         'app/api/onboarding/direct-hire/formation/route.ts',
         'utf8',
       );
-      expect(route).toContain('zeya_initiate_direct_hire_formation');
-      expect(route).toContain('p_authenticated_user_id');
-      expect(route).toContain('p_partial_acknowledged');
+      expect(route).toContain('zeya_initiate_direct_hire_first_working_session_formation');
+      expect(route).toContain('p_authenticated_owner_id');
+      expect(route).toContain('p_working_session_id');
+      expect(route).toContain('p_expected_brief_id');
     });
 
     it('returns formationSessionId and isNew on success', async () => {
