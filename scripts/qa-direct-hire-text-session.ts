@@ -24,8 +24,10 @@ async function main() {
   console.log(JSON.stringify({ firstQuestion: first?.data?.message, topic: first?.data?.currentTopic }, null, 2));
   const controlledAnswer = process.argv.slice(2).join(' ').trim();
   if (!controlledAnswer) throw new Error('pass one controlled owner answer as the command argument');
-  const answered = await call({ action: 'answer', answer: controlledAnswer, idempotencyKey: crypto.randomUUID() });
-  console.log(JSON.stringify({ nextQuestion: answered?.data?.message, topic: answered?.data?.currentTopic, complete: answered?.data?.complete }, null, 2));
+  const idempotencyKey = process.env.QA_IDEMPOTENCY_KEY ?? crypto.randomUUID();
+  console.log(JSON.stringify({ idempotencyKey }, null, 2));
+  const answered = await call({ action: 'answer', answer: controlledAnswer, idempotencyKey });
+  console.log(JSON.stringify({ classification: answered?.data?.answerClassification, nextQuestion: answered?.data?.message, topic: answered?.data?.currentTopic, complete: answered?.data?.complete }, null, 2));
   await call({ action: 'pause' });
 }
 main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });

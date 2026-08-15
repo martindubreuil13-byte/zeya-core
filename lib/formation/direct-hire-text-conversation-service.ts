@@ -69,7 +69,9 @@ async function loadState(client: SupabaseClient, run: RunRow): Promise<OwnerSafe
   const current = agenda.find((item) => item.id === turnResult.data?.agenda_item_id) ?? remaining[0] ?? null;
   return {
     status: run.status,
-    message: run.status === 'completed' ? 'Our first working session is complete.' : (turnResult.data?.owner_safe_text ?? 'Let’s begin.'),
+    message: run.status === 'completed'
+      ? 'Our first working session is complete. I have enough governed information to prepare how I will represent the business.'
+      : (turnResult.data?.owner_safe_text ?? 'Let’s begin.'),
     currentTopic: current?.category ?? null,
     progress: { answered: agenda.length - remaining.length, total: agenda.length },
     blockingItemsRemaining: remaining.filter((item) => item.blocking).length,
@@ -140,5 +142,7 @@ export async function submitTextConversationAnswer(client: SupabaseClient, input
     p_decision_key: key, p_decision_value: key ? { statement: answer } : null, p_hypothesis_operation_id: hypothesisOperationId,
   });
   if (response.error) throw new Error('conversation_answer_failed');
-  return loadState(client, { ...run, status: response.data?.[0]?.complete ? 'completed' : 'active' });
+  const persistedRun = await ownedRun(client, input.formationSessionId, input.ownerId);
+  if (!persistedRun) throw new Error('conversation_completion_readback_failed');
+  return { ...(await loadState(client, persistedRun)), answerClassification: classification };
 }
