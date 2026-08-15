@@ -104,6 +104,21 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(readiness.categories.immediate_bd_objective.state).toBe('unresolved');
   });
 
+  it('routes the exact live whatYouSell affirmative through hypothesis confirmation', async () => {
+    const answer = 'Yes. We sell business coaching and business architecture services.';
+    const { classifyOwnerAnswer } = await import('../../lib/formation/direct-hire-text-conversation');
+    const classification = classifyOwnerAnswer({ category: 'commercial', hypothesisBacked: true, text: answer });
+    expect(classification).toBe('confirm');
+    expect(governedDecisionKey({
+      classification,
+      constitutionalDomain: 'whatYouSell',
+      frozenQuestionIntent: 'If wrong about this, customer expectations may not align with service delivery',
+    })).toBeNull();
+    const service = await readFile('lib/formation/direct-hire-text-conversation-service.ts', 'utf8');
+    expect(service).toContain('hypothesisBacked: item.source_hypothesis_ids.length > 0');
+    expect(service).toContain("classification === 'confirm' ? 'approved'");
+  });
+
   it('uses metadata despite adversarial conversational wording and fails closed when unmappable', () => {
     expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: 'whoItIsFor', frozenQuestionIntent: 'Who should we focus on first?' })).toBe('primary_target_segment');
     expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: null, frozenQuestionIntent: 'What makes someone worth pursuing?' })).toBe('qualification_threshold');

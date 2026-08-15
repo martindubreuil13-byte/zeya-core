@@ -99,7 +99,11 @@ export async function submitTextConversationAnswer(client: SupabaseClient, input
     .eq('id', turn.data.agenda_item_id).eq('formation_session_id', run.formation_session_id).single();
   if (agendaResult.error || !agendaResult.data) throw new Error('conversation_agenda_missing');
   const item = agendaResult.data as AgendaRow;
-  let classification = classifyOwnerAnswer({ text: answer, category: item.category });
+  let classification = classifyOwnerAnswer({
+    text: answer,
+    category: item.category,
+    hypothesisBacked: item.source_hypothesis_ids.length > 0,
+  });
   const prior = await client.from('direct_hire_formation_agenda_resolution_events').select('id').eq('run_id', run.id).eq('agenda_item_id', item.id).eq('resolution_state', 'still_unresolved');
   if (prior.error) throw new Error('conversation_resolution_lookup_failed');
   if ((classification === 'unclear' || classification === 'nonresponsive') && (prior.data?.length ?? 0) >= 1) classification = 'defer';

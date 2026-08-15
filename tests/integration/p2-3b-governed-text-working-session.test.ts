@@ -18,10 +18,23 @@ describe('P2.3B governed text working session', () => {
     expect(classifyOwnerAnswer({ category: 'authority', text: 'You may quote pricing up to $2,000.' })).toBe('authority_grant');
     expect(classifyOwnerAnswer({ category: 'authority', text: 'Never promise a delivery date without owner approval.' })).toBe('authority_restriction');
     expect(classifyOwnerAnswer({ category: 'commercial', text: 'Our immediate goal is ten qualified meetings.' })).toBe('commercial_decision');
-    expect(classifyOwnerAnswer({ category: 'clarification', text: 'Actually, that is incorrect.' })).toBe('correct');
+    expect(classifyOwnerAnswer({ category: 'clarification', text: 'Actually, that is incorrect.', hypothesisBacked: true })).toBe('correct');
     expect(classifyOwnerAnswer({ category: 'clarification', text: 'later' })).toBe('defer');
     expect(resolutionForClassification('unclear')).toBe('still_unresolved');
     expect(ownerSafeQuestion({ id: 'x', rank: 1, category: 'authority', blocking: true, questionIntent: 'Set a boundary.', suggestedWording: null }, 1)).toContain('one clearer boundary');
+  });
+
+  it('recognizes natural affirmative confirmation only with hypothesis lineage', () => {
+    const backed = { category: 'commercial', hypothesisBacked: true };
+    expect(classifyOwnerAnswer({ ...backed, text: 'Yes.' })).toBe('confirm');
+    expect(classifyOwnerAnswer({ ...backed, text: "Correct — that's what we offer." })).toBe('confirm');
+    expect(classifyOwnerAnswer({ ...backed, text: 'Yes, that description is accurate.' })).toBe('confirm');
+    expect(classifyOwnerAnswer({ ...backed, text: 'Yes. We sell business coaching and business architecture services.' })).toBe('confirm');
+    expect(classifyOwnerAnswer({ ...backed, text: 'Yes, but actually we mostly sell consulting to SMEs.' })).toBe('correct');
+    expect(classifyOwnerAnswer({ ...backed, text: "No, that's wrong." })).toBe('correct');
+    expect(classifyOwnerAnswer({ ...backed, text: "Let's come back to that later." })).toBe('defer');
+    expect(classifyOwnerAnswer({ category: 'commercial', hypothesisBacked: false, text: "Yes, let's target Canada." })).toBe('commercial_decision');
+    expect(classifyOwnerAnswer({ category: 'clarification', hypothesisBacked: false, text: 'This is a long but non-affirmative generic answer.' })).toBe('unclear');
   });
 
   it('rejects internal identifiers, aliases, and hidden-reasoning language from durable prose', () => {

@@ -96,12 +96,13 @@ export function governedDecisionKey(input: {
 const DEFER = /\b(?:defer|later|not now|come back|unsure|don't know yet|do not know yet)\b/i;
 const RESTRICT = /\b(?:cannot|can't|must not|do not|don't|prohibit|never|owner approval|required approval|escalat)\b/i;
 const GRANT = /\b(?:may|can|allowed|authori[sz]e|up to|without approval)\b/i;
-const CORRECT = /\b(?:incorrect|wrong|actually|correction|not accurate)\b/i;
-const CONFIRM = /^(?:yes|correct|confirmed|that's right|that is right)[.!\s]*$/i;
+const CORRECT = /(?:^\s*no\b|\b(?:incorrect|wrong|actually|correction|not accurate)\b)/i;
+const CONFIRM = /^(?:yes\b|correct\b|confirmed\b|that's right\b|that is right\b)/i;
 
 export function classifyOwnerAnswer(input: {
   text: string;
   category: string;
+  hypothesisBacked?: boolean;
 }): OwnerAnswerClassification {
   const text = input.text.trim();
   if (!text || text.length < 2) return 'nonresponsive';
@@ -112,9 +113,9 @@ export function classifyOwnerAnswer(input: {
     return 'unclear';
   }
   if (CORRECT.test(text)) return 'correct';
-  if (CONFIRM.test(text)) return 'confirm';
+  if (input.hypothesisBacked && CONFIRM.test(text)) return 'confirm';
   if (input.category === 'commercial' && text.length >= 12) return 'commercial_decision';
-  return text.length >= 24 ? 'confirm' : 'unclear';
+  return 'unclear';
 }
 
 export function resolutionForClassification(
