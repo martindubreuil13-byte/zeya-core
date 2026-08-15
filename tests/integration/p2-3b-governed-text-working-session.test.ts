@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { classifyOwnerAnswer, containsForbiddenConversationText, ownerSafeQuestion, resolutionForClassification, selectNextAgendaItem } from '../../lib/formation/direct-hire-text-conversation';
+import { classifyOwnerAnswer, containsForbiddenConversationText, governedDecisionKey, ownerSafeQuestion, resolutionForClassification, selectNextAgendaItem } from '../../lib/formation/direct-hire-text-conversation';
 
 describe('P2.3B governed text working session', () => {
   it('selects blocking work first and otherwise preserves deterministic rank', () => {
@@ -28,6 +28,11 @@ describe('P2.3B governed text working session', () => {
     expect(containsForbiddenConversationText('Use E2 and H1')).toBe(true);
     expect(containsForbiddenConversationText('chain-of-thought follows')).toBe(true);
     expect(containsForbiddenConversationText('You may discuss pricing within the published range.')).toBe(false);
+  });
+
+  it('never defaults unknown commercial or authority semantics to a permission-bearing key', () => {
+    expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: null, frozenQuestionIntent: 'Discuss this.' })).toBeNull();
+    expect(governedDecisionKey({ classification: 'authority_grant', constitutionalDomain: 'authorityBoundaries', frozenQuestionIntent: 'Clarify authority.' })).toBeNull();
   });
 
   it('makes persistence additive, isolated, append-only, service-only, idempotent, and noncanonical', async () => {

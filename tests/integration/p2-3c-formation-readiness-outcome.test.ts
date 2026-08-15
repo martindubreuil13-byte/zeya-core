@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { boundedAuthorityDisposition, deriveTelephoneBdReadiness, deterministicOutcomeFingerprint, TELEPHONE_BD_READINESS_CATEGORIES } from '../../lib/formation/direct-hire-formation-readiness';
+import { governedDecisionKey } from '../../lib/formation/direct-hire-text-conversation';
 
 const completeSources = [
   { key: 'offer', sourceIds: ['offer-event'] },
@@ -85,5 +86,43 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(service).toContain('answerOperationId(run.id, input.idempotencyKey)');
     expect(service).toContain('conversation_idempotency_conflict');
     expect(service).toContain('persistedRun');
+  });
+
+  it('maps the exact live target reproduction from governed domain, never display wording', () => {
+    const key = governedDecisionKey({
+      classification: 'commercial_decision', constitutionalDomain: 'whoItIsFor',
+      frozenQuestionIntent: 'If wrong about this, it could lead to targeting the wrong market',
+    });
+    expect(key).toBe('primary_target_segment');
+    expect(key).not.toBe('immediate_bd_goal');
+    if (!key) throw new Error('expected governed target key');
+    const readiness = deriveTelephoneBdReadiness({ sources: [
+      ...completeSources.filter((source) => !['primary_target_segment', 'immediate_bd_goal'].includes(source.key)),
+      { key, disposition: 'decided', sourceIds: ['replacement'] },
+    ] });
+    expect(readiness.categories.target.state).toBe('satisfied');
+    expect(readiness.categories.immediate_bd_objective.state).toBe('unresolved');
+  });
+
+  it('uses metadata despite adversarial conversational wording and fails closed when unmappable', () => {
+    expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: 'whoItIsFor', frozenQuestionIntent: 'Who should we focus on first?' })).toBe('primary_target_segment');
+    expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: null, frozenQuestionIntent: 'What makes someone worth pursuing?' })).toBe('qualification_threshold');
+    expect(governedDecisionKey({ classification: 'commercial_decision', explicitSemanticKey: 'meeting_objective', constitutionalDomain: null, frozenQuestionIntent: 'Unrelated display prose' })).toBe('meeting_objective');
+    expect(governedDecisionKey({ classification: 'commercial_decision', explicitSemanticKey: 'immediate_bd_goal', constitutionalDomain: null, frozenQuestionIntent: 'Unrelated display prose' })).toBe('immediate_bd_goal');
+    expect(governedDecisionKey({ classification: 'commercial_decision', constitutionalDomain: null, frozenQuestionIntent: 'What do you think?' })).toBeNull();
+    expect(governedDecisionKey({ classification: 'authority_grant', constitutionalDomain: 'authorityBoundaries', frozenQuestionIntent: 'Use your judgment.' })).toBeNull();
+  });
+
+  it('provides append-only semantic recovery and excludes the bad row from readiness', async () => {
+    const sql = await readFile('supabase/migrations/20260816010000_direct_hire_formation_decision_semantic_recovery.sql', 'utf8');
+    expect(sql).toContain('direct_hire_formation_decision_supersessions');
+    expect(sql).toContain('corrected_application_semantic_mapping');
+    expect(sql).toContain("v_bad.decision_key<>'immediate_bd_goal'");
+    expect(sql).toContain("agenda.constitutional_domain='whoItIsFor'");
+    expect(sql).toContain("'commercial','primary_target_segment','decided'");
+    expect(sql).toContain('supersession.erroneous_decision_id=d.id');
+    expect(sql).toContain('direct_hire_formation_outcome_supersession_sanitize');
+    expect(sql).not.toMatch(/UPDATE public\.direct_hire_formation_decisions/i);
+    expect(sql).not.toMatch(/DELETE FROM public\.direct_hire_formation_decisions/i);
   });
 });

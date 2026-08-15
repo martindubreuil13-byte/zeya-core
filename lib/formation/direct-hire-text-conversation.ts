@@ -27,6 +27,72 @@ export type ConversationAgendaItem = {
 
 export type AgendaResolution = { agendaItemId: string; resolutionState: AgendaResolutionState };
 
+export type GovernedDecisionKey =
+  | 'primary_target_segment'
+  | 'immediate_bd_goal'
+  | 'qualification_threshold'
+  | 'meeting_objective'
+  | 'geography'
+  | 'explicit_exclusions'
+  | 'authority_pricing'
+  | 'authority_discounts'
+  | 'authority_negotiation'
+  | 'authority_customer_commitments'
+  | 'authority_meeting_booking'
+  | 'authority_owner_approval_required'
+  | 'authority_escalation_rules'
+  | 'authority_prohibited_claims';
+
+const GOVERNED_DECISION_KEYS = new Set<GovernedDecisionKey>([
+  'primary_target_segment', 'immediate_bd_goal', 'qualification_threshold', 'meeting_objective',
+  'geography', 'explicit_exclusions', 'authority_pricing', 'authority_discounts',
+  'authority_negotiation', 'authority_customer_commitments', 'authority_meeting_booking',
+  'authority_owner_approval_required', 'authority_escalation_rules', 'authority_prohibited_claims',
+]);
+const COMMERCIAL_DECISION_KEYS = new Set<GovernedDecisionKey>([
+  'primary_target_segment', 'immediate_bd_goal', 'qualification_threshold', 'meeting_objective',
+  'geography', 'explicit_exclusions',
+]);
+
+export function governedDecisionKey(input: {
+  classification: OwnerAnswerClassification;
+  explicitSemanticKey?: string | null;
+  constitutionalDomain: string | null;
+  frozenQuestionIntent: string;
+}): GovernedDecisionKey | null {
+  if (input.explicitSemanticKey) {
+    const key = input.explicitSemanticKey as GovernedDecisionKey;
+    if (!GOVERNED_DECISION_KEYS.has(key)) return null;
+    if (input.classification === 'commercial_decision') return COMMERCIAL_DECISION_KEYS.has(key) ? key : null;
+    if (input.classification.startsWith('authority_')) return COMMERCIAL_DECISION_KEYS.has(key) ? null : key;
+    return null;
+  }
+  if (input.classification === 'commercial_decision') {
+    if (input.constitutionalDomain === 'whoItIsFor') return 'primary_target_segment';
+    if (input.constitutionalDomain === 'whatYouSell') return null;
+    const intent = input.frozenQuestionIntent.toLowerCase();
+    if (/qualif|worth pursuing/.test(intent)) return 'qualification_threshold';
+    if (/meeting objective|hand someone over|seek a meeting/.test(intent)) return 'meeting_objective';
+    if (/immediate (?:bd |business-development )?(?:goal|objective)|accomplish first/.test(intent)) return 'immediate_bd_goal';
+    if (/exclusion/.test(intent)) return 'explicit_exclusions';
+    if (/geograph|territor/.test(intent)) return 'geography';
+    return null;
+  }
+  if (input.classification.startsWith('authority_')) {
+    const intent = input.frozenQuestionIntent.toLowerCase();
+    if (/discount/.test(intent)) return 'authority_discounts';
+    if (/negotiat/.test(intent)) return 'authority_negotiation';
+    if (/promise|commit|guarantee/.test(intent)) return 'authority_customer_commitments';
+    if (/book|schedule/.test(intent) && /meeting/.test(intent)) return 'authority_meeting_booking';
+    if (/escalat/.test(intent)) return 'authority_escalation_rules';
+    if (/prohibited claim|must not claim/.test(intent)) return 'authority_prohibited_claims';
+    if (/owner approval|required approval/.test(intent)) return 'authority_owner_approval_required';
+    if (/pric/.test(intent)) return 'authority_pricing';
+    return null;
+  }
+  return null;
+}
+
 const DEFER = /\b(?:defer|later|not now|come back|unsure|don't know yet|do not know yet)\b/i;
 const RESTRICT = /\b(?:cannot|can't|must not|do not|don't|prohibit|never|owner approval|required approval|escalat)\b/i;
 const GRANT = /\b(?:may|can|allowed|authori[sz]e|up to|without approval)\b/i;

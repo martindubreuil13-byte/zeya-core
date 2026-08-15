@@ -4,8 +4,8 @@ import {
   answerOperationId,
   classifyOwnerAnswer,
   containsForbiddenConversationText,
+  governedDecisionKey,
   resolutionForClassification,
-  type OwnerAnswerClassification,
 } from './direct-hire-text-conversation';
 
 type AgendaRow = {
@@ -23,29 +23,6 @@ export type OwnerSafeConversationState = {
   blockingItemsRemaining: number;
   complete: boolean;
 };
-
-function decisionKey(item: AgendaRow, classification: OwnerAnswerClassification): string | null {
-  const text = `${item.question_intent} ${item.suggested_wording ?? ''}`.toLowerCase();
-  if (classification.startsWith('authority_')) {
-    if (/discount/.test(text)) return 'discounts';
-    if (/negotiat/.test(text)) return 'negotiation';
-    if (/promise|commit/.test(text)) return 'promises_commitments';
-    if (/book|meeting/.test(text)) return 'meeting_booking';
-    if (/escalat/.test(text)) return 'escalation';
-    if (/claim/.test(text)) return 'prohibited_claims';
-    if (/approval/.test(text)) return 'owner_approval_required';
-    return 'pricing';
-  }
-  if (classification === 'commercial_decision') {
-    if (/segment|customer/.test(text)) return 'target_segment';
-    if (/qualif/.test(text)) return 'qualification_threshold';
-    if (/meeting/.test(text)) return 'meeting_objective';
-    if (/geograph|territor|exclusion/.test(text)) return 'geography_exclusions';
-    if (/availability|escalat/.test(text)) return 'owner_availability_escalation';
-    return 'immediate_bd_goal';
-  }
-  return null;
-}
 
 async function ownedRun(client: SupabaseClient, formationSessionId: string, ownerId: string): Promise<RunRow | null> {
   const result = await client.from('direct_hire_formation_conversation_runs')
@@ -115,7 +92,7 @@ export async function submitTextConversationAnswer(client: SupabaseClient, input
     return loadState(client, run);
   }
   if (run.status !== 'active') throw new Error('conversation_not_active');
-  const turn = await client.from('direct_hire_formation_conversation_turns').select('agenda_item_id,owner_safe_text').eq('run_id', run.id).eq('speaker', 'zeya').order('sequence', { ascending: false }).limit(1).single();
+  const turn = await client.from('direct_hire_formation_conversation_turns').select('agenda_item_id,owner_safe_text,governed_semantic_key').eq('run_id', run.id).eq('speaker', 'zeya').order('sequence', { ascending: false }).limit(1).single();
   if (turn.error || !turn.data) throw new Error('conversation_question_missing');
   const agendaResult = await client.from('direct_hire_first_working_session_formation_agenda_items')
     .select('id,agenda_item_id,rank,category,blocking,constitutional_domain,question_intent,suggested_wording,source_hypothesis_ids')
@@ -126,6 +103,18 @@ export async function submitTextConversationAnswer(client: SupabaseClient, input
   const prior = await client.from('direct_hire_formation_agenda_resolution_events').select('id').eq('run_id', run.id).eq('agenda_item_id', item.id).eq('resolution_state', 'still_unresolved');
   if (prior.error) throw new Error('conversation_resolution_lookup_failed');
   if ((classification === 'unclear' || classification === 'nonresponsive') && (prior.data?.length ?? 0) >= 1) classification = 'defer';
+  const key = governedDecisionKey({
+    classification,
+    explicitSemanticKey: turn.data.governed_semantic_key,
+    constitutionalDomain: item.constitutional_domain,
+    frozenQuestionIntent: item.question_intent,
+  });
+  if ((classification === 'commercial_decision' || classification.startsWith('authority_')) && !key) {
+    classification = 'unclear';
+  }
+  if (classification === 'commercial_decision' && item.constitutional_domain === 'whatYouSell') {
+    classification = item.source_hypothesis_ids[0] ? 'confirm' : 'unclear';
+  }
   let hypothesisOperationId: string | null = null;
   if (['confirm', 'correct', 'defer'].includes(classification) && item.source_hypothesis_ids[0]) {
     hypothesisOperationId = answerOperationId(run.id, input.idempotencyKey);
@@ -135,7 +124,6 @@ export async function submitTextConversationAnswer(client: SupabaseClient, input
       ...(classification === 'correct' ? { correctionText: answer } : {}),
     });
   }
-  const key = decisionKey({ ...item, question_intent: turn.data.owner_safe_text }, classification);
   const response = await client.rpc('zeya_record_direct_hire_formation_answer', {
     p_owner_id: input.ownerId, p_run_id: run.id, p_agenda_item_id: item.id, p_idempotency_key: input.idempotencyKey,
     p_owner_text: answer, p_classification: classification, p_resolution_state: resolutionForClassification(classification),
