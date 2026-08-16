@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { boundedAuthorityDisposition, deriveTelephoneBdReadiness, deterministicOutcomeFingerprint, TELEPHONE_BD_READINESS_CATEGORIES } from '../../lib/formation/direct-hire-formation-readiness';
+import { boundedAuthorityDisposition, deriveTelephoneBdReadiness, deterministicOutcomeFingerprint, governedAuthorityDisposition, TELEPHONE_BD_READINESS_CATEGORIES } from '../../lib/formation/direct-hire-formation-readiness';
 import { governedDecisionKey } from '../../lib/formation/direct-hire-text-conversation';
 
 const completeSources = [
@@ -228,5 +228,46 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(replayGuard).toBeLessThan(ownerTurnInsert);
     expect(sql.slice(replayGuard, ownerTurnInsert)).toContain('RETURN QUERY');
     expect(sql.slice(replayGuard, ownerTurnInsert)).toContain('RETURN;');
+  });
+
+  it.each([
+    ['authority_meeting_booking', 'Zeya may book a meeting directly when the prospect is qualified and has clearly agreed to meet. Anything outside that should be escalated to me.', 'authority_restriction', 'allowed_within_bounds'],
+    ['authority_meeting_booking', 'Zeya may book qualified meetings, but anything else needs my approval.', 'authority_restriction', 'allowed_within_bounds'],
+    ['authority_pricing', 'Zeya may discuss published pricing, but discounts require my approval.', 'authority_restriction', 'allowed_within_bounds'],
+    ['authority_negotiation', 'Zeya may negotiate up to 5%, anything beyond that must come to me.', 'authority_grant', 'allowed_within_bounds'],
+    ['authority_negotiation', 'Zeya may not negotiate at all.', 'authority_restriction', 'prohibited'],
+    ['authority_negotiation', 'Negotiation requires my approval.', 'authority_restriction', 'owner_approval_required'],
+    ['authority_negotiation', 'Zeya may explain pricing but may not negotiate.', 'authority_restriction', 'prohibited'],
+    ['authority_negotiation', 'Use your judgment.', 'authority_grant', 'unresolved'],
+  ] as const)('derives bounded authority for %s: %s', (governedSemanticKey, statement, classification, expected) => {
+    expect(governedAuthorityDisposition({ governedSemanticKey, statement, classification })).toBe(expected);
+  });
+
+  it('persists governed authority dispositions and supports exact append-only live recovery', async () => {
+    const sql = await readFile('supabase/migrations/20260816050000_direct_hire_bounded_authority_disposition.sql', 'utf8');
+    expect(sql).toContain('zeya_derive_direct_hire_governed_authority_disposition');
+    expect(sql).toContain('direct_hire_formation_authority_disposition_derive');
+    expect(sql).toContain("NEW.decision_key LIKE 'authority\\_%'");
+    expect(sql).toContain("NEW.disposition:=public.zeya_derive_direct_hire_governed_authority_disposition");
+    expect(sql).toContain("'authority','meeting_booking','allowed_within_bounds',v_bad.decision_value,true");
+    expect(sql).toContain('direct_hire_formation_authority_disposition_corrections');
+    expect(sql).toContain('corrected_bounded_authority_disposition');
+    expect(sql).toContain('66160755-ecab-40ed-b313-1f9ec98672c0');
+    expect(sql).toContain("escalation.decision_key='authority_escalation_rules'");
+    expect(sql).toContain('direct_hire_formation_decision_supersessions');
+    expect(sql).toContain('zeya_complete_direct_hire_formation_after_bounded_authority_recovery');
+    expect(sql).toContain("NOT (v_readiness->>'ready')::boolean");
+    expect(sql).toContain("formation.status='working_conversation_pending'");
+    expect(sql).toContain("representation.current_version_id IS NULL");
+    expect(sql).toContain("v_working_session.status<>'scheduled'");
+    const recovery = sql.slice(
+      sql.indexOf('CREATE FUNCTION public.zeya_correct_direct_hire_bounded_meeting_booking_authority'),
+      sql.indexOf('CREATE FUNCTION public.zeya_complete_direct_hire_formation_after_bounded_authority_recovery'),
+    );
+    expect(recovery).not.toMatch(/UPDATE public\.direct_hire_(?:formation_conversation_runs|working_sessions)/i);
+    expect(sql).toContain("auth.role()<>'service_role'");
+    expect(sql).not.toMatch(/UPDATE public\.direct_hire_formation_(?:decisions|agenda_resolution_events)/i);
+    expect(sql).not.toMatch(/DELETE FROM public\.direct_hire_formation_/i);
+    expect(sql).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\.(?:representation_proposals|representation_versions)|first_working_conversation_id\s*=|current_version_id\s*=/i);
   });
 });

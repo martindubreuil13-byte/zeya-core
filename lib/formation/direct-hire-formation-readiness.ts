@@ -89,3 +89,30 @@ export function boundedAuthorityDisposition(text: string): AuthorityDisposition 
   if (/\b(?:up to|within|only|limited to|provided that|as long as)\b/i.test(text)) return 'allowed_within_bounds';
   return 'unresolved';
 }
+
+const AUTHORITY_SUBJECTS: Record<string, string> = {
+  authority_pricing: String.raw`(?:pric(?:e|ing)|quote)`,
+  authority_discounts: String.raw`discount`,
+  authority_negotiation: String.raw`negotiat`,
+  authority_customer_commitments: String.raw`(?:promise|commit|guarantee)`,
+  authority_meeting_booking: String.raw`(?:(?:book|schedule).{0,20}meeting|meeting.{0,20}(?:book|schedule))`,
+};
+
+export function governedAuthorityDisposition(input: {
+  governedSemanticKey: string;
+  statement: string;
+  classification: 'authority_grant' | 'authority_restriction';
+}): AuthorityDisposition {
+  const subject = AUTHORITY_SUBJECTS[input.governedSemanticKey];
+  if (!subject) return 'unresolved';
+  const text = input.statement.trim();
+  const restriction = String.raw`(?:may not|cannot|can't|must not|do not|don't|never|prohibit(?:ed)?|not authori[sz]ed)`;
+  if (new RegExp(`(?:${restriction}).{0,35}(?:${subject})|(?:${subject}).{0,35}(?:${restriction})`, 'i').test(text)) return 'prohibited';
+  const permission = String.raw`(?:may|can|allowed|authori[sz]ed)`;
+  const bound = String.raw`(?:qualified|agreed to meet|published|up to|within|only|when|if|provided that|as long as)`;
+  const subjectPermission = new RegExp(`(?:${permission}).{0,40}(?:${subject})|(?:${subject}).{0,40}(?:${permission})`, 'i');
+  if (subjectPermission.test(text) && new RegExp(bound, 'i').test(text)) return 'allowed_within_bounds';
+  const approval = String.raw`(?:requires?|needs?|subject to|must (?:get|have)).{0,15}(?:my |owner )?approval`;
+  if (new RegExp(`(?:${subject}).{0,35}(?:${approval})|(?:${approval}).{0,35}(?:${subject})`, 'i').test(text)) return 'owner_approval_required';
+  return 'unresolved';
+}
