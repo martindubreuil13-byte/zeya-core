@@ -197,4 +197,36 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(sql).not.toMatch(/DELETE FROM public\.direct_hire_formation_/i);
     expect(sql).not.toMatch(/representation_proposals|representation_versions|current_version_id\s*=/i);
   });
+
+  it('progresses meeting objective to meeting-booking authority before completion', async () => {
+    const sql = await readFile('supabase/migrations/20260816040000_direct_hire_authoritative_readiness_progression.sql', 'utf8');
+    expect(sql).toContain('zeya_direct_hire_first_missing_readiness_requirement');
+    expect(sql).toContain("(9,'meeting_booking_authority','May Zeya book a qualified meeting directly, or is owner approval required?','authority_meeting_booking','authority')");
+    expect(sql).toContain("v_readiness:=public.zeya_direct_hire_formation_readiness(p_run_id)");
+    expect(sql).toContain("IF v_next.id IS NULL AND NOT (v_readiness->>'ready')::boolean THEN");
+    expect(sql).toContain("IF v_next.id IS NULL AND (v_readiness->>'ready')::boolean THEN");
+    expect(sql).toContain("VALUES(p_run_id,v_sequence,v_next.id,'zeya'");
+    expect(sql.indexOf("IF v_next.id IS NULL AND NOT (v_readiness->>'ready')::boolean THEN"))
+      .toBeLessThan(sql.indexOf("UPDATE public.direct_hire_formation_conversation_runs SET status='completed'"));
+  });
+
+  it('shares the authoritative missing-readiness mapping with the completion gate', async () => {
+    const sql = await readFile('supabase/migrations/20260816040000_direct_hire_authoritative_readiness_progression.sql', 'utf8');
+    expect(sql.match(/FROM public\.zeya_direct_hire_first_missing_readiness_requirement\(/g)).toHaveLength(2);
+    for (const category of TELEPHONE_BD_READINESS_CATEGORIES) expect(sql).toContain(`'${category}'`);
+    expect(sql).not.toContain("(8,'commercial','meeting_objective'");
+    expect(sql).toContain("IF NOT (v_readiness->>'ready')::boolean THEN");
+    expect(sql).toContain("UPDATE public.direct_hire_working_sessions SET status='completed'");
+    expect(sql).not.toMatch(/representation_proposals|representation_versions|first_working_conversation_id\s*=|current_version_id\s*=/i);
+  });
+
+  it('preserves answer retry idempotency ahead of every durable insert', async () => {
+    const sql = await readFile('supabase/migrations/20260816040000_direct_hire_authoritative_readiness_progression.sql', 'utf8');
+    const replayGuard = sql.indexOf('IF v_existing.id IS NOT NULL THEN');
+    const ownerTurnInsert = sql.indexOf('INSERT INTO public.direct_hire_formation_conversation_turns(run_id,sequence,agenda_item_id,speaker,owner_safe_text,turn_type,idempotency_key)');
+    expect(replayGuard).toBeGreaterThan(-1);
+    expect(replayGuard).toBeLessThan(ownerTurnInsert);
+    expect(sql.slice(replayGuard, ownerTurnInsert)).toContain('RETURN QUERY');
+    expect(sql.slice(replayGuard, ownerTurnInsert)).toContain('RETURN;');
+  });
 });
