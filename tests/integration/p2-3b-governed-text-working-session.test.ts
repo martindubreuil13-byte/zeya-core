@@ -38,6 +38,23 @@ describe('P2.3B governed text working session', () => {
     expect(classifyOwnerAnswer({ category: 'authority', text: 'Any custom price requires my approval.' })).toBe('authority_restriction');
   });
 
+  it.each([
+    ['Zeya may not negotiate.', 'authority_restriction'],
+    ['Zeya can explain pricing but cannot negotiate.', 'authority_restriction'],
+    ['Zeya may book meetings but may not negotiate.', 'authority_restriction'],
+    ['Zeya may discuss published pricing but may not negotiate.', 'authority_restriction'],
+    ['Negotiation requires my approval.', 'authority_restriction'],
+    ['Zeya must escalate negotiation to me.', 'authority_restriction'],
+    ['Escalate negotiation to me.', 'authority_restriction'],
+    ['Zeya is not authorized to negotiate.', 'authority_restriction'],
+    ['Negotiation is prohibited.', 'authority_restriction'],
+    ['Zeya may discuss pricing.', 'authority_grant'],
+    ['Zeya may negotiate within 5%.', 'authority_grant'],
+    ['Do whatever you think is best.', 'unclear'],
+  ] as const)('gives explicit authority restrictions precedence for %s', (text, expected) => {
+    expect(classifyOwnerAnswer({ category: 'authority', text })).toBe(expected);
+  });
+
   it('rejects internal identifiers, aliases, and hidden-reasoning language from durable prose', () => {
     expect(containsForbiddenConversationText('Use E2 and H1')).toBe(true);
     expect(containsForbiddenConversationText('chain-of-thought follows')).toBe(true);

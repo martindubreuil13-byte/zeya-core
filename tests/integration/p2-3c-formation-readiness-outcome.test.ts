@@ -165,4 +165,36 @@ describe('P2.3C telephone-BD readiness and outcome package', () => {
     expect(sql).toContain("CASE WHEN v_text~*'discount' THEN 'authority_discounts'");
     expect(answer).not.toMatch(/negotiat/i);
   });
+
+  it('classifies the exact live negotiation prohibition and preserves its governed subject', async () => {
+    const { classifyOwnerAnswer } = await import('../../lib/formation/direct-hire-text-conversation');
+    const answer = 'Zeya may not negotiate prices or commercial terms. Any negotiation must be escalated to me.';
+    const classification = classifyOwnerAnswer({ category: 'authority', hypothesisBacked: false, text: answer });
+    expect(classification).toBe('authority_restriction');
+    expect(governedDecisionKey({
+      classification,
+      explicitSemanticKey: 'authority_negotiation',
+      constitutionalDomain: 'authorityBoundaries',
+      frozenQuestionIntent: 'What pricing may Zeya discuss?',
+    })).toBe('authority_negotiation');
+    expect(boundedAuthorityDisposition(answer)).toBe('prohibited');
+  });
+
+  it('provides an exact, append-only recovery for the live false authority grant', async () => {
+    const sql = await readFile('supabase/migrations/20260816030000_direct_hire_authority_classification_recovery.sql', 'utf8');
+    expect(sql).toContain('direct_hire_formation_answer_classification_corrections');
+    expect(sql).toContain('corrected_authority_classification');
+    expect(sql).toContain("v_bad.decision_key<>'authority_negotiation'");
+    expect(sql).toContain("v_bad.disposition<>'granted'");
+    expect(sql).toContain("question.governed_semantic_key='authority_negotiation'");
+    expect(sql).toContain("'authority','negotiation','prohibited',v_bad.decision_value,true");
+    expect(sql).toContain("v_event.answer_classification<>'authority_grant'");
+    expect(sql).toContain("'authority_restriction',p_reason,'service_role'");
+    expect(sql).toContain('answerClassificationCorrectionIds');
+    expect(sql).toContain("jsonb_set(NEW.outcome,'{sourceDecisionIds}'");
+    expect(sql).toContain("auth.role()<>'service_role'");
+    expect(sql).not.toMatch(/UPDATE public\.direct_hire_formation_(?:decisions|agenda_resolution_events)/i);
+    expect(sql).not.toMatch(/DELETE FROM public\.direct_hire_formation_/i);
+    expect(sql).not.toMatch(/representation_proposals|representation_versions|current_version_id\s*=/i);
+  });
 });
