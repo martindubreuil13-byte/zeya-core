@@ -7,7 +7,10 @@ WITH target AS (SELECT '667dc7a0-c93a-477a-892a-2259b28dff3f'::uuid formation_id
  jsonb_object_keys(proposed_changes->'elementUpdates') proposed_domain,
  status='pending_approval' AND requires_approval AND canonicalization_intent='initial_canonicalization'
  AND source_state_fingerprint~'^[0-9a-f]{64}$'
- AND jsonb_object_length(proposed_changes->'elementUpdates')>0
+ AND EXISTS (
+   SELECT 1
+   FROM jsonb_each(proposed_changes->'elementUpdates')
+ )
  AND NOT (proposed_changes->'elementUpdates' ?| ARRAY['authorityBoundaries','authority_negotiation','authority_meeting_booking','authority_escalation_rules']) AS proposal_pass
 FROM proposal;
 
