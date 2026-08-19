@@ -5,7 +5,27 @@ import { ownerSafeLead,ownerSafeMission } from '../../lib/work/operating-spine';
 const migration='supabase/migrations/20260819000000_p24_operating_spine.sql';
 const outcomeOrderingRepair='supabase/migrations/20260819010000_p24_mission_outcome_ordering_fix.sql';
 const prepareResolutionRepair='supabase/migrations/20260819020000_p24_prepare_context_rowtype_resolution_fix.sql';
+const prepareAmbiguityRepair='supabase/migrations/20260819030000_p24_prepare_column_ambiguity_fix.sql';
 describe('P2.4 operating spine',()=>{
+  it('qualifies the prepare status predicate against the mission relation',async()=>{
+    const sql=await readFile(prepareAmbiguityRepair,'utf8');
+    expect(sql).toContain("UPDATE public.operating_missions AS mission SET status='ready',updated_at=pg_catalog.now() WHERE mission.id=v_mission.id AND mission.status='draft'");
+    expect(sql).not.toMatch(/\bWHERE\s+id=v_mission\.id\s+AND\s+status='draft'/);
+    expect(sql).not.toMatch(/\bAND\s+status='draft'/);
+  });
+  it('preserves prepare creation, replay, stale validation, and no-downstream-artifact contracts',async()=>{
+    const sql=await readFile(prepareAmbiguityRepair,'utf8');
+    const stale=sql.indexOf("MESSAGE='mission source lineage is stale'");
+    const replay=sql.indexOf("RETURN QUERY SELECT p_mission_id,v_context_id,true,'ready'::text,v_existing_context");
+    const insert=sql.indexOf('INSERT INTO public.mission_execution_contexts AS inserted');
+    const ready=sql.indexOf("mission.status='draft'");
+    expect(replay).toBeGreaterThan(stale);
+    expect(insert).toBeGreaterThan(replay);
+    expect(ready).toBeGreaterThan(insert);
+    expect(sql.match(/INSERT INTO public\.mission_execution_contexts/g)).toHaveLength(1);
+    expect(sql).toContain("RETURN QUERY SELECT p_mission_id,v_context_id,false,'ready'::text,v_context");
+    expect(sql).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\.(?:dispatches|worker_briefs|voice_[a-z_]*|call_[a-z_]*|mission_execution_outcomes)/i);
+  });
   it('returns prepare results through unambiguous scalar context variables',async()=>{
     const sql=await readFile(prepareResolutionRepair,'utf8');
     expect(sql).not.toMatch(/RETURN QUERY[^;]*v_stored\.(?:id|context)/);

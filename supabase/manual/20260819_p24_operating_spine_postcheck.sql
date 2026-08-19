@@ -1,5 +1,5 @@
 -- READ ONLY. Substitute the controlled QA mission UUID after API creation/preparation.
-WITH target AS (SELECT '00000000-0000-0000-0000-000000000000'::uuid mission_id)
+WITH target AS (SELECT '42fd6467-ffe0-49e2-991a-fb503393b657'::uuid mission_id)
 SELECT m.id,m.status,m.owner_id,m.business_representation_id,m.lead_id,m.representation_version_id,
   m.mandate_outcome_package_id,m.objective,m.qualification_goal,m.desired_next_step,m.allowed_channel,m.constraints,
   c.id AS context_id,c.context_contract_version,c.context_fingerprint,c.context,
