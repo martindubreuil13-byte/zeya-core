@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { governedWorkerBriefExecutionProhibited } from "@/lib/work/governed-execution";
 
 const CONVERSATION_TOKEN_ENDPOINT = "https://api.elevenlabs.io/v1/convai/conversation/token";
 
@@ -13,6 +14,9 @@ export async function GET(req: NextRequest) {
 
   // Extract optional workerBriefId for webhook context linking
   const workerBriefId = req.nextUrl.searchParams.get("workerBriefId");
+  if (workerBriefId && await governedWorkerBriefExecutionProhibited(workerBriefId)) {
+    return NextResponse.json({ error: "Worker brief execution is prohibited." }, { status: 409 });
+  }
 
   // Task 2: Extract dynamic variables for context injection to Veya
   // Format: ?dynamicVariable[key1]=value1&dynamicVariable[key2]=value2

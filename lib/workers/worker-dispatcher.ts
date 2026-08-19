@@ -15,6 +15,7 @@ import {
 } from "@/lib/voice/representation-context";
 import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "@/lib/voice/persistence/representation-lineage-repository";
 import { captureConversationOutput } from "@/lib/voice/conversation-output/repository";
+import { governedWorkerBriefExecutionProhibited } from "@/lib/work/governed-execution";
 
 // Resolve the service client at dispatch time so test/runtime environment loading
 // cannot permanently cache an unavailable client during module initialization.
@@ -43,6 +44,19 @@ export async function dispatchWorkerBrief(
     requestedProvider: providerType ?? null,
     businessId: businessId ?? null,
   });
+
+  if (await governedWorkerBriefExecutionProhibited(brief.id)) {
+    return {
+      briefId: brief.id,
+      workerName: brief.workerName,
+      workerType: brief.workerType,
+      status: "FAILED",
+      providerOutcome: "REJECTED",
+      message: "Governed worker brief execution is prohibited",
+      providerCallId: "blocked_governed_execution",
+      createdAt: new Date().toISOString(),
+    };
+  }
 
   // Extract target info for dispatch and persistence
   const targetName = valueAsString(brief.dynamicVariables.target) ?? brief.leadContext ?? null;
