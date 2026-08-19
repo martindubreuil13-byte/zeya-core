@@ -10,5 +10,5 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{dispatc
   if(!dispatchId.startsWith('p25_dispatch_')||!isUuid(body.authorizationId)||!isUuid(body.operationId)||typeof body.qaPhone!=='string'||!E164.test(body.qaPhone))return fail('invalid_execution',400);
   try{const data=await executeGovernedVoice({db:createExperienceServiceClient(),ownerId:auth.user.id,dispatchId,authorizationId:body.authorizationId,operationId:body.operationId,qaPhone:body.qaPhone});
     return NextResponse.json({success:true,data},{status:data.replayed?200:202});
-  }catch{return fail('execution_not_authorized',409);}
+  }catch(e){console.error('[p26-execute-route] error caught',{errorMessage:e instanceof Error?e.message:'unknown',dispatchId,operationId:body.operationId});return fail('execution_not_authorized',409);}
 }

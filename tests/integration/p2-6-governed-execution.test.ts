@@ -115,4 +115,29 @@ describe('P2.6 governed execution',()=>{
     expect(service).toContain('claimed state');
     expect(service).toContain('operator review');
   });
+  it('governed execution fetches business_id from worker_briefs not dispatches',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain("from('dispatches').select('worker_brief_id,mission_id,business_representation_id,representation_version_id,execution_context_id,mandate_outcome_package_id')");
+    expect(service).not.toMatch(/from\('dispatches'\)\.select\([^)]*business_id/);
+    expect(service).toContain("from('worker_briefs').select('id,business_id");
+  });
+  it('governed execution validates complete brief/dispatch lineage',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain('operating_mission_id');
+    expect(service).toContain('business_representation_id');
+    expect(service).toContain('representation_version_id');
+    expect(service).toContain('execution_context_id');
+    expect(service).toContain('mandate_outcome_package_id');
+    expect(service).toContain('execution_lineage_mismatch');
+  });
+  it('governed execution requires brief.business_id',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain('!brief.data.business_id');
+    expect(service).toContain('execution_source_unavailable');
+  });
+  it('dispatchWorkerBrief receives business_id from brief not dispatch',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain('String(brief.data.business_id),{');
+    expect(service).not.toContain('String(dispatch.data.business_id)');
+  });
 });
