@@ -3,7 +3,67 @@ import { describe,expect,it } from 'vitest';
 import { ownerSafeLead,ownerSafeMission } from '../../lib/work/operating-spine';
 
 const migration='supabase/migrations/20260819000000_p24_operating_spine.sql';
+const outcomeOrderingRepair='supabase/migrations/20260819010000_p24_mission_outcome_ordering_fix.sql';
+const prepareResolutionRepair='supabase/migrations/20260819020000_p24_prepare_context_rowtype_resolution_fix.sql';
 describe('P2.4 operating spine',()=>{
+  it('returns prepare results through unambiguous scalar context variables',async()=>{
+    const sql=await readFile(prepareResolutionRepair,'utf8');
+    expect(sql).not.toMatch(/RETURN QUERY[^;]*v_stored\.(?:id|context)/);
+    expect(sql).not.toContain('v_stored public.mission_execution_contexts%ROWTYPE');
+    expect(sql).toContain("RETURN QUERY SELECT p_mission_id,v_context_id,true,'ready'::text,v_existing_context");
+    expect(sql).toContain("RETURN QUERY SELECT p_mission_id,v_context_id,false,'ready'::text,v_context");
+    expect(sql).not.toMatch(/RETURN QUERY[^;]*v_[a-z_]+\.[a-z_]+/);
+    expect(sql).toContain('RETURNING inserted.id INTO v_context_id');
+  });
+  it('preserves first preparation, exact replay, stale rejection, and single-context semantics',async()=>{
+    const sql=await readFile(prepareResolutionRepair,'utf8');
+    const stale=sql.indexOf("MESSAGE='mission source lineage is stale'");
+    const storedLookup=sql.indexOf('FROM public.mission_execution_contexts c WHERE c.mission_id=v_mission.id');
+    const replay=sql.indexOf("RETURN QUERY SELECT p_mission_id,v_context_id,true,'ready'::text,v_existing_context");
+    const draft=sql.indexOf("IF v_mission.status<>'draft'");
+    const insert=sql.indexOf('INSERT INTO public.mission_execution_contexts AS inserted');
+    const ready=sql.indexOf("UPDATE public.operating_missions SET status='ready'");
+    expect(storedLookup).toBeGreaterThan(stale);
+    expect(replay).toBeGreaterThan(storedLookup);
+    expect(insert).toBeGreaterThan(draft);
+    expect(ready).toBeGreaterThan(insert);
+    expect(sql.match(/INSERT INTO public\.mission_execution_contexts/g)).toHaveLength(1);
+    for(const marker of ['v_rep.current_version_id IS DISTINCT FROM v_mission.representation_version_id','v_mission.lead_fingerprint IS DISTINCT FROM public.zeya_p24_lead_fingerprint(v_lead)','v_mission.mandate_fingerprint IS DISTINCT FROM v_outcome.outcome_fingerprint',"v_outcome.readiness_result->>'ready'<>'true'",'NOT public.zeya_direct_hire_formation_outcome_is_current(p_owner_id,v_outcome.id)'])expect(sql).toContain(marker);
+  });
+  it('keeps prepare service-role-only and cannot dispatch or record an outcome',async()=>{
+    const sql=await readFile(prepareResolutionRepair,'utf8');
+    expect(sql).toContain("auth.role()<>'service_role'");
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.zeya_prepare_operating_mission(uuid,uuid) TO service_role');
+    expect(sql).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\.(?:dispatches|worker_briefs|voice_[a-z_]*|call_[a-z_]*|mission_execution_outcomes)/i);
+    expect(sql).not.toMatch(/telnyx|elevenlabs/i);
+  });
+  it('repairs mission outcome ordering with the durable finalized timestamp only',async()=>{
+    const sql=await readFile(outcomeOrderingRepair,'utf8');
+    const create=sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.zeya_create_operating_mission'),sql.indexOf('ALTER FUNCTION public.zeya_create_operating_mission'));
+    expect(create).toContain('ORDER BY o.finalized_at DESC,o.id DESC LIMIT 1');
+    expect(create).not.toMatch(/\bo\.created_at\b/);
+    expect(create.match(/direct_hire_formation_outcome_packages/g)).toHaveLength(2);
+  });
+  it('preserves valid creation, exact replay, stale rejection, and the no-dispatch boundary',async()=>{
+    const sql=await readFile(outcomeOrderingRepair,'utf8');
+    const replay=sql.indexOf('RETURN QUERY SELECT v_existing.id,true,v_existing.status');
+    const lookup=sql.indexOf('public.zeya_direct_hire_formation_outcome_is_current(p_owner_id,o.id)');
+    const insert=sql.indexOf('INSERT INTO public.operating_missions AS inserted');
+    expect(replay).toBeGreaterThan(sql.indexOf('creation_operation_id=p_operation_id'));
+    expect(lookup).toBeGreaterThan(replay);
+    expect(sql.indexOf("v_outcome.readiness_result->>'ready'<>'true'")).toBeGreaterThan(lookup);
+    expect(insert).toBeGreaterThan(lookup);
+    expect(sql).toContain('v_rep.current_version_id,v_outcome.id,v_outcome.outcome_fingerprint,public.zeya_p24_lead_fingerprint(v_lead)');
+    expect(sql).toContain("RETURN QUERY SELECT v_existing.id,false,v_existing.status");
+    expect(sql).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\.(?:mission_execution_contexts|dispatches|worker_briefs|voice_[a-z_]*|call_[a-z_]*)/i);
+    expect(sql).not.toMatch(/telnyx|elevenlabs/i);
+  });
+  it('keeps the replacement RPC service-role-only',async()=>{
+    const sql=await readFile(outcomeOrderingRepair,'utf8');
+    expect(sql).toContain("auth.role()<>'service_role'");
+    expect(sql).toContain('REVOKE ALL ON FUNCTION public.zeya_create_operating_mission');
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.zeya_create_operating_mission(uuid,uuid,uuid,text,text,text,text,jsonb,text,text) TO service_role');
+  });
   it('reuses leads and adds the minimum durable mission, context, and outcome model',async()=>{
     const sql=await readFile(migration,'utf8');
     expect(sql).toContain('ALTER TABLE public.mission_leads');
