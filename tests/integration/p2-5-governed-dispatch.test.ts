@@ -92,7 +92,7 @@ describe('P2.5 governed dispatch preparation',()=>{
     expect(dispatcher.indexOf('governedWorkerBriefExecutionProhibited(brief.id)')).toBeLessThan(dispatcher.indexOf('const provider = getProvider'));
     expect(tokenRoute.indexOf('governedWorkerBriefExecutionProhibited(workerBriefId)')).toBeLessThan(tokenRoute.indexOf('fetch(`${CONVERSATION_TOKEN_ENDPOINT}'));
     expect(guard).toContain("workerBriefId.startsWith('p25_brief_')");
-    expect(guard).toContain('result.data.execution_allowed!==true');
+    expect(guard).toContain("rpc('zeya_validate_governed_execution_claim'");
   });
 
   it('documents static evidence that dispatch INSERT and draft rows have no automatic executor',async()=>{

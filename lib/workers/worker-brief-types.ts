@@ -64,6 +64,7 @@ export interface WorkerDispatchOptions {
   provisionalMode?: boolean;
   /** A provider-only target which is never copied into the persisted WorkerBrief. */
   transientTargetPhone?: string | null;
+  governedExecutionClaim?: { authorizationId: string; attemptId: string };
   /** Immutable Representation snapshot frozen when the public experience session was created. */
   representationSnapshot?: {
     tenantUserId: string;

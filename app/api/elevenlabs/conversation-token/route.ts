@@ -14,7 +14,20 @@ export async function GET(req: NextRequest) {
 
   // Extract optional workerBriefId for webhook context linking
   const workerBriefId = req.nextUrl.searchParams.get("workerBriefId");
-  if (workerBriefId && await governedWorkerBriefExecutionProhibited(workerBriefId)) {
+
+  // Block governed briefs: P2.6 execution is server-side only.
+  // Governed briefs never use this public token route.
+  if (workerBriefId?.startsWith("p25_brief_")) {
+    return NextResponse.json(
+      { error: "Governed worker briefs require server-side execution." },
+      { status: 409 }
+    );
+  }
+
+  const authorizationId=req.nextUrl.searchParams.get("authorizationId");
+  const attemptId=req.nextUrl.searchParams.get("attemptId");
+  const claim=authorizationId&&attemptId?{authorizationId,attemptId}:undefined;
+  if (workerBriefId && await governedWorkerBriefExecutionProhibited(workerBriefId,claim)) {
     return NextResponse.json({ error: "Worker brief execution is prohibited." }, { status: 409 });
   }
 
