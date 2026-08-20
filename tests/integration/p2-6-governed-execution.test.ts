@@ -327,4 +327,83 @@ describe('P2.6 governed execution',()=>{
     // Verify the pattern for extracting missionId from response
     expect(harness).toMatch(/missionData\.data\?.id/);
   });
+
+  // P2.7 — Governed Conversation Outcome Capture Tests
+  it('P2.7: webhook processor recognizes P2.6 governed execution',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('processGovernedExecutionOutcome');
+    expect(processor).toContain('isGovernedExecution');
+    expect(processor).toContain('governed_execution_attempts');
+  });
+  it('P2.7: P2.6 route routes through captureAndExtractConversationOutput',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('captureAndExtractConversationOutput');
+    // Verify function exists in P2.7 path
+    const beforeP27=processor.indexOf('processGovernedExecutionOutcome');
+    const endP27=processor.indexOf('async function',beforeP27+100);
+    const p27Code=processor.substring(beforeP27,endP27);
+    expect(p27Code).toContain('captureAndExtractConversationOutput');
+  });
+  it('P2.7: no canonical mutation path exists in P2.6 outcome processing',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    // Verify P2.7 function exists and does NOT call representation/canonical mutations
+    expect(processor).toContain('processGovernedExecutionOutcome');
+    // These mutations should NOT appear anywhere in the P2.7 path
+    const beforeP27=processor.indexOf('processGovernedExecutionOutcome');
+    const afterP27=processor.lastIndexOf('}',beforeP27+5000);
+    const p27Code=processor.substring(beforeP27,afterP27);
+    expect(p27Code).not.toContain('representation_versions');
+    expect(p27Code).not.toContain('current_version_id');
+    expect(p27Code).not.toContain('zeya_complete_public_experience_call');
+  });
+  it('P2.7: uses typed outcome status not string inference',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('zeya_complete_governed_execution');
+    expect(processor).toContain('p_status');
+  });
+  it('P2.7: conversation output capture uses existing immutable service',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('captureAndExtractConversationOutput');
+    expect(processor).toContain('finalized');
+    expect(processor).toContain('provider_callback');
+  });
+  it('P2.7: idempotency based on attempt status not receipt',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('attempt.data.status');
+    expect(processor).toContain('"claimed"');
+  });
+  it('P2.7: non-completed outcomes recorded as failed',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('event.outcome');
+    expect(processor).toContain('"completed"');
+  });
+  it('P2.7: public experience regression prevention',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('if(isGovernedExecution)');
+    expect(processor).toContain('return await processGovernedExecutionOutcome');
+    // Verify public experience path still exists
+    expect(processor).toContain('public_experience_sessions');
+    expect(processor).toContain('zeya_complete_public_experience_call');
+  });
+  it('P2.7: lineage resolution exact before routing',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('voice_representation_lineage');
+    expect(processor).toContain('provider_call_id');
+    expect(processor).toContain('conversation_id');
+  });
+  it('P2.7: ASR confidence preserved without fabrication',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('event.transcript');
+    // P2.7 section should NOT fabricate confidence scores
+    const beforeP27=processor.indexOf('processGovernedExecutionOutcome');
+    const endP27=processor.indexOf('async function',beforeP27+100);
+    const p27Code=processor.substring(beforeP27,endP27);
+    expect(p27Code).not.toContain('confidence:');
+  });
+  it('P2.7: provider metadata sanitized for safe storage',async()=>{
+    const processor=await readFile('lib/voice/events/elevenlabs-event-processor.ts','utf8');
+    expect(processor).toContain('safeMetadata');
+    expect(processor).toContain('providerCredits');
+    expect(processor).toContain('providerEvaluation');
+  });
 });

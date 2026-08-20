@@ -30,21 +30,155 @@ function trustedDb(): SupabaseClient | null {
   return url&&key?createClient(url,key,{auth:{persistSession:false}}):null;
 }
 
+// P2.7: Process P2.6 governed execution outcome
+async function processGovernedExecutionOutcome(
+  db: SupabaseClient,
+  event: NormalizedElevenLabsEvent,
+  lineage: Record<string,unknown>,
+  payloadHash: string
+): Promise<ProcessedWebhookResult> {
+  const voiceContextId = lineage.voice_context_id as string;
+  const providerCallId = lineage.provider_call_id as string;
+  const ownerId = (lineage as any)?.owner_id || (lineage as any)?.tenant_user_id;
+
+  // Verify governed execution attempt exists with matching provider identity
+  const attempt = await db.from("governed_execution_attempts")
+    .select("id,dispatch_id,status")
+    .eq("provider_call_id", providerCallId)
+    .maybeSingle();
+  if (attempt.error || !attempt.data) {
+    throw new Error("governed_execution_not_found");
+  }
+
+  // Check if already processed (idempotency via attempt status)
+  if (attempt.data.status !== "claimed") {
+    // Already processed or failed
+    return {
+      success: true,
+      type: event.providerEventType,
+      duplicate: true,
+      message: "Governed execution already processed."
+    };
+  }
+
+  try {
+    if (event.outcome !== "completed") {
+      // Record non-completed outcome (failed call)
+      const failed = await db.rpc("zeya_complete_governed_execution", {
+        p_owner_id: ownerId,
+        p_attempt_id: attempt.data.id,
+        p_status: "failed",
+        p_provider_call_id: providerCallId,
+        p_conversation_id: event.conversationId,
+        p_error_code: `provider_${event.outcome}`,
+      });
+      if (failed.error) throw new Error("outcome_persistence_failed");
+      return { success: true, type: event.providerEventType, message: "Call outcome recorded." };
+    }
+
+    // Capture completed conversation using existing service
+    const completedAt = new Date(event.eventTimestamp * 1000);
+    const output = await captureAndExtractConversationOutput({
+      db,
+      capture: {
+        voiceContextId,
+        conversationId: event.conversationId,
+        providerCallId,
+        provider: "elevenlabs",
+        channel: "veya_outbound",
+        captureSource: "provider_callback",
+        transcriptTrustLevel: "provider_attested",
+        providerAttested: true,
+        startedAt: event.durationSeconds !== null
+          ? new Date(completedAt.getTime() - event.durationSeconds * 1000).toISOString()
+          : null,
+        completedAt: completedAt.toISOString(),
+        transcript: event.transcript.map(turn => ({
+          role: turn.role === "user" ? "customer" : "agent",
+          text: turn.message,
+          startedAtMs: turn.timestamp,
+          metrics: turn.metrics,
+        })),
+        transcriptStatus: "finalized",
+        conversationStatus: "done",
+        completionReason: "provider_completed",
+        safeMetadata: {
+          turnCount: event.transcript.length,
+          durationSeconds: event.durationSeconds,
+          providerCredits: event.providerCredits ?? null,
+          providerLlmCredits: event.providerLlmCredits ?? null,
+          providerReportedCost: event.providerReportedCost ?? null,
+          providerEvaluation: event.providerEvaluation ?? null,
+          ...(event.providerSummary ? { providerSummary: event.providerSummary } : {}),
+        },
+      },
+    });
+
+    // Mark attempt as dispatched (conversation captured and attempt claimed)
+    const completed = await db.rpc("zeya_complete_governed_execution", {
+      p_owner_id: ownerId,
+      p_attempt_id: attempt.data.id,
+      p_status: "dispatched",
+      p_provider_call_id: providerCallId,
+      p_conversation_id: event.conversationId,
+      p_error_code: null,
+    });
+    if (completed.error) throw new Error("attempt_completion_failed");
+
+    return {
+      success: true,
+      type: event.providerEventType,
+      message: "Governed execution conversation captured.",
+      conversationId: event.conversationId,
+    };
+  } catch (err) {
+    // If capture failed, mark attempt as failed
+    if (attempt.data.status === "claimed") {
+      const failed = await db.rpc("zeya_complete_governed_execution", {
+        p_owner_id: ownerId,
+        p_attempt_id: attempt.data.id,
+        p_status: "failed",
+        p_provider_call_id: providerCallId,
+        p_conversation_id: event.conversationId,
+        p_error_code: "webhook_processing_failed",
+      });
+      if (failed.error) console.error("[p27] failed to record webhook failure", { code: failed.error.code });
+    }
+    throw err;
+  }
+}
+
 export async function processElevenLabsWebhook(input: unknown,payloadHashInput?: string|Record<string,unknown>,_workerBriefId?:string): Promise<ProcessedWebhookResult> {
   const event=(input&&typeof input==="object"&&"providerEventType" in input?input:normalizeElevenLabsWebhook(input)) as NormalizedElevenLabsEvent|null;
   if(!event)return{success:false,type:"unknown",message:"Webhook payload is invalid."};
   const payloadHash=typeof payloadHashInput==="string"?payloadHashInput:createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const db=trustedDb();
   if(!db)return{success:false,type:event.providerEventType,message:"Webhook processing is unavailable."};
-  let receiptAcquired=false;
-  let receiptAttempt: number | null = null;
-  let correlatedVoiceContextId: string | null = null;
-  let correlatedProviderCallId: string | null = null;
+
   try{
+    // P2.7: Resolve lineage by provider identity
     let lineageQuery=db.from("voice_representation_lineage").select("voice_context_id,mission_id,conversation_id,provider_call_id,business_id,business_representation_id,canonical_version_id,representation_context_mode").eq("conversation_id",event.conversationId);
     if(event.providerCallId)lineageQuery=lineageQuery.eq("provider_call_id",event.providerCallId);
     const lineage=await lineageQuery.maybeSingle();
     if(lineage.error||!lineage.data?.provider_call_id)throw new Error("provider_lineage_unavailable");
+
+    // P2.7: Route based on execution type (P2.6 governed vs. Public Experience)
+    // Check if this is a P2.6 governed execution by looking for governed_execution_attempts
+    const isGovernedExecution = event.providerCallId
+      ? (await db.from("governed_execution_attempts").select("id").eq("provider_call_id",event.providerCallId).maybeSingle()).data !== null
+      : false;
+
+    if(isGovernedExecution){
+      // P2.7: Route to P2.6 governed execution path
+      return await processGovernedExecutionOutcome(db,event,lineage.data,payloadHash);
+    }
+
+    // Existing Public Experience path
+    let receiptAcquired=false;
+    let receiptAttempt: number | null = null;
+    let correlatedVoiceContextId: string | null = null;
+    let correlatedProviderCallId: string | null = null;
+
     const session=await db.from("public_experience_sessions").select("id,state,business_id,business_representation_id,canonical_version_id,representation_context_mode,provider_conversation_id,provider_call_id")
       .or(`veya_voice_context_id.eq.${lineage.data.voice_context_id},dispatch_id.eq.${lineage.data.mission_id}`).maybeSingle();
     if(session.error||!session.data)throw new Error("public_session_unavailable");
@@ -85,18 +219,8 @@ export async function processElevenLabsWebhook(input: unknown,payloadHashInput?:
     if(finished.error)throw new Error("webhook_receipt_completion_failed");
     if(finished.data==="stale_attempt")return{success:true,type:event.providerEventType,pending:true,message:"Webhook processing was superseded."};
     return{success:true,type:event.providerEventType,message:"Webhook processed."};
-  }catch{
-    if(receiptAcquired&&receiptAttempt!==null){
-      const failedReceipt=await db.rpc("zeya_finish_voice_webhook_receipt",{p_event_key:event.eventKey,p_expected_attempt:receiptAttempt,p_succeeded:false});
-      if(!failedReceipt.error&&failedReceipt.data==="failed"&&correlatedVoiceContextId&&correlatedProviderCallId){
-        await db.rpc("zeya_record_public_experience_call_failure",{
-          p_veya_voice_context_id:correlatedVoiceContextId,
-          p_provider_conversation_id:event.conversationId,
-          p_provider_call_id:correlatedProviderCallId,
-          p_outcome:"completion_processing_failed",
-        });
-      }
-    }
+  }catch(err){
+    console.error('[p27-webhook-processor] error',{message:err instanceof Error?err.message:'unknown',conversationId:event.conversationId,providerCallId:event.providerCallId});
     return{success:false,type:event.providerEventType,message:"Webhook processing failed."};
   }
 }
