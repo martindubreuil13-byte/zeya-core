@@ -140,4 +140,38 @@ describe('P2.6 governed execution',()=>{
     expect(service).toContain('String(brief.data.business_id),{');
     expect(service).not.toContain('String(dispatch.data.business_id)');
   });
+  it('worker dispatcher has diagnostic stages for all pre-provider branches',async()=>{
+    const dispatcher=await readFile('lib/workers/worker-dispatcher.ts','utf8');
+    expect(dispatcher).toContain('stage: governed_guard_start');
+    expect(dispatcher).toContain('stage: governed_guard_passed');
+    expect(dispatcher).toContain('stage: governed_guard_rejected');
+    expect(dispatcher).toContain('stage: service_client_ready');
+    expect(dispatcher).toContain('stage: business_owner_lookup_start');
+    expect(dispatcher).toContain('stage: business_owner_lookup_failed');
+    expect(dispatcher).toContain('stage: business_owner_lookup_passed');
+    expect(dispatcher).toContain('stage: voice_context_start');
+    expect(dispatcher).toContain('stage: voice_context_ready');
+    expect(dispatcher).toContain('stage: voice_context_failed');
+    expect(dispatcher).toContain('stage: mapping_start');
+    expect(dispatcher).toContain('stage: mapping_ready');
+    expect(dispatcher).toContain('stage: mapping_failed');
+    expect(dispatcher).toContain('stage: lineage_start');
+    expect(dispatcher).toContain('stage: lineage_ready');
+    expect(dispatcher).toContain('stage: lineage_failed');
+    expect(dispatcher).toContain('stage: provider_boundary');
+  });
+  it('governed claim validation uses correct PostgREST scalar return pattern',async()=>{
+    const guard=await readFile('lib/work/governed-execution.ts','utf8');
+    expect(guard).toContain('validation.data===true');
+    expect(guard).not.toContain('validation.data!==true');
+  });
+  it('diagnostics never log QA phone or credentials',async()=>{
+    const [dispatcher,execute,governance]=await Promise.all([readFile('lib/workers/worker-dispatcher.ts','utf8'),readFile('app/api/work/dispatches/[dispatchId]/execute/route.ts','utf8'),readFile('lib/work/governed-voice-execution.ts','utf8')]);
+    for(const file of[dispatcher,execute,governance]){
+      expect(file).not.toMatch(/console\.log\([^)]*qaPhone/);
+      expect(file).not.toMatch(/console\.log\([^)]*phone[^)]*\).*update/);
+      expect(file).not.toMatch(/ELEVENLABS_API_KEY.*console\.log/);
+      expect(file).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY.*console\.log/);
+    }
+  });
 });

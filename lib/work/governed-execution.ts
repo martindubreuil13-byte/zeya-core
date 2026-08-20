@@ -10,5 +10,7 @@ export async function governedWorkerBriefExecutionProhibited(workerBriefId:strin
   const validation=await db.rpc('zeya_validate_governed_execution_claim',{
     p_owner_id:result.data.owner_id,p_worker_brief_id:workerBriefId,p_authorization_id:claim.authorizationId,p_attempt_id:claim.attemptId,
   });
-  return validation.error||validation.data!==true;
+  // PostgREST scalar boolean returns as { data: boolean }, not { data: [boolean] }
+  const isValid=validation.data===true;
+  return validation.error||!isValid;
 }

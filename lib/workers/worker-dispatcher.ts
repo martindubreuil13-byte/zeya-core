@@ -45,7 +45,11 @@ export async function dispatchWorkerBrief(
     businessId: businessId ?? null,
   });
 
+  if (brief.id.startsWith('p25_brief_')) {
+    console.log("[worker-dispatcher] stage: governed_guard_start", { briefId: brief.id, hasClaim: !!options.governedExecutionClaim });
+  }
   if (await governedWorkerBriefExecutionProhibited(brief.id,options.governedExecutionClaim)) {
+    console.log("[worker-dispatcher] stage: governed_guard_rejected", { briefId: brief.id });
     return {
       briefId: brief.id,
       workerName: brief.workerName,
@@ -56,6 +60,9 @@ export async function dispatchWorkerBrief(
       providerCallId: "blocked_governed_execution",
       createdAt: new Date().toISOString(),
     };
+  }
+  if (brief.id.startsWith('p25_brief_')) {
+    console.log("[worker-dispatcher] stage: governed_guard_passed", { briefId: brief.id });
   }
 
   // Extract target info for dispatch and persistence
@@ -83,23 +90,27 @@ export async function dispatchWorkerBrief(
 
   const resolvedProviderType = providerType ?? (brief.workerType === "CALLER" ? "ELEVENLABS" : "MOCK");
   const supabase = createServiceClient();
+  console.log("[worker-dispatcher] stage: service_client_ready", { clientInitialized: !!supabase });
+  if (!supabase) {
+    console.log("[worker-dispatcher] stage: service_client_unavailable", { briefId: brief.id });
+    return {
+      briefId: brief.id,
+      workerName: brief.workerName,
+      workerType: brief.workerType,
+      status: "FAILED",
+      providerOutcome: "REJECTED",
+      message: "Authorized voice context is unavailable",
+      providerCallId: "failed_" + Date.now(),
+      createdAt: new Date().toISOString(),
+    };
+  }
   let voiceContext: VoiceReadyContext | null = null;
   let voiceContextId: string | null = null;
   if (brief.workerType === "CALLER" || resolvedProviderType === "ELEVENLABS") {
-    if (!supabase) {
-      return {
-        briefId: brief.id,
-        workerName: brief.workerName,
-        workerType: brief.workerType,
-        status: "FAILED",
-        providerOutcome: "REJECTED",
-        message: "Authorized voice context is unavailable",
-        providerCallId: "failed_" + Date.now(),
-        createdAt: new Date().toISOString(),
-      };
-    }
+    console.log("[worker-dispatcher] stage: business_owner_lookup_start", { businessId });
     const owner = await supabase.from("businesses").select("user_id").eq("id", businessId).maybeSingle();
     if (owner.error || !owner.data?.user_id) {
+      console.log("[worker-dispatcher] stage: business_owner_lookup_failed", { briefId: brief.id, error: owner.error?.code });
       return {
         briefId: brief.id,
         workerName: brief.workerName,
@@ -111,12 +122,14 @@ export async function dispatchWorkerBrief(
         createdAt: new Date().toISOString(),
       };
     }
+    console.log("[worker-dispatcher] stage: business_owner_lookup_passed", { businessId });
     try {
       if (options.representationSnapshot && options.representationSnapshot.tenantUserId !== owner.data.user_id) {
         throw new Error("Representation snapshot owner mismatch");
       }
       const tenantUserId = options.representationSnapshot?.tenantUserId ?? owner.data.user_id;
       const agent = { id: brief.workerName, type: brief.workerType, role: "outbound_representative" };
+      console.log("[worker-dispatcher] stage: voice_context_start", { briefId: brief.id });
       voiceContext = options.representationSnapshot?.representationContextMode === "pre_canonical"
         ? await assemblePreCanonicalVoiceContext({
           db: supabase,
@@ -135,7 +148,9 @@ export async function dispatchWorkerBrief(
           canonicalVersionId: options.representationSnapshot?.canonicalVersionId ?? undefined,
         });
       voiceContextId = crypto.randomUUID();
-    } catch {
+      console.log("[worker-dispatcher] stage: voice_context_ready", { briefId: brief.id });
+    } catch (err) {
+      console.log("[worker-dispatcher] stage: voice_context_failed", { briefId: brief.id, error: err instanceof Error ? err.message : 'unknown' });
       return {
         briefId: brief.id,
         workerName: brief.workerName,
@@ -186,18 +201,14 @@ export async function dispatchWorkerBrief(
   const provisionalConversationId = `dispatch_${brief.id}_${Date.now()}`;
 
   // Save to database (persistent)
-  console.log("[worker-dispatcher] 🔵 Saving mapping to persistent storage", {
-    workerBriefId: brief.id,
-    missionId: brief.missionId,
-    businessId,
-  });
+  console.log("[worker-dispatcher] stage: mapping_start", { briefId: brief.id });
 
   const mappingResult = await saveBriefConversationMapping(brief.id, brief.missionId, businessId);
 
   if (!mappingResult.success) {
-    console.error("[worker-dispatcher] 🔴 Mapping persistence failed, blocking dispatch", {
-      workerBriefId: brief.id,
-      error: mappingResult.error?.message,
+    console.log("[worker-dispatcher] stage: mapping_failed", {
+      briefId: brief.id,
+      error: mappingResult.error?.code,
     });
 
     return {
@@ -212,9 +223,7 @@ export async function dispatchWorkerBrief(
     };
   }
 
-  console.log("[worker-dispatcher] 🟢 Mapping persisted successfully", {
-    workerBriefId: brief.id,
-  });
+  console.log("[worker-dispatcher] stage: mapping_ready", { briefId: brief.id });
 
   // Also maintain in-memory cache for fast access this session
   mappingStore.createMapping(
@@ -254,6 +263,7 @@ export async function dispatchWorkerBrief(
     : brief.dynamicVariables;
 
   if (voiceContext && voiceContextId && supabase) {
+    console.log("[worker-dispatcher] stage: lineage_start", { briefId: brief.id, voiceContextId });
     try {
       await saveVoiceRepresentationLineage({
         db: supabase,
@@ -263,7 +273,9 @@ export async function dispatchWorkerBrief(
         conversationId: provisionalConversationId,
         lineage: voiceContext.lineage,
       });
-    } catch {
+      console.log("[worker-dispatcher] stage: lineage_ready", { briefId: brief.id });
+    } catch (err) {
+      console.log("[worker-dispatcher] stage: lineage_failed", { briefId: brief.id, error: err instanceof Error ? err.message : 'unknown' });
       return {
         briefId: brief.id,
         workerName: brief.workerName,
@@ -277,6 +289,7 @@ export async function dispatchWorkerBrief(
     }
   }
 
+  console.log("[worker-dispatcher] stage: provider_boundary", { briefId: brief.id, provider: resolvedProviderType });
   const providerStartedAt = new Date().toISOString();
   const providerResult = await provider.dispatch({
     workerBriefId: brief.id,
