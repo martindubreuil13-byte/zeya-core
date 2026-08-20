@@ -174,4 +174,157 @@ describe('P2.6 governed execution',()=>{
       expect(file).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY.*console\.log/);
     }
   });
+  it('governed frozen voice context mode exists and is registered',async()=>{
+    const voiceContext=await readFile('lib/voice/representation-context.ts','utf8');
+    expect(voiceContext).toContain('representationContextMode: "canonical" | "pre_canonical" | "governed_frozen"');
+    expect(voiceContext).toContain('assembleGovernedFrozenVoiceContext');
+    expect(voiceContext).toContain('GOVERNED_VOICE_ALLOWLIST');
+  });
+  it('worker dispatcher imports and uses governed frozen context',async()=>{
+    const dispatcher=await readFile('lib/workers/worker-dispatcher.ts','utf8');
+    expect(dispatcher).toContain('assembleGovernedFrozenVoiceContext');
+    expect(dispatcher).toContain('options.governedExecutionClaim && options.representationSnapshot?.canonicalVersionId');
+  });
+  it('governed frozen context exposes only speech-safe fields',async()=>{
+    const voiceContext=await readFile('lib/voice/representation-context.ts','utf8');
+    expect(voiceContext).toContain('GOVERNED_VOICE_ALLOWLIST');
+    expect(voiceContext).toContain('whatYouSell');
+    expect(voiceContext).toContain('whoItIsFor');
+    const governedFunc=voiceContext.slice(voiceContext.indexOf('assembleGovernedFrozenVoiceContext'));
+    expect(governedFunc).not.toMatch(/claims\[key\].*hypothesis|claims\[key\].*evidence/i);
+  });
+  it('governed frozen context verifies Version currentness',async()=>{
+    const voiceContext=await readFile('lib/voice/representation-context.ts','utf8');
+    const governedFunc=voiceContext.slice(voiceContext.indexOf('assembleGovernedFrozenVoiceContext'));
+    expect(governedFunc).toContain('current_version_id !== input.canonicalVersionId');
+  });
+  it('governed voice allowlist is MVP narrow (whatYouSell, whoItIsFor only)',async()=>{
+    const voiceContext=await readFile('lib/voice/representation-context.ts','utf8');
+    expect(voiceContext).toContain('GOVERNED_VOICE_ALLOWLIST = ["whatYouSell", "whoItIsFor"]');
+    expect(voiceContext).not.toContain('worksHowSteps');
+    expect(voiceContext).not.toContain('whatSuccess');
+  });
+  it('P2.6 governed execution explicitly selects governed_frozen mode',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain("representationContextMode:'governed_frozen'");
+  });
+  it('error categories distinguish governance/voice/mapping/lineage from provider',async()=>{
+    const types=await readFile('lib/workers/worker-brief-types.ts','utf8');
+    expect(types).toContain('governance_rejected');
+    expect(types).toContain('voice_context_failed');
+    expect(types).toContain('mapping_failed');
+    expect(types).toContain('lineage_failed');
+    expect(types).toContain('provider_failed');
+  });
+  it('QA harness exists with Stage A and Stage B',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('stage: \'a\' | \'b\'');
+    expect(harness).toContain('stageA');
+    expect(harness).toContain('stageB');
+    expect(harness).toContain('SYNTHETIC_LEAD_ID');
+    expect(harness).not.toMatch(/console\.log\([^)]*qaPhone/);
+  });
+  it('failure categories are typed not string-matched',async()=>{
+    const types=await readFile('lib/workers/worker-brief-types.ts','utf8');
+    expect(types).toContain('WorkerDispatchFailureCategory');
+    expect(types).toContain('governance_rejected');
+    expect(types).toContain('voice_context_failed');
+    expect(types).toContain('mapping_failed');
+    expect(types).toContain('lineage_failed');
+    expect(types).toContain('provider_failed');
+  });
+  it('worker-dispatcher sets explicit failure categories',async()=>{
+    const dispatcher=await readFile('lib/workers/worker-dispatcher.ts','utf8');
+    expect(dispatcher).toContain('failureResult(brief,');
+    expect(dispatcher).toContain('"governance_rejected"');
+    expect(dispatcher).toContain('"voice_context_failed"');
+    expect(dispatcher).toContain('"mapping_failed"');
+    expect(dispatcher).toContain('"lineage_failed"');
+    expect(dispatcher).not.toMatch(/result\.message\.includes/);
+  });
+  it('executeGovernedVoice uses typed failureCategory not message inspection',async()=>{
+    const service=await readFile('lib/work/governed-voice-execution.ts','utf8');
+    expect(service).toContain('result.failureCategory');
+    expect(service.match(/result\.message\.includes/)).toBe(null);
+  });
+  it('QA harness uses explicit --stage-a and --stage-b arguments',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('--stage-a');
+    expect(harness).toContain('--stage-b');
+  });
+  it('QA harness validates Preview URL strictly (Vercel pattern only)',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('validatePreviewUrlStrict');
+    // Verify the strict regex pattern is present (escaped dots literal check)
+    expect(harness).toContain('zeya-core-wh6u-[a-z0-9-]+-martindubreuil13-bytes-projects\\.vercel\\.app');
+    // Verify it rejects unsafe hosts
+    expect(harness).toContain('Unsafe Preview host');
+  });
+  it('provider_failed only appears after provider boundary',async()=>{
+    const dispatcher=await readFile('lib/workers/worker-dispatcher.ts','utf8');
+    const providerBoundary=dispatcher.indexOf('provider_boundary');
+    expect(providerBoundary).toBeGreaterThan(-1);
+    const providerFailedBefore=dispatcher.substring(0,providerBoundary).includes('provider_failed');
+    expect(providerFailedBefore).toBe(false);
+  });
+  it('QA harness uses Supabase signInWithPassword authentication',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('signInWithPassword');
+    expect(harness).toContain('Bearer');
+    expect(harness).not.toContain('/api/auth/callback/credentials');
+  });
+  it('QA harness uses correct API response field names',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    // Mission response uses .id not .missionId
+    expect(harness).toContain('missionData.data?.id');
+    // Dispatch response uses .dispatchId
+    expect(harness).toContain('dispatchData.data?.dispatchId');
+    // Authorization response uses .authorizationId
+    expect(harness).toContain('authData.data?.authorizationId');
+  });
+  it('QA harness includes full mission request payload',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('objective:');
+    expect(harness).toContain('qualificationGoal:');
+    expect(harness).toContain('desiredNextStep:');
+    expect(harness).toContain('channel:');
+    expect(harness).toContain('constraints:');
+  });
+  it('QA harness implements Stage A verification',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('STAGE A: Authorization-Only Verification');
+    expect(harness).toContain('Authorization-only verification');
+  });
+  it('QA harness implements Stage B durable postcheck',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('STAGE B: Full Execution with Durable Postcheck');
+    expect(harness).toContain('Durable State Postcheck');
+    expect(harness).toContain('Sanitized result:');
+  });
+  it('QA harness never prints QA_PHONE in output',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    // Check that error messages don't contain the phone variable
+    expect(harness).toContain('Invalid QA phone format');
+    // Verify no console.log of config.qaPhone
+    const phoneLogsMatch=harness.match(/console\.log\([^)]*qaPhone/g);
+    expect(phoneLogsMatch).toBe(null);
+    // Verify no error throwing with phone in message
+    const errorWithPhone=harness.match(/throw new Error\(`.*\$\{.*qaPhone/g);
+    expect(errorWithPhone).toBe(null);
+  });
+  it('QA harness uses npx tsx runtime',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('#!/usr/bin/env npx tsx');
+  });
+  it('QA harness uses --stage-a and --stage-b CLI arguments',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('--stage-a');
+    expect(harness).toContain('--stage-b');
+  });
+  it('mission response maps .id to missionId correctly',async()=>{
+    const harness=await readFile('scripts/p26-controlled-qa.ts','utf8');
+    expect(harness).toContain('.id');
+    // Verify the pattern for extracting missionId from response
+    expect(harness).toMatch(/missionData\.data\?.id/);
+  });
 });

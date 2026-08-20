@@ -45,6 +45,13 @@ export interface WorkerBrief {
   updatedAt: string; // ISO timestamp
 }
 
+export type WorkerDispatchFailureCategory =
+  | "governance_rejected"
+  | "voice_context_failed"
+  | "mapping_failed"
+  | "lineage_failed"
+  | "provider_failed";
+
 // Result of worker dispatch
 export interface WorkerDispatchResult {
   briefId: string;
@@ -53,6 +60,7 @@ export interface WorkerDispatchResult {
   status: "SIMULATED" | "DISPATCHED" | "COMPLETED" | "FAILED";
   providerOutcome: "REJECTED" | "ACCEPTED_PENDING_CORRELATION" | "ACCEPTED_CORRELATED";
   message: string;
+  failureCategory?: WorkerDispatchFailureCategory;
   providerType?: "MOCK" | "TWILIO" | "ELEVENLABS";
   providerCallId?: string;
   conversationId?: string;
@@ -70,7 +78,7 @@ export interface WorkerDispatchOptions {
     tenantUserId: string;
     businessRepresentationId: string;
     canonicalVersionId: string | null;
-    representationContextMode?: "canonical" | "pre_canonical";
+    representationContextMode?: "canonical" | "pre_canonical" | "governed_frozen";
   };
 }
 

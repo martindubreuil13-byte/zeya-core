@@ -47,14 +47,16 @@ export async function executeGovernedVoice(input:ExecuteInput){
   console.log('[p26-execute] stage: worker_dispatch_start', { briefId: workerBrief.id, businessId: brief.data.business_id });
   const result=await dispatchWorkerBrief(workerBrief,'ELEVENLABS',String(brief.data.business_id),{
     transientTargetPhone:input.qaPhone,governedExecutionClaim:{authorizationId:input.authorizationId,attemptId:row.attempt_id},
-    representationSnapshot:{tenantUserId:input.ownerId,businessRepresentationId:String(dispatch.data.business_representation_id),canonicalVersionId:String(dispatch.data.representation_version_id)},
+    representationSnapshot:{tenantUserId:input.ownerId,businessRepresentationId:String(dispatch.data.business_representation_id),canonicalVersionId:String(dispatch.data.representation_version_id),representationContextMode:'governed_frozen'},
   });
   console.log('[p26-execute] stage: worker_dispatch_complete', { dispatchStatus: result.status, dispatchOutcome: result.providerOutcome });
   const dispatched=result.status==='DISPATCHED';
   console.log('[p26-execute] stage: completion_rpc_start', { attemptId: row.attempt_id, markAs: dispatched?'dispatched':'failed' });
+  // Use typed failureCategory from dispatchWorkerBrief (not message inspection)
+  const errorCode=dispatched?null:(result.failureCategory??'provider_failed');
   const completed=await input.db.rpc('zeya_complete_governed_execution',{
     p_owner_id:input.ownerId,p_attempt_id:row.attempt_id,p_status:dispatched?'dispatched':'failed',
-    p_provider_call_id:result.providerCallId??null,p_conversation_id:result.conversationId??null,p_error_code:dispatched?null:'provider_failed',
+    p_provider_call_id:result.providerCallId??null,p_conversation_id:result.conversationId??null,p_error_code:errorCode,
   });
   if(completed.error){console.error('[p26-execute] stage: completion_rpc_failed', { code: completed.error.code, message: completed.error.message });throw new Error(`execution_completion_failed:${completed.error.code??'unknown'}`);}
   console.log('[p26-execute] stage: completion_rpc_complete', { attemptId: row.attempt_id });

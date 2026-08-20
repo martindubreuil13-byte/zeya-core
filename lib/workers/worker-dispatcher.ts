@@ -1,6 +1,6 @@
 // Worker Dispatcher — Dispatch a WorkerBrief through a provider boundary
 
-import type { WorkerBrief, WorkerDispatchOptions, WorkerDispatchResult } from "./worker-brief-types";
+import type { WorkerBrief, WorkerDispatchOptions, WorkerDispatchResult, WorkerDispatchFailureCategory } from "./worker-brief-types";
 import { getProvider } from "@/lib/providers";
 import type { ProviderType } from "@/lib/providers";
 import { mappingStore } from "@/lib/voice/events/conversation-brief-mapping";
@@ -10,6 +10,7 @@ import { saveBriefConversationMapping } from "@/lib/voice/persistence/brief-conv
 import {
   assembleVoiceRepresentationContext,
   assemblePreCanonicalVoiceContext,
+  assembleGovernedFrozenVoiceContext,
   buildVoiceProviderVariables,
   type VoiceReadyContext,
 } from "@/lib/voice/representation-context";
@@ -32,6 +33,24 @@ function valueAsString(value: string | number | boolean | null | undefined): str
   return String(value);
 }
 
+function failureResult(
+  brief: WorkerBrief,
+  message: string,
+  category: WorkerDispatchFailureCategory,
+): WorkerDispatchResult {
+  return {
+    briefId: brief.id,
+    workerName: brief.workerName,
+    workerType: brief.workerType,
+    status: "FAILED",
+    providerOutcome: "REJECTED",
+    message,
+    failureCategory: category,
+    providerCallId: "failed_" + Date.now(),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export async function dispatchWorkerBrief(
   brief: WorkerBrief,
   providerType?: ProviderType,
@@ -50,16 +69,7 @@ export async function dispatchWorkerBrief(
   }
   if (await governedWorkerBriefExecutionProhibited(brief.id,options.governedExecutionClaim)) {
     console.log("[worker-dispatcher] stage: governed_guard_rejected", { briefId: brief.id });
-    return {
-      briefId: brief.id,
-      workerName: brief.workerName,
-      workerType: brief.workerType,
-      status: "FAILED",
-      providerOutcome: "REJECTED",
-      message: "Governed worker brief execution is prohibited",
-      providerCallId: "blocked_governed_execution",
-      createdAt: new Date().toISOString(),
-    };
+    return failureResult(brief, "Governed worker brief execution is prohibited", "governance_rejected");
   }
   if (brief.id.startsWith('p25_brief_')) {
     console.log("[worker-dispatcher] stage: governed_guard_passed", { briefId: brief.id });
@@ -93,16 +103,7 @@ export async function dispatchWorkerBrief(
   console.log("[worker-dispatcher] stage: service_client_ready", { clientInitialized: !!supabase });
   if (!supabase) {
     console.log("[worker-dispatcher] stage: service_client_unavailable", { briefId: brief.id });
-    return {
-      briefId: brief.id,
-      workerName: brief.workerName,
-      workerType: brief.workerType,
-      status: "FAILED",
-      providerOutcome: "REJECTED",
-      message: "Authorized voice context is unavailable",
-      providerCallId: "failed_" + Date.now(),
-      createdAt: new Date().toISOString(),
-    };
+    return failureResult(brief, "Authorized voice context is unavailable", "voice_context_failed");
   }
   let voiceContext: VoiceReadyContext | null = null;
   let voiceContextId: string | null = null;
@@ -111,16 +112,7 @@ export async function dispatchWorkerBrief(
     const owner = await supabase.from("businesses").select("user_id").eq("id", businessId).maybeSingle();
     if (owner.error || !owner.data?.user_id) {
       console.log("[worker-dispatcher] stage: business_owner_lookup_failed", { briefId: brief.id, error: owner.error?.code });
-      return {
-        briefId: brief.id,
-        workerName: brief.workerName,
-        workerType: brief.workerType,
-        status: "FAILED",
-        providerOutcome: "REJECTED",
-        message: "Authorized voice context is unavailable",
-        providerCallId: "failed_" + Date.now(),
-        createdAt: new Date().toISOString(),
-      };
+      return failureResult(brief, "Authorized voice context is unavailable", "voice_context_failed");
     }
     console.log("[worker-dispatcher] stage: business_owner_lookup_passed", { businessId });
     try {
@@ -138,6 +130,15 @@ export async function dispatchWorkerBrief(
           businessRepresentationId: options.representationSnapshot.businessRepresentationId,
           agent,
         })
+        : (options.governedExecutionClaim && options.representationSnapshot?.canonicalVersionId)
+        ? await assembleGovernedFrozenVoiceContext({
+          db: supabase,
+          tenantUserId,
+          businessId,
+          businessRepresentationId: options.representationSnapshot.businessRepresentationId,
+          canonicalVersionId: options.representationSnapshot.canonicalVersionId,
+          agent,
+        })
         : await assembleVoiceRepresentationContext({
           db: supabase,
           tenantUserId,
@@ -151,16 +152,7 @@ export async function dispatchWorkerBrief(
       console.log("[worker-dispatcher] stage: voice_context_ready", { briefId: brief.id });
     } catch (err) {
       console.log("[worker-dispatcher] stage: voice_context_failed", { briefId: brief.id, error: err instanceof Error ? err.message : 'unknown' });
-      return {
-        briefId: brief.id,
-        workerName: brief.workerName,
-        workerType: brief.workerType,
-        status: "FAILED",
-        providerOutcome: "REJECTED",
-        message: "Authorized voice context is unavailable",
-        providerCallId: "failed_" + Date.now(),
-        createdAt: new Date().toISOString(),
-      };
+      return failureResult(brief, "Authorized voice context is unavailable", "voice_context_failed");
     }
   }
 
@@ -211,16 +203,7 @@ export async function dispatchWorkerBrief(
       error: mappingResult.error?.code,
     });
 
-    return {
-      briefId: brief.id,
-      workerName: brief.workerName,
-      workerType: brief.workerType,
-      status: "FAILED",
-      providerOutcome: "REJECTED",
-      message: `Mapping persistence failed: ${mappingResult.error?.message || "Unknown error"}`,
-      providerCallId: "failed_" + Date.now(),
-      createdAt: new Date().toISOString(),
-    };
+    return failureResult(brief, `Mapping persistence failed: ${mappingResult.error?.message || "Unknown error"}`, "mapping_failed");
   }
 
   console.log("[worker-dispatcher] stage: mapping_ready", { briefId: brief.id });
@@ -276,16 +259,7 @@ export async function dispatchWorkerBrief(
       console.log("[worker-dispatcher] stage: lineage_ready", { briefId: brief.id });
     } catch (err) {
       console.log("[worker-dispatcher] stage: lineage_failed", { briefId: brief.id, error: err instanceof Error ? err.message : 'unknown' });
-      return {
-        briefId: brief.id,
-        workerName: brief.workerName,
-        workerType: brief.workerType,
-        status: "FAILED",
-        providerOutcome: "REJECTED",
-        message: "Voice lineage could not be recorded",
-        providerCallId: "failed_" + Date.now(),
-        createdAt: new Date().toISOString(),
-      };
+      return failureResult(brief, "Voice lineage could not be recorded", "lineage_failed");
     }
   }
 

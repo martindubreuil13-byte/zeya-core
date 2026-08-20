@@ -15,7 +15,7 @@ export type VoiceRepresentationLineage = {
   businessId: string;
   businessRepresentationId: string;
   canonicalVersionId: string | null;
-  representationContextMode: "canonical" | "pre_canonical";
+  representationContextMode: "canonical" | "pre_canonical" | "governed_frozen";
   generatedAt: string;
   authorizedElementKeys: string[];
   provisionalMode: boolean;
@@ -49,6 +49,10 @@ function buildPreCanonicalSystemContext(businessName: string | null): string {
     businessName ? `Preliminary business name: ${businessName}` : "The business name has not yet been established.",
   ].join("\n");
 }
+
+// MVP: Externally-safe business representation fields for governed voice execution.
+// Limited to essentials for telephone BD. Other fields require explicit contract review.
+const GOVERNED_VOICE_ALLOWLIST = ["whatYouSell", "whoItIsFor"];
 
 /** Discovery-only boundary for a clean owner. It deliberately reads no canonical Representation data. */
 export async function assemblePreCanonicalVoiceContext(input: {
@@ -110,6 +114,84 @@ export async function assemblePreCanonicalVoiceContext(input: {
       promptAssemblyVersion: VOICE_PROMPT_ASSEMBLY_VERSION,
     },
   };
+}
+
+/**
+ * Governed frozen voice context for P2.6 controlled execution.
+ * Uses an explicitly authorized immutable canonical Version without requiring
+ * separate representation_elements eligibility checks.
+ * Authorization is proven through dispatch → authorization → execution claim lineage.
+ */
+export async function assembleGovernedFrozenVoiceContext(input: {
+  db: SupabaseClient;
+  tenantUserId: string;
+  businessId: string;
+  businessRepresentationId: string;
+  canonicalVersionId: string;
+  agent: VoiceAgentIdentity;
+}): Promise<VoiceReadyContext> {
+  const business = await input.db
+    .from("businesses")
+    .select("id,user_id")
+    .eq("id", input.businessId)
+    .eq("user_id", input.tenantUserId)
+    .maybeSingle();
+  if (business.error || !business.data) throw new VoiceContextUnavailableError();
+
+  const representation = await input.db
+    .from("business_representations")
+    .select("id,business_id,user_id,current_version_id")
+    .eq("id", input.businessRepresentationId)
+    .eq("business_id", input.businessId)
+    .eq("user_id", input.tenantUserId)
+    .maybeSingle();
+  if (representation.error || !representation.data) throw new VoiceContextUnavailableError();
+
+  // Verify the provided version still matches current (for P2.6 currentness contract)
+  if (representation.data.current_version_id !== input.canonicalVersionId) {
+    throw new VoiceContextUnavailableError();
+  }
+
+  const frozenVersion = await input.db
+    .from("representation_versions")
+    .select("id,business_representation_id,element_values")
+    .eq("id", input.canonicalVersionId)
+    .eq("business_representation_id", representation.data.id)
+    .maybeSingle();
+  if (frozenVersion.error || !frozenVersion.data) throw new VoiceContextUnavailableError();
+
+  // Extract only governed-safe fields from frozen element_values
+  const values = frozenVersion.data.element_values;
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    throw new VoiceContextUnavailableError();
+  }
+  const canonical = values as Record<string, unknown>;
+  const claims: Record<string, unknown> = {};
+  for (const key of GOVERNED_VOICE_ALLOWLIST) {
+    if (key in canonical) {
+      claims[key] = canonical[key];
+    }
+  }
+  if (Object.keys(claims).length === 0) throw new VoiceContextUnavailableError();
+
+  const authorizedElementKeys = Object.keys(claims).sort();
+  const lineage: VoiceRepresentationLineage = {
+    tenantUserId: input.tenantUserId,
+    businessId: input.businessId,
+    businessRepresentationId: representation.data.id,
+    canonicalVersionId: input.canonicalVersionId,
+    representationContextMode: "governed_frozen",
+    generatedAt: new Date().toISOString(),
+    authorizedElementKeys,
+    provisionalMode: false,
+    agentId: input.agent.id,
+    agentType: input.agent.type,
+    agentRole: input.agent.role,
+    contextSchemaVersion: VOICE_CONTEXT_SCHEMA_VERSION,
+    promptAssemblyVersion: VOICE_PROMPT_ASSEMBLY_VERSION,
+  };
+
+  return { systemContext: buildSystemContext(claims), claims, lineage };
 }
 
 function claimValue(value: Record<string, unknown> | null): unknown {
