@@ -119,8 +119,8 @@ BEGIN
       source_conversation_output_id,source_mission_id,observation_schema_version,source_key,kind,slot,claim,value,polarity,basis,
       confidence,uncertainty,content_hash,observed_at)
     VALUES(i.tenant_user_id,i.business_id,i.business_representation_id,i.lead_id,i.id,i.conversation_output_id,i.mission_id,
-      'prospect-observation-v1',item->>'sourceKey',item->>'kind',item->>'slot',btrim(item->>'claim'),item->'value',item->>'polarity',
-      item->>'basis',(item->>'confidence')::numeric,item->'uncertainty',expected_hash,coalesce(o.completed_at,o.captured_at,o.created_at))
+      'prospect-observation-v1',item->>'sourceKey',item->>'kind',item->>'slot',btrim(item->>'claim'),CASE WHEN item->'value'='null'::jsonb THEN NULL ELSE item->'value' END,item->>'polarity',
+      item->>'basis',(item->>'confidence')::numeric,CASE WHEN item->'uncertainty'='null'::jsonb THEN NULL ELSE item->'uncertainty' END,expected_hash,coalesce(o.completed_at,o.captured_at,o.created_at))
     ON CONFLICT(lead_id,source_interpretation_id,source_key) DO NOTHING;
     IF FOUND THEN inserted:=inserted+1; END IF;
   END LOOP;
