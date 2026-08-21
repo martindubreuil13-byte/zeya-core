@@ -137,6 +137,31 @@ export function validateConversationInterpretationV1(value: unknown, identity: T
   };
 }
 
+export function applyUncertaintyDominance(value: unknown): unknown {
+  const root = structuredClone(object(value, "interpretation"));
+  if (!Array.isArray(root.uncertainties)) return root;
+  const uncertainTurns = new Set<number>();
+  for (const raw of root.uncertainties) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const row = raw as Record<string, unknown>;
+    if ((row.kind === "asr" || row.kind === "ambiguous") && Array.isArray(row.sourceTurns)) {
+      for (const turn of row.sourceTurns) if (Number.isInteger(turn)) uncertainTurns.add(turn as number);
+    }
+  }
+  const overlaps = (raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+    const sourceTurns = (raw as Record<string, unknown>).sourceTurns;
+    return Array.isArray(sourceTurns) && sourceTurns.some(turn => Number.isInteger(turn) && uncertainTurns.has(turn as number));
+  };
+  if (Array.isArray(root.businessLearningSignals)) root.businessLearningSignals = root.businessLearningSignals.filter(signal => !overlaps(signal));
+  if (Array.isArray(root.prospectIntelligence)) root.prospectIntelligence = root.prospectIntelligence.filter(raw => {
+    if (!overlaps(raw)) return true;
+    const uncertainty = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).uncertainty : null;
+    return Boolean(uncertainty && typeof uncertainty === "object" && !Array.isArray(uncertainty) && ["asr", "ambiguous"].includes(String((uncertainty as Record<string, unknown>).kind)));
+  });
+  return root;
+}
+
 export function projectMissionOutcome(interpretation: ConversationInterpretationV1) {
   return {
     contactResult: interpretation.callResult.contacted ? "contacted" as const : "not_reached" as const,
@@ -195,7 +220,7 @@ export async function interpretAndProjectConversationOutput(params: { db: Supaba
     if (missionResult.error || briefResult.error || !missionResult.data || !briefResult.data || String(briefResult.data.mission_id) !== String(output.mission_id)) throw new ConversationInterpretationError("not_found", "Trusted mission lineage not found");
     const transcript = output.transcript as ConversationTranscriptTurn[];
     const semantic = await (params.generate || generateSemanticInterpretation)(transcript, { mission: missionResult.data, workerBrief: briefResult.data });
-    interpretation = validateConversationInterpretationV1(semantic, { conversationOutputId, conversationId: String(output.conversation_id), missionId: String(output.mission_id), workerBriefId: String(output.worker_brief_id), leadId: String(missionResult.data.lead_id) }, transcript);
+    interpretation = validateConversationInterpretationV1(applyUncertaintyDominance(semantic), { conversationOutputId, conversationId: String(output.conversation_id), missionId: String(output.mission_id), workerBriefId: String(output.worker_brief_id), leadId: String(missionResult.data.lead_id) }, transcript);
     const persisted = await db.rpc("zeya_persist_conversation_interpretation", { p_owner_id: ownerId, p_conversation_output_id: conversationOutputId, p_schema_version: CONVERSATION_INTERPRETATION_V1, p_interpretation: interpretation, p_model_provider: "openai", p_model_name: process.env.P28_INTERPRETATION_MODEL || "gpt-5-mini", p_model_metadata: {} });
     if (persisted.error) throw new ConversationInterpretationError(persisted.error.code === "PZ409" ? "conflict" : "persistence_failed", "Could not persist interpretation");
     const row = Array.isArray(persisted.data) ? persisted.data[0] : persisted.data;

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { CONVERSATION_INTERPRETATION_V1, projectMissionOutcome, validateConversationInterpretationV1 } from "../../lib/work/conversation-interpretation";
+import { applyUncertaintyDominance, CONVERSATION_INTERPRETATION_V1, projectMissionOutcome, validateConversationInterpretationV1 } from "../../lib/work/conversation-interpretation";
 import { augustSemantics, augustTranscript, trustedIdentity } from "../fixtures/p2-8-august-conversation";
 
 const validate = (value: unknown = augustSemantics) => validateConversationInterpretationV1(value, trustedIdentity, augustTranscript);
@@ -53,6 +53,17 @@ describe("P2.8 conversation interpretation", () => {
   it("requires corrected agent-repetition spans to be marked ASR or ambiguous", () => {
     const missing = structuredClone(augustSemantics); missing.uncertainties = [];
     expect(() => validate(missing)).toThrow("corrected transcript span requires ASR or ambiguity");
+  });
+
+  it("deterministically suppresses model claims that violate uncertainty dominance", () => {
+    const unsafe = structuredClone(augustSemantics);
+    unsafe.prospectIntelligence[2].uncertainty = null;
+    unsafe.prospectIntelligence[2].basis = "explicit_statement";
+    unsafe.businessLearningSignals = [{ kind: "offer_clarity", summary: "The unclear phrase is a confirmed offer.", sourceTurns: [5, 7], confidence: 0.8, requiresOwnerReview: true }] as never;
+    const dominated = applyUncertaintyDominance(unsafe) as typeof augustSemantics;
+    expect(dominated.prospectIntelligence.some(insight => insight.sourceTurns.includes(5))).toBe(false);
+    expect(dominated.businessLearningSignals).toEqual([]);
+    expect(() => validate(dominated)).not.toThrow();
   });
 
   it("separates callback request, scheduling, acknowledgement, and commitment", () => {
