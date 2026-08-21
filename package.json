@@ -40,6 +40,7 @@
     "test:public-experience-expiration-boundary": "npx tsx tests/integration/public-experience-expiration-boundary.test.ts",
     "test:public-experience-dispatch-integrity": "npx tsx tests/integration/public-experience-dispatch-integrity.test.ts",
     "test:public-experience-completion": "npx tsx tests/integration/public-experience-completion.test.ts",
+    "test:p2-8": "npx vitest run tests/integration/p2-8-conversation-interpretation.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",
     "test:public-experience-completion-deployed": "npx tsx tests/integration/public-experience-completion-deployed.test.ts",
     "test:public-experience-governed-learning-deployed:provenance": "npx tsx tests/integration/public-experience-governed-learning-deployed.test.ts --scenario provenance",
