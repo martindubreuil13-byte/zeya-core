@@ -66,6 +66,18 @@ describe("P2.8 conversation interpretation", () => {
     expect(() => validate(dominated)).not.toThrow();
   });
 
+  it("collapses unsupported qualification decisions to unknown", () => {
+    const unsupported = structuredClone(augustSemantics);
+    unsupported.qualification = { result: "qualified", reasons: ["The pain may fit the offer."], confidence: 0.85 } as never;
+    const dominated = applyUncertaintyDominance(unsupported) as typeof augustSemantics;
+    expect(dominated.qualification).toEqual({ result: "unknown", reasons: ["Qualification was not established by explicit, uncertainty-free prospect evidence."], confidence: 0.5 });
+
+    const supported = structuredClone(augustSemantics);
+    supported.qualification = { result: "qualified", reasons: ["Explicit criterion met."], confidence: 0.9 } as never;
+    supported.prospectIntelligence.push({ kind: "qualification", summary: "Prospect explicitly confirmed the qualification criterion.", sourceTurns: [3], basis: "explicit_statement", confidence: 0.9, uncertainty: null, temporalScope: "this_call" });
+    expect((applyUncertaintyDominance(supported) as typeof augustSemantics).qualification.result).toBe("qualified");
+  });
+
   it("separates callback request, scheduling, acknowledgement, and commitment", () => {
     expect(validate().followUp).toEqual({ requested: true, requestedBy: "prospect", requestedTiming: null, scheduled: false, scheduledFor: null, agentAcknowledged: true, agentCommittedToFollowUp: true });
   });

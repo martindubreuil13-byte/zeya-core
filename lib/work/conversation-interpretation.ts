@@ -159,6 +159,19 @@ export function applyUncertaintyDominance(value: unknown): unknown {
     const uncertainty = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).uncertainty : null;
     return Boolean(uncertainty && typeof uncertainty === "object" && !Array.isArray(uncertainty) && ["asr", "ambiguous"].includes(String((uncertainty as Record<string, unknown>).kind)));
   });
+  if (root.qualification && typeof root.qualification === "object" && !Array.isArray(root.qualification) && (root.qualification as Record<string, unknown>).result !== "unknown") {
+    const hasExplicitQualificationEvidence = Array.isArray(root.prospectIntelligence) && root.prospectIntelligence.some(raw => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+      const insight = raw as Record<string, unknown>;
+      return insight.kind === "qualification" && insight.basis === "explicit_statement" && (insight.uncertainty === null || insight.uncertainty === undefined) && typeof insight.confidence === "number" && insight.confidence >= 0.8;
+    });
+    if (!hasExplicitQualificationEvidence) {
+      const qualification = root.qualification as Record<string, unknown>;
+      qualification.result = "unknown";
+      qualification.reasons = ["Qualification was not established by explicit, uncertainty-free prospect evidence."];
+      qualification.confidence = Math.min(typeof qualification.confidence === "number" ? qualification.confidence : 0.5, 0.5);
+    }
+  }
   return root;
 }
 
