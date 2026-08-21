@@ -48,7 +48,7 @@ export async function captureAndExtractConversationOutput(input: {
   }
 
   const existing = await input.db.from("voice_conversation_outputs")
-    .select("id,transcript_status,transcript")
+    .select("id,transcript_status,transcript,processing_status,extracted_candidate_count")
     .eq("voice_context_id", input.capture.voiceContextId)
     .maybeSingle();
   if (existing.error) throw new Error("Conversation output lookup failed");
@@ -58,6 +58,13 @@ export async function captureAndExtractConversationOutput(input: {
     // again distinguishes an exact replay from conflicts in completion metadata,
     // provenance, extraction version, or safe metadata as well as transcript data.
     conversationOutputId = await captureConversationOutput(input.db, input.capture);
+    if (existing.data.processing_status === "completed"
+      && typeof existing.data.extracted_candidate_count === "number") {
+      return {
+        conversationOutputId,
+        candidateCount: existing.data.extracted_candidate_count,
+      };
+    }
   } else if (existing.data && input.capture.transcript.length > 0) {
     conversationOutputId = await finalizeConversationTranscript(input.db, input.capture);
   } else {

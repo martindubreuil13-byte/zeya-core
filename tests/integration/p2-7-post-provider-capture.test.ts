@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { captureAndExtractConversationOutput } from "../../lib/voice/conversation-output/service";
 import { decideGovernedOutcome } from "../../lib/voice/events/elevenlabs-event-processor";
 
 const identity = {
@@ -15,6 +17,54 @@ const output = {
 };
 
 describe("P2.7 post-provider capture semantics", () => {
+  it("verifies immutable capture but skips extraction for a completed exact replay", async () => {
+    let extractionCalls = 0;
+    const rpcCalls: string[] = [];
+    const db = {
+      from(table: string) {
+        const result = table === "voice_representation_lineage"
+          ? { data: { canonical_version_id: "version-1", representation_context_mode: "canonical", authorized_element_keys: [], agent_type: "CALLER" }, error: null }
+          : { data: { id: "output-1", transcript_status: "finalized", transcript: [{ role: "customer", text: "Hello" }], processing_status: "completed", extracted_candidate_count: 7 }, error: null };
+        const builder = {
+          select: () => builder,
+          eq: () => builder,
+          single: async () => result,
+          maybeSingle: async () => result,
+        };
+        return builder;
+      },
+      async rpc(name: string) {
+        rpcCalls.push(name);
+        return { data: "output-1", error: null };
+      },
+    } as unknown as SupabaseClient;
+
+    const result = await captureAndExtractConversationOutput({
+      db,
+      capture: {
+        voiceContextId: "voice-1",
+        conversationId: "conversation-1",
+        providerCallId: "provider-call-1",
+        provider: "elevenlabs",
+        channel: "veya_outbound",
+        captureSource: "provider_callback",
+        transcriptTrustLevel: "provider_attested",
+        providerAttested: true,
+        transcript: [{ role: "customer", text: "Hello" }],
+        transcriptStatus: "finalized",
+        conversationStatus: "done",
+      },
+      extractionModel: async () => {
+        extractionCalls += 1;
+        return [];
+      },
+    });
+
+    expect(result).toEqual({ conversationOutputId: "output-1", candidateCount: 7 });
+    expect(extractionCalls).toBe(0);
+    expect(rpcCalls).toEqual(["zeya_capture_voice_conversation_output"]);
+  });
+
   it("accepts delayed completion for a dispatched attempt with no output", () => {
     expect(decideGovernedOutcome({
       ...identity,
