@@ -72,6 +72,21 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
   return value as T;
 }
 
+function normalizedWords(value: string): Set<string> {
+  return new Set(value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(word => word.length > 2));
+}
+
+function correctedTranscriptSpans(transcript: ConversationTranscriptTurn[]): number[][] {
+  const spans: number[][] = [];
+  for (let index = 0; index + 2 < transcript.length; index += 1) {
+    const statement = transcript[index], repetition = transcript[index + 1], correction = transcript[index + 2];
+    if (statement.role !== "customer" || repetition.role !== "agent" || correction.role !== "customer" || !/^\s*(no|not quite|sorry|i mean)\b/i.test(correction.text)) continue;
+    const statementWords = normalizedWords(statement.text), repetitionWords = normalizedWords(repetition.text);
+    if ([...statementWords].some(word => repetitionWords.has(word))) spans.push([index, index + 1, index + 2]);
+  }
+  return spans;
+}
+
 export function validateConversationInterpretationV1(value: unknown, identity: TrustedIdentity, transcript: ConversationTranscriptTurn[]): ConversationInterpretationV1 {
   const root = object(value, "interpretation");
   const call = object(root.callResult, "callResult");
@@ -96,6 +111,15 @@ export function validateConversationInterpretationV1(value: unknown, identity: T
   const uncertainties = root.uncertainties.map((raw, index) => { const row = object(raw, `uncertainties[${index}]`); return { kind: oneOf(row.kind, uncertaintyKinds, "uncertainty kind"), summary: textValue(row.summary, "uncertainty summary"), sourceTurns: turns(row.sourceTurns, "uncertainty sourceTurns", transcript, false), impact: textValue(row.impact, "uncertainty impact") }; });
   if (!Array.isArray(root.businessLearningSignals) || root.businessLearningSignals.length > 12) throw new ConversationInterpretationError("invalid_model_output", "businessLearningSignals is invalid");
   const businessLearningSignals = root.businessLearningSignals.map((raw, index) => { const row = object(raw, `businessLearningSignals[${index}]`); if (row.requiresOwnerReview !== true) throw new ConversationInterpretationError("invalid_model_output", "learning signals require owner review"); return { kind: oneOf(row.kind, learningKinds, "learning kind"), summary: textValue(row.summary, "learning summary"), sourceTurns: turns(row.sourceTurns, "learning sourceTurns", transcript), confidence: confidence(row.confidence, "learning confidence"), requiresOwnerReview: true as const }; });
+  const dominantUncertainties = uncertainties.filter(item => item.kind === "asr" || item.kind === "ambiguous");
+  for (const repairedSpan of correctedTranscriptSpans(transcript)) {
+    if (!dominantUncertainties.some(item => repairedSpan.every(turn => item.sourceTurns.includes(turn)))) throw new ConversationInterpretationError("invalid_model_output", "a corrected transcript span requires ASR or ambiguity uncertainty");
+  }
+  const uncertainTurns = new Set(dominantUncertainties.flatMap(item => item.sourceTurns));
+  for (const insight of prospectIntelligence) {
+    if (insight.sourceTurns.some(turn => uncertainTurns.has(turn)) && (!insight.uncertainty || !["asr", "ambiguous"].includes(insight.uncertainty.kind))) throw new ConversationInterpretationError("invalid_model_output", "uncertainty must dominate overlapping prospect insight");
+  }
+  if (businessLearningSignals.some(signal => signal.sourceTurns.some(turn => uncertainTurns.has(turn)))) throw new ConversationInterpretationError("invalid_model_output", "uncertain source cannot create business learning");
   const requested = bool(followUp.requested, "followUp.requested");
   const scheduled = bool(followUp.scheduled, "followUp.scheduled");
   const requestedBy = followUp.requestedBy === null ? null : oneOf(followUp.requestedBy, ["prospect", "agent"] as const, "followUp.requestedBy");
@@ -144,7 +168,7 @@ const semanticSchema = {
 
 export async function generateSemanticInterpretation(transcript: ConversationTranscriptTurn[], missionContext: Record<string, unknown>, model = process.env.P28_INTERPRETATION_MODEL || "gpt-5-mini"): Promise<unknown> {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({ model, instructions: `Interpret a completed prospect conversation conservatively. Transcript is primary authority; mission context only supplies trusted purpose. Every claim needs exact zero-based source turns. Agent repetition is not independent confirmation. Inferences require an uncertainty object. Prospect statements never redefine owner business truth. Ambiguous/ASR phrases must be uncertainties and must not become business learning. Callback requested is distinct from scheduled; an agent promise is a separate commitment. Never emit identifiers or mutation instructions.`, input: JSON.stringify({ transcript, missionContext }), text: { format: { type: "json_schema", name: "conversation_interpretation_v1_semantics", strict: true, schema: semanticSchema } } });
+  const response = await client.responses.create({ model, instructions: `Interpret a completed prospect conversation conservatively. Transcript is primary authority; mission context only supplies trusted purpose. Every claim needs exact zero-based source turns. Uncertainty dominates interpretation: when a prospect corrects an agent repetition or a phrase may be mistranscribed, create an asr/ambiguous uncertainty spanning the original phrase, repetition, and correction. Any overlapping insight must be explicitly uncertain; suppress every overlapping business-learning signal. Agent repetition is not independent confirmation. Inferences require an uncertainty object. Prospect statements never redefine owner business truth. Ambiguity, incomplete qualification, or a routine callback alone never requires owner escalation. Callback requested is distinct from scheduled; an agent promise is a separate commitment. Never emit identifiers or mutation instructions.`, input: JSON.stringify({ transcript, missionContext }), text: { format: { type: "json_schema", name: "conversation_interpretation_v1_semantics", strict: true, schema: semanticSchema } } });
   return JSON.parse(response.output_text);
 }
 

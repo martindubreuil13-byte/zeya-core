@@ -39,6 +39,22 @@ describe("P2.8 conversation interpretation", () => {
     expect(JSON.stringify(result.businessLearningSignals)).not.toMatch(/People economics/i);
   });
 
+  it("makes uncertainty dominate overlapping insights and learning signals", () => {
+    const confirmed = structuredClone(augustSemantics);
+    confirmed.prospectIntelligence[2].uncertainty = null;
+    confirmed.prospectIntelligence[2].basis = "explicit_statement";
+    expect(() => validate(confirmed)).toThrow("uncertainty must dominate");
+
+    const learning = structuredClone(augustSemantics);
+    learning.businessLearningSignals = [{ kind: "offer_clarity", summary: "The unclear phrase is a confirmed offer.", sourceTurns: [5, 7], confidence: 0.8, requiresOwnerReview: true }] as never;
+    expect(() => validate(learning)).toThrow("uncertain source cannot create business learning");
+  });
+
+  it("requires corrected agent-repetition spans to be marked ASR or ambiguous", () => {
+    const missing = structuredClone(augustSemantics); missing.uncertainties = [];
+    expect(() => validate(missing)).toThrow("corrected transcript span requires ASR or ambiguity");
+  });
+
   it("separates callback request, scheduling, acknowledgement, and commitment", () => {
     expect(validate().followUp).toEqual({ requested: true, requestedBy: "prospect", requestedTiming: null, scheduled: false, scheduledFor: null, agentAcknowledged: true, agentCommittedToFollowUp: true });
   });
