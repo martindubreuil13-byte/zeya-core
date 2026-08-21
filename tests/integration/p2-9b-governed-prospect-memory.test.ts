@@ -73,6 +73,12 @@ describe("P2.9B governed prospect memory",()=>{
     expect(state.facts[0]).toMatchObject({status:"current",supportingObservationIds:["old"]});
   });
 
+  it("is deterministic when persisted observations share the same provider timestamp",()=>{
+    const a=base("a","pain","a","2026-01-01T00:00:00Z"),b=base("b","pain","b","2026-01-01T00:00:00Z");
+    const forward=reduceCurrentProspectState({leadId:"lead",observations:[a,b],relations:[]}),reverse=reduceCurrentProspectState({leadId:"lead",observations:[b,a],relations:[]});
+    expect(reverse).toEqual(forward);
+  });
+
   it("keeps callback request historical and derives only an outstanding unscheduled obligation",()=>{
     const obligations=deriveProspectObligations([{id:"outcome",resultOperationId:"interpretation",followUpRequired:true,interpretation}]);
     expect(obligations.find(item=>item.kind==="callback")).toMatchObject({status:"outstanding",requestedByProspect:true,scheduled:false,dueAt:null});

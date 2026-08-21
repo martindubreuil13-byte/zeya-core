@@ -46,7 +46,7 @@ export function reduceCurrentProspectState(input:{leadId:string;observations:Pro
   const invalid = new Set(input.relations.filter(r=>r.relation === "invalidates" || r.relation === "supersedes" || r.relation === "resolves_uncertainty").map(r=>r.objectObservationId));
   const contradictions = new Map<string,Set<string>>();
   for(const r of input.relations.filter(r=>r.relation === "contradicts")){ const a=contradictions.get(r.subjectObservationId)??new Set<string>();a.add(r.objectObservationId);contradictions.set(r.subjectObservationId,a);const b=contradictions.get(r.objectObservationId)??new Set<string>();b.add(r.subjectObservationId);contradictions.set(r.objectObservationId,b); }
-  const active=input.observations.filter(o=>!invalid.has(o.id)); const slots=new Map<string,ProspectObservationV1[]>();
+  const active=input.observations.filter(o=>!invalid.has(o.id)).sort((a,b)=>a.observedAt.localeCompare(b.observedAt)||a.sourceInterpretationId.localeCompare(b.sourceInterpretationId)||a.sourceKey.localeCompare(b.sourceKey)||a.id.localeCompare(b.id)); const slots=new Map<string,ProspectObservationV1[]>();
   const singleCurrentSlots=new Set(["timing","budget_approval","decision_authority","current_interest"]);
   for(const observation of active){const rows=slots.get(observation.slot)??[];rows.push(observation);slots.set(observation.slot,rows);}
   const facts=[...slots.entries()].map(([slot,rows])=>{
@@ -56,7 +56,7 @@ export function reduceCurrentProspectState(input:{leadId:string;observations:Pro
     const uncertain=rows.some(row=>row.uncertainty!==null || row.polarity==="unknown");
     return {slot,status:conflictIds.length?"conflicted" as const:uncertain?"uncertain" as const:"current" as const,values:rows.map(row=>row.value).filter((value):value is Exclude<JsonValue,null>=>value!==null),supportingObservationIds:rows.map(row=>row.id),conflictingObservationIds:conflictIds,unresolvedReason:conflictIds.length?"Supported observations conflict and require clarification.":uncertain?"The available observation remains materially uncertain.":null,observedAt:rows.map(row=>row.observedAt).sort().at(-1)!};
   }).sort((a,b)=>a.slot.localeCompare(b.slot));
-  const dates=input.observations.map(o=>o.observedAt).sort(); const interpretationIds=[...new Set(input.observations.map(o=>o.sourceInterpretationId))];
+  const dates=input.observations.map(o=>o.observedAt).sort(); const interpretationIds=[...new Set(input.observations.map(o=>o.sourceInterpretationId))].sort();
   return {schemaVersion:CURRENT_PROSPECT_STATE_V1,leadId:input.leadId,generatedFromInterpretationIds:interpretationIds,facts,historySummary:{interactionCount:interpretationIds.length,firstInteractionAt:dates[0]??null,latestInteractionAt:dates.at(-1)??null},obligations:input.obligations??[]};
 }
 
