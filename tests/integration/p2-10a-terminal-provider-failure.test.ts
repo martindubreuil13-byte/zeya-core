@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { decideGovernedOutcome } from "../../lib/voice/events/elevenlabs-event-processor";
 
 const migration = "supabase/migrations/20260825020000_p210a_terminal_provider_failure_reconciliation.sql";
+const triggerFix = "supabase/migrations/20260825020100_p210a_attempt_trigger_schema_fix.sql";
 const identity = {
   attemptProviderCallId: "conversation-1",
   attemptConversationId: "conversation-1",
@@ -52,13 +53,15 @@ describe("P2.10A terminal provider failure reconciliation", () => {
 
   it("permits only the monotonic dispatched-to-failed database transition", async () => {
     const sql = await readFile(migration, "utf8");
+    const fixedTrigger = await readFile(triggerFix, "utf8");
     expect(sql).toContain("x.status='dispatched' AND p_status='failed'");
     expect(sql).toContain("x.provider_call_id IS NOT DISTINCT FROM nullif(p_provider_call_id,'')");
     expect(sql).toContain("x.conversation_id IS NOT DISTINCT FROM nullif(p_conversation_id,'')");
-    expect(sql).toContain("NEW.provider_call_id IS DISTINCT FROM OLD.provider_call_id");
-    expect(sql).toContain("NEW.conversation_id IS DISTINCT FROM OLD.conversation_id");
-    expect(sql).toContain("NEW.started_at IS DISTINCT FROM OLD.started_at");
-    expect(sql).toContain("OLD.status='failed'");
+    expect(fixedTrigger).toContain("NEW.provider_call_id IS DISTINCT FROM OLD.provider_call_id");
+    expect(fixedTrigger).toContain("NEW.conversation_id IS DISTINCT FROM OLD.conversation_id");
+    expect(fixedTrigger).toContain("NEW.started_at IS DISTINCT FROM OLD.started_at");
+    expect(fixedTrigger).toContain("OLD.status='failed'");
+    expect(fixedTrigger).not.toContain("NEW.created_at");
   });
 
   it("allows only safe terminal provider error codes for dispatched attempts", async () => {
