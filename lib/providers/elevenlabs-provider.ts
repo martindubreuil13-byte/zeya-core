@@ -3,6 +3,58 @@ import type { ProviderDispatchRequest, ProviderDispatchResult } from "./provider
 
 const ELEVENLABS_SIP_TRUNK_ENDPOINT = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call";
 
+export type ElevenLabsDispatchConfiguration = {
+  apiKey: string;
+  agentId: string;
+  phoneNumberId: string;
+  agentBranchId: string;
+  webhookUrl: string;
+};
+
+export function resolveElevenLabsDispatchConfiguration(
+  env: NodeJS.ProcessEnv = process.env,
+): ElevenLabsDispatchConfiguration | null {
+  const apiKey = env.ELEVENLABS_API_KEY;
+  const agentId = env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
+  const phoneNumberId = env.ELEVENLABS_PHONE_NUMBER_ID;
+  const agentBranchId = env.ELEVENLABS_AGENT_BRANCH_ID;
+  if (!apiKey || !agentId || !phoneNumberId || !agentBranchId) return null;
+  return {
+    apiKey,
+    agentId,
+    phoneNumberId,
+    agentBranchId,
+    webhookUrl: env.ELEVENLABS_WEBHOOK_URL || "https://zeya.app/api/webhooks/elevenlabs",
+  };
+}
+
+export function buildElevenLabsDispatchPayload(
+  request: ProviderDispatchRequest,
+  config: ElevenLabsDispatchConfiguration,
+) {
+  const dynamicVariables: Record<string, unknown> = {
+    ...request.dynamicVariables,
+    target: request.targetName || "prospect",
+    targetPhone: request.targetPhone,
+    missionObjective: request.dynamicVariables.missionObjective ?? request.objective,
+    opening: request.dynamicVariables.opening ?? request.dynamicVariables.missionObjective ?? request.objective,
+  };
+  return {
+    payload: {
+      agent_id: config.agentId,
+      agent_phone_number_id: config.phoneNumberId,
+      to_number: request.targetPhone,
+      conversation_initiation_client_data: {
+        user_id: request.workerBriefId,
+        branch_id: config.agentBranchId,
+        dynamic_variables: dynamicVariables,
+        webhook_url: config.webhookUrl,
+      },
+    },
+    dynamicVariables,
+  };
+}
+
 function responseFailureMessage(status: number, responseBody: string): string {
   if (!responseBody) return `ElevenLabs API error: ${status} (empty response body)`;
 
@@ -64,80 +116,20 @@ export class ElevenLabsProvider implements WorkerProvider {
       };
     }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) {
+    const config = resolveElevenLabsDispatchConfiguration();
+    if (!config) {
       return {
         providerType: "ELEVENLABS",
         providerCallId: "failed_" + Date.now(),
         status: "FAILED",
-        message: "ELEVENLABS_API_KEY not configured",
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    const agentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
-    if (!agentId) {
-      return {
-        providerType: "ELEVENLABS",
-        providerCallId: "failed_" + Date.now(),
-        status: "FAILED",
-        message: "NEXT_PUBLIC_ELEVENLABS_AGENT_ID not configured",
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    const phoneNumberId = process.env.ELEVENLABS_PHONE_NUMBER_ID;
-    if (!phoneNumberId) {
-      return {
-        providerType: "ELEVENLABS",
-        providerCallId: "failed_" + Date.now(),
-        status: "FAILED",
-        message: "ELEVENLABS_PHONE_NUMBER_ID not configured",
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    const agentBranchId = process.env.ELEVENLABS_AGENT_BRANCH_ID;
-    if (!agentBranchId) {
-      return {
-        providerType: "ELEVENLABS",
-        providerCallId: "failed_" + Date.now(),
-        status: "FAILED",
-        message: "ELEVENLABS_AGENT_BRANCH_ID not configured",
+        message: "ElevenLabs dispatch configuration is incomplete",
         createdAt: new Date().toISOString(),
       };
     }
 
     try {
-      // Prepare dynamic variables for ElevenLabs
-      // Include all variables from brief, plus endpoint-specific overrides
-      const dynamicVariables: Record<string, unknown> = {
-        ...request.dynamicVariables,
-        // Ensure required ElevenLabs variables are present
-        target: request.targetName || "prospect",
-        targetPhone: request.targetPhone,
-        // missionObjective is spoken by the configured first-message template.
-        // Preserve the planner's speech-safe value; objective is private guidance.
-        missionObjective: request.dynamicVariables.missionObjective ?? request.objective,
-        // Both governed prospect conversations and the legacy Public Experience
-        // use the same provider-owned first-message slot.
-        opening: request.dynamicVariables.opening ?? request.dynamicVariables.missionObjective ?? request.objective,
-      };
-
-      // Build the ElevenLabs SIP trunk outbound call payload
-      const webhookUrl = process.env.ELEVENLABS_WEBHOOK_URL || "https://zeya.app/api/webhooks/elevenlabs";
-
-      const payload = {
-        agent_id: agentId,
-        agent_phone_number_id: phoneNumberId,
-        to_number: request.targetPhone,
-        conversation_initiation_client_data: {
-          user_id: request.workerBriefId,
-          branch_id: agentBranchId,
-          dynamic_variables: dynamicVariables,
-          webhook_url: webhookUrl,
-        },
-      };
+      const { payload, dynamicVariables } = buildElevenLabsDispatchPayload(request, config);
+      const { apiKey, agentId, agentBranchId, phoneNumberId, webhookUrl } = config;
 
       const redactedPayload = redactProviderPayload(payload);
       const isProduction = process.env.NODE_ENV === "production";

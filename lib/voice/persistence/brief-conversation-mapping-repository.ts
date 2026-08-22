@@ -2,12 +2,16 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const supabase = supabaseUrl && supabaseKey
-  ? createClient(supabaseUrl, supabaseKey)
-  : null;
+// Resolve trusted configuration when an operation runs. This repository can be
+// imported by Next.js, tests, or local QA tooling before their environment has
+// been loaded; an early import must not permanently cache an unavailable client.
+function createServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return supabaseUrl && supabaseKey
+    ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
+    : null;
+}
 
 export interface BriefConversationMapping {
   worker_brief_id: string;
@@ -44,6 +48,7 @@ export async function saveBriefConversationMapping(
     hasConversationId: !!conversationId,
   });
 
+  const supabase = createServiceClient();
   if (!supabase) {
     const error = { code: "SUPABASE_NOT_CONFIGURED", message: "Supabase client not initialized" };
     console.error("[brief-mapping-repo] 🔴 Supabase not configured", error);
@@ -106,6 +111,7 @@ export async function saveBriefConversationMapping(
 export async function getMappingByWorkerBriefId(
   workerBriefId: string
 ): Promise<BriefConversationMapping | null> {
+  const supabase = createServiceClient();
   if (!supabase) {
     return null;
   }
@@ -139,6 +145,7 @@ export async function getMappingByWorkerBriefId(
 export async function getMappingByConversationId(
   conversationId: string
 ): Promise<BriefConversationMapping | null> {
+  const supabase = createServiceClient();
   if (!supabase) {
     return null;
   }

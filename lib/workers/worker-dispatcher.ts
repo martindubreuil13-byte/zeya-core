@@ -47,7 +47,6 @@ function failureResult(
     providerOutcome: "REJECTED",
     message,
     failureCategory: category,
-    providerCallId: "failed_" + Date.now(),
     createdAt: new Date().toISOString(),
   };
 }
