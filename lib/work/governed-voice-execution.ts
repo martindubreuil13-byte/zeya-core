@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { dispatchWorkerBrief } from '@/lib/workers/worker-dispatcher';
 import type { WorkerBrief } from '@/lib/workers/worker-brief-types';
+import { buildSpeechSafeProspectContext,type ProspectContextV1 } from '@/lib/work/prospect-memory';
 
 type ExecuteInput={db:SupabaseClient;ownerId:string;dispatchId:string;authorizationId:string;operationId:string;qaPhone:string};
 const text=(value:unknown)=>typeof value==='string'?value:'';
@@ -30,7 +31,9 @@ export async function executeGovernedVoice(input:ExecuteInput){
   if(dispatch.error||!dispatch.data||!brief||brief.error||!brief.data||!brief.data.business_id)throw new Error('execution_source_unavailable');
   if(brief.data.operating_mission_id!==dispatch.data.mission_id||brief.data.business_representation_id!==dispatch.data.business_representation_id||brief.data.representation_version_id!==dispatch.data.representation_version_id||brief.data.execution_context_id!==dispatch.data.execution_context_id||brief.data.mandate_outcome_package_id!==dispatch.data.mandate_outcome_package_id)throw new Error('execution_lineage_mismatch');
   console.log('[p26-execute] stage: payload_projection_start', { briefId: brief.data.id, businessId: brief.data.business_id });
-  const payload=object(brief.data.brief_payload),who=object(payload.who),what=object(payload.what),why=object(payload.why),authority=object(payload.authority);
+  const payload=object(brief.data.brief_payload),prospect=object(payload.prospect),who=Object.keys(prospect).length?object(prospect.identity):object(payload.who),business=object(payload.business),representation=object(business.representation),what=Object.keys(representation).length?representation:object(payload.what),mission=object(payload.mission),why=Object.keys(mission).length?mission:object(payload.why),authority=object(payload.authority);
+  const frozenProspectContext=object(prospect.context) as ProspectContextV1;
+  const prospectGuidance=frozenProspectContext.schemaVersion==='prospect-context-v1'?buildSpeechSafeProspectContext(frozenProspectContext):'';
   const authoritySummary=Object.fromEntries(Object.entries(authority).map(([key,value])=>[key,text(object(value).disposition)||'unresolved']));
   const now=new Date().toISOString();
   const workerBrief:WorkerBrief={
@@ -41,7 +44,8 @@ export async function executeGovernedVoice(input:ExecuteInput){
     successCriteria:'Apply the qualification threshold and pursue only the governed meeting objective.',
     toneGuidance:'Professional, warm, concise, and truthful.',
     dynamicVariables:{target:text(who.contactName)||text(who.companyName),company:text(who.companyName),offer:text(what.offer),audience:text(what.audience),
-      missionObjective:text(why.objective),qualificationGoal:text(why.qualificationGoal),desiredNextStep:text(payload.desiredNextStep),authority:JSON.stringify(authoritySummary)},
+      missionObjective:text(why.objective),qualificationGoal:text(why.qualificationGoal),desiredNextStep:text(mission.desiredNextStep)||text(payload.desiredNextStep),authority:JSON.stringify(authoritySummary),
+      relationshipState:frozenProspectContext.relationshipState??'first_contact',prospectContext:prospectGuidance},
     createdAt:now,updatedAt:now,
   };
   console.log('[p26-execute] stage: worker_dispatch_start', { briefId: workerBrief.id, businessId: brief.data.business_id });

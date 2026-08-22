@@ -10,7 +10,7 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{mission
   const {missionId}=await params;if(!isUuid(missionId))return fail('invalid_mission_id',400);
   let body:Record<string,unknown>;try{body=await request.json();}catch{return fail('invalid_request',400);}
   if(!isUuid(body.operationId))return fail('invalid_dispatch',400);
-  const result=await createExperienceServiceClient().rpc('zeya_prepare_governed_dispatch',{
+  const result=await createExperienceServiceClient().rpc('zeya_prepare_governed_dispatch_v2',{
     p_owner_id:auth.user.id,p_mission_id:missionId,p_operation_id:body.operationId,
   });
   if(result.error)return fail(result.error.code==='PZ404'?'mission_not_found':'mission_not_dispatchable',result.error.code==='PZ404'?404:409);

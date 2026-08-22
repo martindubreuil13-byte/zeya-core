@@ -115,7 +115,7 @@ describe('P2.5 governed dispatch preparation',()=>{
     expect(sql).toContain("auth.role()<>'service_role'");
     expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.zeya_prepare_governed_dispatch(uuid,uuid,uuid) TO service_role');
     expect(source).toContain('createAuthenticatedRepresentationContext(request)');
-    expect(source).toContain("rpc('zeya_prepare_governed_dispatch'");
+    expect(source).toMatch(/rpc\('zeya_prepare_governed_dispatch(?:_v2)?'/);
     expect(source).toContain('dispatchId:row.dispatch_id,workerBriefId:row.worker_brief_id,status:row.status,executionAllowed:row.execution_allowed,replayed:row.replayed');
     expect(source).not.toMatch(/source_fingerprint|representation_version_id|mandate_outcome_package_id|lead_id/);
   });
