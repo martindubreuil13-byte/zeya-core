@@ -37,4 +37,10 @@ describe("P2.9C governed prospect context",()=>{
     expect(prepare).not.toContain("request.json");expect(prepare).toContain("getProspectContext");expect(prepare).toContain("zeya_prepare_operating_mission_v2");
     expect(execute).toContain("buildSpeechSafeProspectContext");expect(execute).not.toContain("getProspectMemory");expect(provider).not.toContain("prospect-context-v1");
   });
+  it("fully qualifies the mission status update against the RETURNS TABLE status output",()=>{
+    const sql=readFileSync(resolve(process.cwd(),"supabase/migrations/20260825010000_p210_prepare_v2_status_ambiguity_fix.sql"),"utf8");
+    expect(sql).toContain("UPDATE public.operating_missions AS mission SET status='ready'");
+    expect(sql).toContain("mission.id=v_mission.id AND mission.status='draft'");
+    expect(sql).not.toContain("WHERE id=v_mission.id AND status='draft'");
+  });
 });
