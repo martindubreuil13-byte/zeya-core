@@ -38,7 +38,7 @@ function classifyProviderOutcome(outcome:NormalizedElevenLabsOutcome):ProviderOu
   return"non_success";
 }
 export function decideGovernedOutcome(input:{
-  attemptStatus:string;attemptProviderCallId:string|null;attemptConversationId:string|null;
+  attemptStatus:string;attemptProviderCallId:string|null;attemptConversationId:string|null;attemptErrorCode?:string|null;
   eventOutcome:NormalizedElevenLabsOutcome;eventProviderCallId:string;eventConversationId:string;
   existingOutput:{provider_call_id:string|null;conversation_id:string;transcript_status:string}|null;
 }):GovernedOutcomeDecision{
@@ -54,8 +54,8 @@ export function decideGovernedOutcome(input:{
     return finalized?"conflict":"verify_capture_replay";
   }
   if(outcomeClass!=="non_success")return input.attemptStatus==="claimed"||input.attemptStatus==="dispatched"?"capture":"conflict";
-  if(input.attemptStatus==="claimed")return"record_failure";
-  if(input.attemptStatus==="failed")return"duplicate_failure";
+  if(input.attemptStatus==="claimed"||input.attemptStatus==="dispatched")return"record_failure";
+  if(input.attemptStatus==="failed")return input.attemptErrorCode===`provider_${input.eventOutcome}`?"duplicate_failure":"conflict";
   return"conflict";
 }
 
@@ -72,7 +72,7 @@ async function processGovernedExecutionOutcome(
 
   // Verify governed execution attempt exists with matching provider identity
   const attempt = await db.from("governed_execution_attempts")
-    .select("id,dispatch_id,status,provider_call_id,conversation_id")
+    .select("id,dispatch_id,status,provider_call_id,conversation_id,error_code")
     .eq("provider_call_id", providerCallId)
     .maybeSingle();
   if (attempt.error || !attempt.data) {
@@ -83,6 +83,7 @@ async function processGovernedExecutionOutcome(
     .eq("voice_context_id",voiceContextId).maybeSingle();
   if(existing.error)throw new Error("conversation_output_lookup_failed");
   const decision=decideGovernedOutcome({attemptStatus:attempt.data.status,attemptProviderCallId:attempt.data.provider_call_id,
+    attemptErrorCode:attempt.data.error_code,
     attemptConversationId:attempt.data.conversation_id,eventOutcome:event.outcome,eventProviderCallId:providerCallId,
     eventConversationId:event.conversationId,existingOutput:existing.data});
   if(decision==="conflict")throw new Error("governed_provider_identity_conflict");

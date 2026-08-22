@@ -83,7 +83,7 @@ describe("P2.7 post-provider capture semantics", () => {
     })).toBe("verify_capture_replay");
   });
 
-  it("records genuine failure only while an attempt is still claimed", () => {
+  it("records genuine failure while an attempt is claimed or dispatched", () => {
     expect(decideGovernedOutcome({
       ...identity,
       attemptStatus: "claimed",
@@ -95,7 +95,7 @@ describe("P2.7 post-provider capture semantics", () => {
       attemptStatus: "dispatched",
       eventOutcome: "failed",
       existingOutput: null,
-    })).toBe("conflict");
+    })).toBe("record_failure");
   });
 
   it("rejects conflicting provider identity without selecting a mutation", () => {
