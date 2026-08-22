@@ -116,10 +116,12 @@ export class ElevenLabsProvider implements WorkerProvider {
         // Ensure required ElevenLabs variables are present
         target: request.targetName || "prospect",
         targetPhone: request.targetPhone,
-        objective: request.objective,
         // missionObjective is spoken by the configured first-message template.
         // Preserve the planner's speech-safe value; objective is private guidance.
         missionObjective: request.dynamicVariables.missionObjective ?? request.objective,
+        // Both governed prospect conversations and the legacy Public Experience
+        // use the same provider-owned first-message slot.
+        opening: request.dynamicVariables.opening ?? request.dynamicVariables.missionObjective ?? request.objective,
       };
 
       // Build the ElevenLabs SIP trunk outbound call payload

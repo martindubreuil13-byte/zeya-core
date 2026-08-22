@@ -43,6 +43,7 @@
     "test:p2-8": "npx vitest run tests/integration/p2-8-conversation-interpretation.test.ts",
     "test:p2-9b": "npx vitest run tests/integration/p2-9b-governed-prospect-memory.test.ts",
     "test:p2-9c": "npx vitest run tests/integration/p2-9c-prospect-context.test.ts",
+    "test:p2-9d": "npx vitest run tests/integration/p2-9d-commercial-conversation-policy.test.ts",
     "test:public-experience-finalization-safety": "npx tsx tests/integration/public-experience-finalization-safety.test.ts",
     "test:public-experience-completion-deployed": "npx tsx tests/integration/public-experience-completion-deployed.test.ts",
     "test:public-experience-governed-learning-deployed:provenance": "npx tsx tests/integration/public-experience-governed-learning-deployed.test.ts --scenario provenance",

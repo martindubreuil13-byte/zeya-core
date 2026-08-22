@@ -17,6 +17,7 @@ import {
 import { attachVoiceProviderIdentifiers, saveVoiceRepresentationLineage } from "@/lib/voice/persistence/representation-lineage-repository";
 import { captureConversationOutput } from "@/lib/voice/conversation-output/repository";
 import { governedWorkerBriefExecutionProhibited } from "@/lib/work/governed-execution";
+import { projectGovernedProviderVariables } from "@/lib/work/commercial-conversation-policy";
 
 // Resolve the service client at dispatch time so test/runtime environment loading
 // cannot permanently cache an unavailable client during module initialization.
@@ -235,15 +236,30 @@ export async function dispatchWorkerBrief(
     workerBriefId: brief.id,
     provider: resolvedProviderType,
   });
-  const providerVariables = voiceContext
+  const voiceVariables=voiceContext?buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext }):null;
+  const providerVariables = voiceVariables&&brief.id.startsWith('p25_brief_')
     ? {
-        ...buildVoiceProviderVariables({ targetName, targetPhone, objective: brief.objective, context: voiceContext }),
-        missionObjective:
-          valueAsString(brief.dynamicVariables.missionObjective)
-          ?? valueAsString(brief.dynamicVariables.spokenHandoffContext)
-          ?? brief.objective,
+        target:voiceVariables.target,
+        targetPhone:voiceVariables.targetPhone,
+        authorizedBusinessContext:voiceVariables.authorizedBusinessContext,
+        ...projectGovernedProviderVariables(brief.dynamicVariables),
       }
-    : brief.dynamicVariables;
+    : voiceVariables
+      ? {
+          ...voiceVariables,
+          missionObjective:
+            valueAsString(brief.dynamicVariables.missionObjective)
+            ?? valueAsString(brief.dynamicVariables.spokenHandoffContext)
+            ?? brief.objective,
+          opening:
+            valueAsString(brief.dynamicVariables.opening)
+            ?? valueAsString(brief.dynamicVariables.missionObjective)
+            ?? brief.objective,
+          ...(valueAsString(brief.dynamicVariables.conversationMode)
+            ? {conversationMode:valueAsString(brief.dynamicVariables.conversationMode)}
+            : {}),
+        }
+      : brief.dynamicVariables;
 
   if (voiceContext && voiceContextId && supabase) {
     console.log("[worker-dispatcher] stage: lineage_start", { briefId: brief.id, voiceContextId });

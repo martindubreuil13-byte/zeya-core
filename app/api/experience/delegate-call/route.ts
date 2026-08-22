@@ -194,6 +194,8 @@ export async function POST(req: NextRequest) {
         source: "zeya_experience", zeyaConversationOccurred: true,
         hasTargetPhone: true, conversationSummary, relevantDetail,
         primaryQuestion: conversationPlan.primaryQuestion,
+        conversationMode: "public_experience_owner_interview",
+        opening: conversationPlan.opening,
         missionObjective: conversationPlan.opening,
         deterministicClosing: conversationPlan.closing,
         maxCoreQuestions: 3,
