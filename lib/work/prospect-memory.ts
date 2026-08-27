@@ -88,8 +88,11 @@ export function projectProspectContextV1(input:{leadId:string;memory:ProspectMem
     fact.supportingObservationIds.map(id=>observations.get(id)).filter((row):row is ProspectObservationV1=>Boolean(row)).map(row=>({slot:fact.slot,summary:row.claim,status:fact.status}))
   ).sort((a,b)=>a.slot.localeCompare(b.slot)||a.summary.localeCompare(b.summary)||a.status.localeCompare(b.status));
   const unresolvedQuestions=facts.filter(fact=>fact.status!=="current").map(fact=>({slot:fact.slot,summary:fact.summary,reason:fact.status as "uncertain"|"conflicted"|"stale"}));
-  const obligations=(memory?.obligations??[]).filter(row=>row.status==="outstanding").map(row=>({kind:row.kind,status:"outstanding" as const,requestedByProspect:row.requestedByProspect,scheduled:row.scheduled,dueAt:row.dueAt,summary:row.reason})).sort((a,b)=>a.kind.localeCompare(b.kind)||a.summary.localeCompare(b.summary)||String(a.dueAt).localeCompare(String(b.dueAt)));
-  const observationIds=[...new Set(facts.flatMap(fact=>(memory?.currentState.facts??[]).filter(row=>row.slot===fact.slot).flatMap(row=>row.supportingObservationIds)))].sort();
+  const missionOutcomeObligations=(memory?.obligations??[]).filter(row=>row.status==="outstanding").map(row=>({kind:row.kind,status:"outstanding" as const,requestedByProspect:row.requestedByProspect,scheduled:row.scheduled,dueAt:row.dueAt,summary:row.reason}));
+  const followUpObservations=(memory?.observations??[]).filter(obs=>obs.kind==="follow_up_request"&&obs.polarity==="affirmed").map(obs=>({kind:"callback" as const,status:"outstanding" as const,requestedByProspect:true,scheduled:false,dueAt:null,summary:obs.claim}));
+  const obligations=[...missionOutcomeObligations,...followUpObservations].sort((a,b)=>a.kind.localeCompare(b.kind)||a.summary.localeCompare(b.summary)||String(a.dueAt).localeCompare(String(b.dueAt)));
+  const followUpObservationIds=[...(memory?.observations??[]).filter(obs=>obs.kind==="follow_up_request"&&obs.polarity==="affirmed").map(obs=>obs.id)];
+  const observationIds=[...new Set([...facts.flatMap(fact=>(memory?.currentState.facts??[]).filter(row=>row.slot===fact.slot).flatMap(row=>row.supportingObservationIds)),...followUpObservationIds])].sort();
   const interpretationIds=[...new Set([...(memory?.currentState.generatedFromInterpretationIds??[]),...(input.previousInteraction?[input.previousInteraction.interpretationId]:[])])].sort();
   const missionOutcomeIds=input.previousInteraction?[input.previousInteraction.missionOutcomeId]:[];
   return {schemaVersion:PROSPECT_CONTEXT_V1,leadId:input.leadId,relationshipState:(memory?.currentState.historySummary.interactionCount??0)>0||input.previousInteraction?"follow_up":"first_contact",currentFacts:facts,unresolvedQuestions,obligations,
