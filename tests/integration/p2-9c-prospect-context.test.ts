@@ -2,6 +2,7 @@ import {describe,expect,it} from "vitest";
 import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {buildSpeechSafeProspectContext,projectProspectContextV1,type ProspectMemoryV1,type ProspectObservationV1} from "../../lib/work/prospect-memory";
+import {buildGovernedCommercialOpening} from "../../lib/work/commercial-conversation-policy";
 
 const observation=(id:string,slot:string,claim:string,uncertain=false):ProspectObservationV1=>({schemaVersion:"prospect-observation-v1",id,ownerId:"owner",businessId:"business",representationId:"representation",leadId:"lead",sourceInterpretationId:"interpretation",sourceConversationOutputId:"output",sourceMissionId:"mission",sourceKey:id,kind:slot==="pain"?"pain":slot==="channel"?"channel":"clarification",slot,claim,value:null,polarity:uncertain?"unknown":"affirmed",basis:uncertain?"supported_inference":"explicit_statement",confidence:uncertain?.5:.95,uncertainty:uncertain?{kind:"asr",explanation:"unclear audio"}:null,observedAt:"2026-08-20T00:00:00Z",createdAt:"2026-08-20T00:00:00Z"});
 const pain=observation("pain","pain","The prospect reported difficulty getting investor attention.");
@@ -42,5 +43,40 @@ describe("P2.9C governed prospect context",()=>{
     expect(sql).toContain("UPDATE public.operating_missions AS mission SET status='ready'");
     expect(sql).toContain("mission.id=v_mission.id AND mission.status='draft'");
     expect(sql).not.toContain("WHERE id=v_mission.id AND status='draft'");
+  });
+  it("P2.10K: converts follow_up_request observations into callback obligations",()=>{
+    const followUpRequest:ProspectObservationV1={schemaVersion:"prospect-observation-v1",id:"callback-obs",ownerId:"owner",businessId:"business",representationId:"representation",leadId:"lead",sourceInterpretationId:"interpretation",sourceConversationOutputId:"output",sourceMissionId:"mission",sourceKey:"callback-obs",kind:"follow_up_request",slot:"follow_up_request",claim:"Asked the agent to call back at another time (unspecified).",value:null,polarity:"affirmed",basis:"explicit_statement",confidence:0.95,uncertainty:null,observedAt:"2026-08-20T11:59:55Z",createdAt:"2026-08-20T11:59:55Z"};
+    const memoryWithCallback:ProspectMemoryV1={schemaVersion:"prospect-memory-v1",leadId:"lead",ownerId:"owner",businessId:"business",representationId:"representation",observations:[followUpRequest,unclear,channel,pain],currentState:{schemaVersion:"current-prospect-state-v1",leadId:"lead",generatedFromInterpretationIds:["interpretation"],facts:[{slot:"follow_up_request",status:"current",values:[],supportingObservationIds:[followUpRequest.id],conflictingObservationIds:[],unresolvedReason:null,observedAt:followUpRequest.observedAt},{slot:"pain",status:"current",values:[],supportingObservationIds:[pain.id],conflictingObservationIds:[],unresolvedReason:null,observedAt:pain.observedAt},{slot:"channel",status:"current",values:[],supportingObservationIds:[channel.id],conflictingObservationIds:[],unresolvedReason:null,observedAt:channel.observedAt},{slot:"clarification",status:"uncertain",values:[],supportingObservationIds:[unclear.id],conflictingObservationIds:[],unresolvedReason:"unclear",observedAt:unclear.observedAt}],historySummary:{interactionCount:1,firstInteractionAt:pain.observedAt,latestInteractionAt:followUpRequest.observedAt},obligations:[]},unresolvedUncertainties:[{observationIds:[unclear.id],summary:"unclear",clarificationNeeded:true}],obligations:[]};
+    const context=projectProspectContextV1({leadId:"lead",memory:memoryWithCallback,previousInteraction:{missionOutcomeId:"outcome",interpretationId:"interpretation",contacted:true,qualification:"unknown" as const,meetingBooked:false},sourceFingerprint:"d".repeat(64)});
+    expect(context.obligations.length).toBeGreaterThanOrEqual(1);
+    const callbackObligation=context.obligations.find(o=>o.kind==="callback");
+    expect(callbackObligation).toMatchObject({kind:"callback",status:"outstanding",requestedByProspect:true,scheduled:false,dueAt:null,summary:"Asked the agent to call back at another time (unspecified)."});
+    expect(context.currentFacts.find(f=>f.slot==="follow_up_request")).toMatchObject({slot:"follow_up_request",status:"current",summary:"Asked the agent to call back at another time (unspecified)."});
+  });
+  it("P2.10K: opening acknowledges callback request in follow_up relationships",()=>{
+    const opening=buildGovernedCommercialOpening({spokenName:"Veya",prospectName:"Test Contact",offer:"Business coaching and architecture services",audience:"Our primary target is startups in English-speaking Western developed countries.",relationshipState:"follow_up" as const,priorPain:null,callbackRequested:true});
+    expect(opening).toContain("Hi Test Contact, this is Veya.");
+    expect(opening).toContain("We spoke previously.");
+    expect(opening).toContain("You had asked us to reconnect.");
+  });
+  it("P2.10K: opening does not claim callback was scheduled",()=>{
+    const opening=buildGovernedCommercialOpening({spokenName:"Veya",prospectName:"Test Contact",offer:"Business coaching and architecture services",audience:"Our primary target is startups in English-speaking Western developed countries.",relationshipState:"follow_up" as const,priorPain:null,callbackRequested:true});
+    expect(opening).not.toContain("scheduled");
+    expect(opening).not.toContain("confirmed");
+    expect(opening).not.toContain("booked");
+    expect(opening).not.toContain("appointment");
+  });
+  it("P2.10K negative case: first contact has no callback obligation even with follow_up observation",()=>{
+    const followUpRequest:ProspectObservationV1={schemaVersion:"prospect-observation-v1",id:"callback-obs",ownerId:"owner",businessId:"business",representationId:"representation",leadId:"lead",sourceInterpretationId:"interpretation",sourceConversationOutputId:"output",sourceMissionId:"mission",sourceKey:"callback-obs",kind:"follow_up_request",slot:"follow_up_request",claim:"Asked to reconnect.",value:null,polarity:"affirmed",basis:"explicit_statement",confidence:0.95,uncertainty:null,observedAt:"2026-08-20T11:59:55Z",createdAt:"2026-08-20T11:59:55Z"};
+    const memoryFirstContact:ProspectMemoryV1={schemaVersion:"prospect-memory-v1",leadId:"lead",ownerId:"owner",businessId:"business",representationId:"representation",observations:[followUpRequest],currentState:{schemaVersion:"current-prospect-state-v1",leadId:"lead",generatedFromInterpretationIds:[],facts:[{slot:"follow_up_request",status:"current",values:[],supportingObservationIds:[followUpRequest.id],conflictingObservationIds:[],unresolvedReason:null,observedAt:followUpRequest.observedAt}],historySummary:{interactionCount:0,firstInteractionAt:null,latestInteractionAt:null},obligations:[]},unresolvedUncertainties:[],obligations:[]};
+    const context=projectProspectContextV1({leadId:"lead",memory:memoryFirstContact,previousInteraction:null,sourceFingerprint:"e".repeat(64)});
+    expect(context.relationshipState).toBe("first_contact");
+    expect(context.obligations).toEqual([]);
+  });
+  it("P2.10K negative case: denied callback request produces no obligation",()=>{
+    const deniedCallback:ProspectObservationV1={schemaVersion:"prospect-observation-v1",id:"callback-obs",ownerId:"owner",businessId:"business",representationId:"representation",leadId:"lead",sourceInterpretationId:"interpretation",sourceConversationOutputId:"output",sourceMissionId:"mission",sourceKey:"callback-obs",kind:"follow_up_request",slot:"follow_up_request",claim:"Prospect declined callback offer.",value:null,polarity:"denied",basis:"explicit_statement",confidence:0.95,uncertainty:null,observedAt:"2026-08-20T11:59:55Z",createdAt:"2026-08-20T11:59:55Z"};
+    const memoryDenied:ProspectMemoryV1={schemaVersion:"prospect-memory-v1",leadId:"lead",ownerId:"owner",businessId:"business",representationId:"representation",observations:[deniedCallback],currentState:{schemaVersion:"current-prospect-state-v1",leadId:"lead",generatedFromInterpretationIds:["interpretation"],facts:[{slot:"follow_up_request",status:"current",values:[],supportingObservationIds:[deniedCallback.id],conflictingObservationIds:[],unresolvedReason:null,observedAt:deniedCallback.observedAt}],historySummary:{interactionCount:1,firstInteractionAt:deniedCallback.observedAt,latestInteractionAt:deniedCallback.observedAt},obligations:[]},unresolvedUncertainties:[],obligations:[]};
+    const context=projectProspectContextV1({leadId:"lead",memory:memoryDenied,previousInteraction:{missionOutcomeId:"outcome",interpretationId:"interpretation",contacted:true,qualification:"unknown" as const,meetingBooked:false},sourceFingerprint:"f".repeat(64)});
+    expect(context.obligations.filter(o=>o.kind==="callback")).toEqual([]);
   });
 });
