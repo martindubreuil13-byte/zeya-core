@@ -59,6 +59,47 @@ export function decideGovernedOutcome(input:{
   return"conflict";
 }
 
+// P2.10R: Validate webhook environment (FAIL CLOSED)
+function validateWebhookEnvironment(event: NormalizedElevenLabsEvent): void {
+  const deploymentEnvironment = process.env.ELEVENLABS_ENVIRONMENT;
+
+  // Fail closed: missing deployment environment
+  if (!deploymentEnvironment) {
+    throw new Error(
+      "Webhook processing configuration error: ELEVENLABS_ENVIRONMENT not set. " +
+      "Cannot verify webhook source environment."
+    );
+  }
+
+  const allowedDeployments = ["staging", "production"];
+  if (!allowedDeployments.includes(deploymentEnvironment)) {
+    throw new Error(
+      `Webhook processing configuration error: ELEVENLABS_ENVIRONMENT='${deploymentEnvironment}' is invalid. ` +
+      `Allowed: ${allowedDeployments.join(", ")}`
+    );
+  }
+
+  const eventEnvironment = event.environment;
+
+  // Fail closed: missing event environment
+  if (eventEnvironment === undefined || eventEnvironment === null) {
+    throw new Error(
+      "Webhook validation error: Event environment missing. " +
+      `Deployment: ${deploymentEnvironment}. ` +
+      "Cannot verify webhook source."
+    );
+  }
+
+  // Fail closed: environment mismatch (crossover detection)
+  if (eventEnvironment !== deploymentEnvironment) {
+    throw new Error(
+      `Webhook environment crossover detected. ` +
+      `Deployment: ${deploymentEnvironment}, Event: ${eventEnvironment}. ` +
+      "Rejecting callback from mismatched environment."
+    );
+  }
+}
+
 // P2.7: Process P2.6 governed execution outcome
 async function processGovernedExecutionOutcome(
   db: SupabaseClient,
@@ -66,6 +107,17 @@ async function processGovernedExecutionOutcome(
   lineage: Record<string,unknown>,
   _payloadHash: string
 ): Promise<ProcessedWebhookResult> {
+  // P2.10R: Validate environment BEFORE any database mutation
+  try {
+    validateWebhookEnvironment(event);
+  } catch (err) {
+    console.error("[elevenlabs-event-processor] 🔴 Webhook environment validation failed", {
+      conversationId: event.conversationId,
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+    throw err;
+  }
+
   const voiceContextId = lineage.voice_context_id as string;
   const providerCallId = lineage.provider_call_id as string;
   const ownerId = lineage.tenant_user_id as string;

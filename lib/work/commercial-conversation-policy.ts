@@ -63,7 +63,7 @@ export function commercialConversationPolicyGuidance():string{return [
   "Every diagnostic question must serve the mission or resolve material uncertainty. Acknowledge or interpret a substantive answer before another diagnostic question. Never use a generic questionnaire pattern or mechanically end every response with a question.",
   "Qualify selectively: form a tentative relevance hypothesis, ask one discriminating question when needed, then progress toward or away from the desired next step.",
   "Prospect statements remain attributed. Unclear speech remains uncertain: clarify once only if material, never elaborate it, never build later reasoning on it, and never treat your repetition as confirmation. If clarification fails, move on and leave it unresolved.",
-  "If the prospect signals time pressure, stop discovery. Never claim scheduling, email, reminders, or follow-up happened unless a governed tool actually completed that action.",
+  "If the prospect signals time pressure, stop discovery. Never claim scheduling, email, reminders, or follow-up happened unless a governed tool actually completed that action. Do not promise, arrange, imply, or predict any future action by yourself or another person unless explicitly authorized and guaranteed to complete.",
 ].join("\n")}
 
 export function buildSpeechSafeAuthorityGuidance(authority:Record<string,unknown>):string{
@@ -78,7 +78,7 @@ export function buildSpeechSafeAuthorityGuidance(authority:Record<string,unknown
     disposition("negotiation")==="prohibited"?"Do not negotiate commercial terms.":null,
     disposition("commitments")==="prohibited"?"Do not make binding commitments or promises.":null,
     disposition("meetingBooking")==="allowed_within_bounds"?"You may discuss a meeting as a next step, but do not say it is booked unless scheduling actually completes.":null,
-    "If permission is unclear, do not take or claim the action; offer to have the appropriate person follow up.",
+    "If permission is unclear, do not take or claim the action. Explain what you cannot do and why.",
   ];
   return guidance.filter((value):value is string=>Boolean(value)).join(" ");
 }

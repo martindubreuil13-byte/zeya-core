@@ -1,5 +1,6 @@
 import type { WorkerProvider } from "./provider-interface";
 import type { ProviderDispatchRequest, ProviderDispatchResult } from "./provider-types";
+import { getValidatedEnvironment, type ValidatedEnvironment } from "./environment-validation";
 
 const ELEVENLABS_SIP_TRUNK_ENDPOINT = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call";
 
@@ -8,7 +9,6 @@ export type ElevenLabsDispatchConfiguration = {
   agentId: string;
   phoneNumberId: string;
   agentBranchId: string;
-  webhookUrl: string;
 };
 
 export function resolveElevenLabsDispatchConfiguration(
@@ -24,13 +24,13 @@ export function resolveElevenLabsDispatchConfiguration(
     agentId,
     phoneNumberId,
     agentBranchId,
-    webhookUrl: env.ELEVENLABS_WEBHOOK_URL || "https://zeya.app/api/webhooks/elevenlabs",
   };
 }
 
 export function buildElevenLabsDispatchPayload(
   request: ProviderDispatchRequest,
   config: ElevenLabsDispatchConfiguration,
+  environment: ValidatedEnvironment,
 ) {
   const dynamicVariables: Record<string, unknown> = {
     ...request.dynamicVariables,
@@ -45,10 +45,10 @@ export function buildElevenLabsDispatchPayload(
       agent_phone_number_id: config.phoneNumberId,
       to_number: request.targetPhone,
       conversation_initiation_client_data: {
+        environment,
         user_id: request.workerBriefId,
         branch_id: config.agentBranchId,
         dynamic_variables: dynamicVariables,
-        webhook_url: config.webhookUrl,
       },
     },
     dynamicVariables,
@@ -116,6 +116,20 @@ export class ElevenLabsProvider implements WorkerProvider {
       };
     }
 
+    // Validate environment FIRST (FAIL CLOSED)
+    let environment;
+    try {
+      environment = getValidatedEnvironment();
+    } catch (err) {
+      return {
+        providerType: "ELEVENLABS",
+        providerCallId: "failed_" + Date.now(),
+        status: "FAILED",
+        message: err instanceof Error ? err.message : "Environment configuration invalid",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     const config = resolveElevenLabsDispatchConfiguration();
     if (!config) {
       return {
@@ -128,8 +142,8 @@ export class ElevenLabsProvider implements WorkerProvider {
     }
 
     try {
-      const { payload, dynamicVariables } = buildElevenLabsDispatchPayload(request, config);
-      const { apiKey, agentId, agentBranchId, phoneNumberId, webhookUrl } = config;
+      const { payload, dynamicVariables } = buildElevenLabsDispatchPayload(request, config, environment);
+      const { apiKey, agentId, agentBranchId, phoneNumberId } = config;
 
       const redactedPayload = redactProviderPayload(payload);
       const isProduction = process.env.NODE_ENV === "production";
@@ -139,6 +153,7 @@ export class ElevenLabsProvider implements WorkerProvider {
         workerBriefId: request.workerBriefId,
         endpoint: ELEVENLABS_SIP_TRUNK_ENDPOINT,
         dynamicVariableCount: Object.keys(dynamicVariables).length,
+        environment,
       });
 
       const payloadJson = JSON.stringify(payload);
@@ -147,7 +162,7 @@ export class ElevenLabsProvider implements WorkerProvider {
           agentId,
           agentBranchId,
           phoneNumberId,
-          webhookUrl,
+          environment,
         });
         console.log("[elevenlabs-provider] 🔵 REQUEST DETAILS", {
           workerBriefId: request.workerBriefId,

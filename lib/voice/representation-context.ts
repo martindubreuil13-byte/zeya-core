@@ -204,7 +204,7 @@ function buildSystemContext(claims: Record<string, unknown>): string {
   return [
     "AUTHORIZED BUSINESS REPRESENTATION",
     "Use only the business claims below. Do not invent missing pricing, guarantees, availability, capabilities, or commitments.",
-    "If an answer is not present, respond naturally that you will arrange a precise follow-up.",
+    "If information or an action is unavailable, say so plainly. Do not promise, arrange, imply, or predict any future action by yourself or another person unless a governed action has already completed successfully.",
     "Do not mention databases, confidence calculations, eligibility states, disputes, or internal review terminology.",
     ...lines,
   ].join("\n");

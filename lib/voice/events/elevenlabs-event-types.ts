@@ -34,6 +34,7 @@ export interface NormalizedElevenLabsEvent {
   providerReportedCost?: number | null;
   providerEvaluation?: number | null;
   eventKey: string;
+  environment?: string | null;
 }
 
 export type ElevenLabsWebhook = Record<string, unknown>;
