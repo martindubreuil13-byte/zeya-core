@@ -5,6 +5,8 @@
 
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useAuth } from "@/components/auth/auth-provider";
 import { DispatchMonitor } from "@/components/dispatch/DispatchMonitor";
 import { useRouter } from "next/navigation";

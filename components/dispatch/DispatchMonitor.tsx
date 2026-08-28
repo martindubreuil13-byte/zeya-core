@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { DispatchStatus } from "@/lib/dispatch/types";
 
@@ -22,14 +22,16 @@ interface DispatchRecord {
   last_error?: string;
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-const supabase = createClient(supabaseUrl || "", supabaseKey || "");
-
 export function DispatchMonitor({ userId }: { userId: string }) {
   const [dispatches, setDispatches] = useState<DispatchRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<DispatchStatus | "all">("all");
+
+  const supabase = useMemo(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    return createClient(url || "", key || "");
+  }, []);
 
   // Load dispatches on mount and set up polling
   useEffect(() => {
