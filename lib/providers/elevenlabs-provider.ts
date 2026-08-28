@@ -1,5 +1,6 @@
 import type { WorkerProvider } from "./provider-interface";
 import type { ProviderDispatchRequest, ProviderDispatchResult } from "./provider-types";
+import { getValidatedEnvironment } from "./environment-validation";
 
 const ELEVENLABS_SIP_TRUNK_ENDPOINT = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call";
 
@@ -106,6 +107,20 @@ function redactProviderPayload(payload: Record<string, unknown>): Record<string,
 
 export class ElevenLabsProvider implements WorkerProvider {
   async dispatch(request: ProviderDispatchRequest): Promise<ProviderDispatchResult> {
+    // P2.10R: Fail-closed environment validation
+    try {
+      getValidatedEnvironment();
+    } catch (envError) {
+      const message = envError instanceof Error ? envError.message : "Environment validation failed";
+      return {
+        providerType: "ELEVENLABS",
+        providerCallId: "failed_" + Date.now(),
+        status: "FAILED",
+        message: `ElevenLabs dispatch blocked: ${message}`,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     if (!request.targetPhone) {
       return {
         providerType: "ELEVENLABS",

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { captureAndExtractConversationOutput } from "../conversation-output/service";
 import type { NormalizedElevenLabsEvent, NormalizedElevenLabsOutcome } from "./elevenlabs-event-types";
 import { normalizeElevenLabsWebhook } from "./elevenlabs-event-validator";
+import { getValidatedEnvironment } from "@/lib/providers/environment-validation";
 
 export interface ProcessedWebhookResult {
   success: boolean;
@@ -66,6 +67,14 @@ async function processGovernedExecutionOutcome(
   lineage: Record<string,unknown>,
   _payloadHash: string
 ): Promise<ProcessedWebhookResult> {
+  // P2.10R: Fail-closed environment validation before any mutation
+  try {
+    getValidatedEnvironment();
+  } catch (envError) {
+    const message = envError instanceof Error ? envError.message : "Environment validation failed";
+    throw new Error(`Webhook processing blocked: ${message}`);
+  }
+
   const voiceContextId = lineage.voice_context_id as string;
   const providerCallId = lineage.provider_call_id as string;
   const ownerId = lineage.tenant_user_id as string;
