@@ -26,7 +26,8 @@ BEGIN;
 -- PostgREST RPC can resolve both patterns to the single function signature.
 
 -- Drop old 2-argument function signature to avoid ambiguous overloads
-DROP FUNCTION IF EXISTS public.zeya_claim_first_working_session_preparation(text, integer) CASCADE;
+-- RESTRICT ensures migration fails if any dependent object exists (fail-closed safety)
+DROP FUNCTION IF EXISTS public.zeya_claim_first_working_session_preparation(text, integer) RESTRICT;
 
 -- Create new 3-argument function with session targeting support
 CREATE FUNCTION public.zeya_claim_first_working_session_preparation(
@@ -113,27 +114,60 @@ ALTER FUNCTION public.zeya_claim_first_working_session_preparation(text, integer
 REVOKE ALL ON FUNCTION public.zeya_claim_first_working_session_preparation(text, integer, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.zeya_claim_first_working_session_preparation(text, integer, uuid) TO service_role;
 
--- VERIFICATION: Ensure exactly one function signature exists
--- This query must return exactly one row with the new 3-argument signature
+-- VERIFICATION: Ensure exactly one function signature exists with correct parameters
+-- This query validates:
+-- 1. Exactly one zeya_claim_first_working_session_preparation function exists
+-- 2. The function has exactly 3 parameters: text, integer, uuid
+-- 3. The old 2-argument signature does not exist
 DO $$
 DECLARE
   v_count integer;
+  v_new_count integer;
+  v_old_count integer;
   v_signature text;
 BEGIN
-  SELECT count(*),
-         string_agg(pg_get_function_identity_arguments(p.oid), '; ')
-  INTO v_count, v_signature
+  -- Count total functions with this name
+  SELECT count(*)
+  INTO v_count
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
     AND p.proname = 'zeya_claim_first_working_session_preparation';
 
   IF v_count <> 1 THEN
-    RAISE EXCEPTION 'Function signature migration failed: expected 1 signature, found %', v_count;
+    RAISE EXCEPTION 'Function signature migration failed: expected 1 total signature, found %', v_count;
   END IF;
 
-  IF v_signature NOT LIKE '%uuid%' THEN
-    RAISE EXCEPTION 'Function signature migration failed: expected uuid parameter, got %', v_signature;
+  -- Verify the function has the exact new signature: (text, integer, uuid)
+  SELECT count(*)
+  INTO v_new_count
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.proname = 'zeya_claim_first_working_session_preparation'
+    AND pg_get_function_identity_arguments(p.oid) = 'p_contract_version text, p_lease_seconds integer, p_working_session_id uuid';
+
+  IF v_new_count <> 1 THEN
+    SELECT pg_get_function_identity_arguments(p.oid)
+    INTO v_signature
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = 'zeya_claim_first_working_session_preparation';
+    RAISE EXCEPTION 'Function signature migration failed: expected (text, integer, uuid), got %', v_signature;
+  END IF;
+
+  -- Verify the old 2-argument signature does not exist
+  SELECT count(*)
+  INTO v_old_count
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.proname = 'zeya_claim_first_working_session_preparation'
+    AND pg_get_function_identity_arguments(p.oid) = 'p_contract_version text, p_lease_seconds integer';
+
+  IF v_old_count > 0 THEN
+    RAISE EXCEPTION 'Function signature migration failed: old 2-argument signature still exists';
   END IF;
 END $$;
 
