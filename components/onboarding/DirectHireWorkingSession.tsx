@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 import {
@@ -17,6 +18,7 @@ function localInputDefault() {
 
 export function DirectHireWorkingSessionScheduler() {
   const { session } = useAuth();
+  const router = useRouter();
   const [workingSession, setWorkingSession] = useState<DirectHireWorkingSession | null>(null);
   const [localDateTime, setLocalDateTime] = useState(localInputDefault);
   const [timezone, setTimezone] = useState(() =>
@@ -26,7 +28,45 @@ export function DirectHireWorkingSessionScheduler() {
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [renderedAt] = useState(() => Date.now());
+
+  const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any) => {
+    if (!workingSession?.id || !workingSession.preparationStatus || !authSession) return;
+
+    // State machine: determine if preparation should be triggered
+    // pending: start preparation
+    // running with valid lease: no action (already running)
+    // failed (retryable): retry preparation (attempt counter < 3)
+    // ready/partial: no action (already complete)
+    const shouldTrigger = workingSession.preparationStatus === "pending" || workingSession.preparationStatus === "failed";
+    if (!shouldTrigger) return;
+
+    setPreparing(true);
+    try {
+      const response = await authenticatedFetch(
+        `/api/onboarding/direct-hire/working-session/${workingSession.id}/prepare`,
+        authSession,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (body.success && body.data?.preparationStatus) {
+        setWorkingSession((prev) =>
+          prev ? { ...prev, preparationStatus: body.data.preparationStatus } : null
+        );
+      }
+    } catch (error) {
+      // Network error or timeout: silently fail
+      // State will be refreshed on next page load via GET endpoint
+      // If browser is closed during preparation, DB state remains authoritative
+      console.debug("[DirectHireWorkingSession] preparation trigger failed", error);
+    } finally {
+      setPreparing(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (!session) return;
@@ -41,13 +81,19 @@ export function DirectHireWorkingSessionScheduler() {
         setError(body.error || "working_session_lookup_failed");
         return;
       }
-      setWorkingSession(body.data ?? null);
+      const loadedSession = body.data ?? null;
+      setWorkingSession(loadedSession);
+
+      // Auto-trigger preparation for existing pending/failed sessions
+      if (loadedSession) {
+        await triggerPreparationIfNeeded(loadedSession, session);
+      }
     } catch {
       setError("working_session_lookup_failed");
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, triggerPreparationIfNeeded]);
 
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
@@ -153,14 +199,53 @@ export function DirectHireWorkingSessionScheduler() {
     }
   };
 
+  const startWorkingSession = async () => {
+    if (!session || !workingSession?.id || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await authenticatedFetch(
+        "/api/onboarding/direct-hire/formation",
+        session,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workingSessionId: workingSession.id }),
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.success) {
+        setError(body.error || "formation_initiation_failed");
+        return;
+      }
+      router.push(`/formation/sessions/${body.data.formationSessionId}`);
+    } catch {
+      setError("formation_initiation_failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) return <p className="text-zeya-taupe" role="status">Loading our schedule…</p>;
 
   if (workingSession && !editing) {
-    const preparationHeadline = workingSession.preparationStatus === "ready"
-      ? "I’m ready for our first working session."
-      : new Date(workingSession.scheduledAt).getTime() <= renderedAt
-        ? "I’m still preparing for our working session."
-        : "I’m preparing before we speak.";
+    const isReady = workingSession.preparationStatus === "ready";
+    const isPartial = workingSession.preparationStatus === "partial";
+    const isFailed = workingSession.preparationStatus === "failed";
+    const isPending = workingSession.preparationStatus === "pending";
+    const isRunning = workingSession.preparationStatus === "running";
+
+    let preparationHeadline: string;
+    if (isReady || isPartial) {
+      preparationHeadline = "I’m ready for our first working session.";
+    } else if (isFailed) {
+      preparationHeadline = "I encountered a problem during preparation.";
+    } else if (new Date(workingSession.scheduledAt).getTime() <= renderedAt) {
+      preparationHeadline = "I’m still preparing for our working session.";
+    } else {
+      preparationHeadline = "I’m preparing before we speak.";
+    }
+
     return (
       <section className="mx-auto max-w-2xl text-center" aria-labelledby="scheduled-title">
         <p className="mb-5 text-xs uppercase tracking-[0.28em] text-zeya-champagne">First working session</p>
@@ -173,9 +258,39 @@ export function DirectHireWorkingSessionScheduler() {
         <p className="mx-auto mt-7 max-w-xl leading-7 text-zeya-taupe">
           I’ll review your business, the material you provided, and the things I need to clarify with you.
         </p>
-        <div className="mt-9 flex justify-center gap-4">
-          <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
-          <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
+
+        {(isReady || isPartial) && (
+          <p className="mx-auto mt-5 max-w-xl text-sm text-zeya-champagne">
+            {isPartial ? "My preparation is complete with some uncertainties I’ll clarify during our session." : ""}
+          </p>
+        )}
+
+        <div className="mt-9 flex flex-col gap-3">
+          {(isReady || isPartial) && (
+            <button
+              type="button"
+              onClick={() => void startWorkingSession()}
+              disabled={submitting || preparing}
+              className="rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:opacity-60"
+            >
+              {submitting ? "Starting…" : preparing ? "Preparing…" : "Start working session"}
+            </button>
+          )}
+
+          {isFailed && (
+            <p className="text-sm text-red-300">
+              Preparation encountered an issue. Please try scheduling another session or contact support.
+            </p>
+          )}
+
+          <div className="flex justify-center gap-4">
+            {!isRunning && !isPending && (
+              <>
+                <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
+                <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
+              </>
+            )}
+          </div>
         </div>
         {error && <p role="alert" className="mt-5 text-sm text-red-200">{error}</p>}
       </section>

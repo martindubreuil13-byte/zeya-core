@@ -5,6 +5,22 @@ BEGIN;
 --
 -- Backward compatible: NULL working_session_id defaults to queue behavior.
 -- Targeted: specific UUID claims only that exact eligible session (for owner-scoped paths).
+--
+-- MIGRATION SAFETY NOTE:
+-- This uses CREATE OR REPLACE FUNCTION to add a parameter with a DEFAULT value.
+-- PostgreSQL allows this safely because:
+-- 1. The first two parameter types (text, integer) remain unchanged
+-- 2. The new third parameter (uuid DEFAULT NULL) has a default value
+-- 3. This creates a single function signature, not an overload
+-- 4. Existing calls with 2 arguments will work (DEFAULT NULL applies)
+-- 5. New calls with 3 arguments will work (explicit session_id provided)
+-- PostgREST RPC resolution remains unambiguous.
+--
+-- GRANTS VERIFICATION:
+-- The new function signature preserves the original function's grants:
+-- - SECURITY DEFINER (unchanged)
+-- - search_path = '' (unchanged)
+-- - service_role EXECUTE permission (preserved via ALTER FUNCTION + GRANT)
 
 CREATE OR REPLACE FUNCTION public.zeya_claim_first_working_session_preparation(
   p_contract_version text,
