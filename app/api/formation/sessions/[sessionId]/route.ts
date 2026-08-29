@@ -93,6 +93,7 @@ export async function GET(
       initiatedAt: session.formation_started_at,
       firstWorkingConversationId: session.first_working_conversation_id,
       summary,
+      preparationOpeningAcknowledged: session.preparation_opening_acknowledged,
       linkedContextSummary: {
         fromPublicExperience: session.initiated_from === 'public_experience_session',
         fromRepresentationBrief: session.initiated_from === 'representation_brief',

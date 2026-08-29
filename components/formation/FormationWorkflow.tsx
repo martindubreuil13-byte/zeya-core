@@ -45,12 +45,52 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
   const [preparedOpening, setPreparedOpening] = useState<PreparedOpening | null>(null);
   const correctionRequestKey = useRef<string>(crypto.randomUUID());
 
-  const mapSessionToUIState = useCallback((sess: FormationSessionStatusResponse) => {
-    const resolution = resolveFormationWorkflowState(sess);
-    setSummary(resolution.summary);
-    setError(resolution.error);
-    setUiState(resolution.uiState);
-  }, []);
+  const mapSessionToUIState = useCallback(
+    (sess: FormationSessionStatusResponse) => {
+      const resolution = resolveFormationWorkflowState(sess, {
+        hasPreparedOpening: !!preparedOpening,
+        preparationOpeningAcknowledged: sess.preparationOpeningAcknowledged,
+      });
+      setSummary(resolution.summary);
+      setError(resolution.error);
+      setUiState(resolution.uiState);
+    },
+    [preparedOpening]
+  );
+
+  // P2.12C Prepared Context Loading
+  // Load and build Prepared Opening from Direct Hire preparation for restoration:
+  // Ensures opening is available even if session has advanced past 'initiated' status.
+  useEffect(() => {
+    if (screenLab || !session || !authSession) return;
+    if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
+    if (preparedContext) return; // Already loaded
+
+    const loadContext = async () => {
+      try {
+        setPreparedContextLoading(true);
+        const res = await authenticatedFetch(
+          `/api/formation/sessions/${sessionId}/prepared-context`,
+          authSession,
+        );
+        const data = await res.json();
+        if (data.success && data.data) {
+          setPreparedContext(data.data);
+          // Build PreparedOpening from the preparation intelligence
+          if (data.data.preparation) {
+            const opening = buildPreparedOpening(data.data.preparation);
+            setPreparedOpening(opening);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load prepared context:', err);
+      } finally {
+        setPreparedContextLoading(false);
+      }
+    };
+
+    void loadContext();
+  }, [session, sessionId, authSession, screenLab, preparedContext]);
 
   // Load Formation Session on mount
   useEffect(() => {
@@ -100,42 +140,6 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     };
   }, [sessionId, mapSessionToUIState, authLoading, authSession, router, screenLab]);
 
-  // Load prepared context for Direct Hire sessions
-  useEffect(() => {
-    if (screenLab || !session || !authSession) return;
-    if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
-    if (preparedContext) return; // Already loaded
-
-    const loadContext = async () => {
-      try {
-        setPreparedContextLoading(true);
-        const res = await authenticatedFetch(
-          `/api/formation/sessions/${sessionId}/prepared-context`,
-          authSession,
-        );
-        const data = await res.json();
-        if (data.success && data.data) {
-          setPreparedContext(data.data);
-          // Build PreparedOpening from the preparation intelligence
-          if (data.data.preparation) {
-            const opening = buildPreparedOpening(data.data.preparation);
-            setPreparedOpening(opening);
-          }
-          // If we're in entry state and just loaded the context, show prepared opening first
-          if (uiState === 'entry') {
-            setUiState('presenting_preparation' as any);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load prepared context:', err);
-      } finally {
-        setPreparedContextLoading(false);
-      }
-    };
-
-    void loadContext();
-  }, [session, sessionId, authSession, screenLab, uiState, preparedContext]);
-
   const advanceState = useCallback(async (nextStatus: string) => {
     if (screenLab) return;
     if (!authSession) {
@@ -158,7 +162,13 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       const data = await res.json();
       if (data.success) {
-        const updatedSession = { ...session!, status: nextStatus as FormationSessionStatusResponse['status'] };
+        // P2.12C: Set preparationOpeningAcknowledged when advancing from 'initiated'
+        const updatedSession = {
+          ...session!,
+          status: nextStatus as FormationSessionStatusResponse['status'],
+          preparationOpeningAcknowledged:
+            session?.status === 'initiated' ? true : session?.preparationOpeningAcknowledged,
+        };
         setSession(updatedSession);
         mapSessionToUIState(updatedSession);
       } else {

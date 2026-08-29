@@ -44,7 +44,20 @@ export function resolveFormationAuthGate(
 
 export function resolveFormationWorkflowState(
   session: FormationSessionStatusResponse,
+  options?: {
+    hasPreparedOpening?: boolean;
+    preparationOpeningAcknowledged?: boolean;
+  },
 ): FormationWorkflowResolution {
+  // P2.12C: If Prepared Opening exists and hasn't been acknowledged,
+  // show it regardless of backend status (ensures restoration shows opening).
+  if (
+    options?.hasPreparedOpening &&
+    options.preparationOpeningAcknowledged === false
+  ) {
+    return { uiState: 'presenting_preparation', summary: null, error: null };
+  }
+
   switch (session.status) {
     case 'initiated':
       return { uiState: 'entry', summary: null, error: null };

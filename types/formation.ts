@@ -82,6 +82,7 @@ export interface FormationSessionStatusResponse {
   initiatedAt: string;
   firstWorkingConversationId: string | null;
   summary: FormationSummary | null;
+  preparationOpeningAcknowledged?: boolean;
   linkedContextSummary?: {
     fromPublicExperience?: boolean;
     fromRepresentationBrief?: boolean;
