@@ -13,6 +13,7 @@ import type { ProviderDispatchRequest } from '../../lib/providers/provider-types
 describe('P2.11B Environment Validation Integration', () => {
   const validRequest: ProviderDispatchRequest = {
     workerBriefId: 'test-brief-id',
+    missionId: 'test-mission-id',
     targetPhone: '+1234567890',
     objective: 'Test objective',
     dynamicVariables: {},
