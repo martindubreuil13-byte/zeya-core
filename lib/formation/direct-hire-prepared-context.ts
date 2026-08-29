@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FirstWorkingSessionBrief } from '@/lib/onboarding/first-working-session-brief';
+import type { OwnerPreparationProjection } from '@/lib/onboarding/preparation-intelligence';
+import { buildPrivatePreparationProjection, toOwnerPreparationProjection } from '@/lib/onboarding/preparation-intelligence';
 
 type HandoffRow = {
   id: string;
@@ -7,6 +9,7 @@ type HandoffRow = {
   direct_hire_working_session_id: string;
   direct_hire_onboarding_session_id: string;
   business_representation_id: string;
+  owner_id: string;
   preparation_brief_id: string;
   preparation_snapshot_fingerprint: string;
   hypothesis_trace_fingerprint: string;
@@ -31,6 +34,8 @@ type AgendaRow = {
 
 export type DirectHireFormationPreparedContext = {
   ownerSafe: {
+    preparation: OwnerPreparationProjection;
+    relevantObservations: Array<{ meaning: string; confidence: number; domains: string[] }>;
     openingSynthesis: string;
     agendaCategories: string[];
     agendaCount: number;
@@ -66,7 +71,7 @@ export async function loadDirectHireFormationPreparedContext(input: {
 
   const handoffResult = await input.client
     .from('direct_hire_first_working_session_formation_handoffs')
-    .select('id,formation_session_id,direct_hire_working_session_id,direct_hire_onboarding_session_id,business_representation_id,preparation_brief_id,preparation_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version')
+    .select('id,formation_session_id,direct_hire_working_session_id,direct_hire_onboarding_session_id,business_representation_id,owner_id,preparation_brief_id,preparation_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version')
     .eq('formation_session_id', input.formationSessionId)
     .eq('owner_id', input.ownerId)
     .maybeSingle();
@@ -74,7 +79,7 @@ export async function loadDirectHireFormationPreparedContext(input: {
   if (!handoffResult.data) throw new Error('formation_handoff_lineage_missing');
   const handoff = handoffResult.data as HandoffRow;
 
-  const [briefResult, agendaResult] = await Promise.all([
+  const [briefResult, agendaResult, preparationResult] = await Promise.all([
     input.client.from('direct_hire_first_working_session_briefs')
       .select('id,brief,source_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version')
       .eq('id', handoff.preparation_brief_id)
@@ -84,6 +89,12 @@ export async function loadDirectHireFormationPreparedContext(input: {
       .select('agenda_item_id,rank,category,constitutional_domain,risk,blocking,resolution_status,source_brief_sections,source_hypothesis_ids,source_evidence_ids,question_intent,suggested_wording,created_from_snapshot_fingerprint')
       .eq('formation_session_id', input.formationSessionId)
       .order('rank', { ascending: true }),
+    buildPrivatePreparationProjection(input.client, {
+      ownerId: input.ownerId,
+      businessId: handoff.business_representation_id.substring(0, 36),
+      businessRepresentationId: handoff.business_representation_id,
+      onboardingSessionId: handoff.direct_hire_onboarding_session_id,
+    }),
   ]);
   if (briefResult.error || !briefResult.data || agendaResult.error) {
     throw new Error('formation_prepared_context_incomplete');
@@ -103,8 +114,12 @@ export async function loadDirectHireFormationPreparedContext(input: {
 
   const opening = [brief.businessRead.statement, brief.openingInsights[0]?.statement]
     .filter(Boolean).join(' ').trim();
+  const ownerPreparation = toOwnerPreparationProjection(preparationResult);
+
   return {
     ownerSafe: {
+      preparation: ownerPreparation,
+      relevantObservations: [],
       openingSynthesis: opening,
       agendaCategories: [...new Set(agenda.map((item) => item.category))],
       agendaCount: agenda.length,

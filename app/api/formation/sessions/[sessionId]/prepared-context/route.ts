@@ -31,4 +31,5 @@ export async function GET(
     console.error('[prepared-context]', err);
     return failure('prepared_context_error', 500);
   }
+
 }
