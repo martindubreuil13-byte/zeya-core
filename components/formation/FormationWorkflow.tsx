@@ -9,6 +9,8 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { FormationSessionStatusResponse, FormationSummary } from '@/types/formation';
 import { DirectHirePreparationContext } from '@/components/formation/DirectHirePreparationContext';
+import { PreparedOpeningPresentation } from '@/components/formation/PreparedOpeningPresentation';
+import { buildPreparedOpening, type PreparedOpening } from '@/lib/formation/prepared-opening';
 import {
   FormationSessionLoadError,
   loadFormationWorkflowState,
@@ -40,6 +42,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
   const [versionId, setVersionId] = useState<string | null>(screenLab?.versionId ?? null);
   const [preparedContext, setPreparedContext] = useState<any>(null);
   const [preparedContextLoading, setPreparedContextLoading] = useState(false);
+  const [preparedOpening, setPreparedOpening] = useState<PreparedOpening | null>(null);
   const correctionRequestKey = useRef<string>(crypto.randomUUID());
 
   const mapSessionToUIState = useCallback((sess: FormationSessionStatusResponse) => {
@@ -113,9 +116,14 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         const data = await res.json();
         if (data.success && data.data) {
           setPreparedContext(data.data);
-          // If we're in entry state and just loaded the context, show preparation review
+          // Build PreparedOpening from the preparation intelligence
+          if (data.data.preparation) {
+            const opening = buildPreparedOpening(data.data.preparation);
+            setPreparedOpening(opening);
+          }
+          // If we're in entry state and just loaded the context, show prepared opening first
           if (uiState === 'entry') {
-            setUiState('reviewing_preparation' as any);
+            setUiState('presenting_preparation' as any);
           }
         }
       } catch (err) {
@@ -319,12 +327,21 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     <div className="min-h-screen bg-stone-950">
       <div className="space-y-0 max-w-4xl mx-auto">
         {/* Header - hidden in summary pending/review states, shown in other states */}
-        {!['summary_pending', 'summary_review', 'approval_confirmation', 'correction_entry', 'version_created', 'processing'].includes(uiState) && (
+        {!['summary_pending', 'summary_review', 'approval_confirmation', 'correction_entry', 'version_created', 'processing', 'presenting_preparation'].includes(uiState) && (
           <div className="p-6 pb-4">
             <h1 className="text-3xl font-serif font-light leading-tight text-amber-50 mb-1">First Working Conversation</h1>
             <p className="text-stone-400 text-sm">Building your Representation together</p>
           </div>
         )}
+
+      {/* Presenting Preparation: Zeya shows her homework */}
+      {(uiState as string) === 'presenting_preparation' && preparedOpening && (
+        <PreparedOpeningPresentation
+          opening={preparedOpening}
+          onReady={() => advanceState('getting_familiar')}
+          isProcessing={isProcessing}
+        />
+      )}
 
       {/* Entry: Formation starts */}
       {uiState === 'entry' && (

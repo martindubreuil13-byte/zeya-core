@@ -6,6 +6,7 @@ import type {
 export type FormationWorkflowUIState =
   | 'loading'
   | 'entry'
+  | 'presenting_preparation'
   | 'getting_familiar'
   | 'conversation_ready'
   | 'conversation_active'
