@@ -30,13 +30,14 @@ CREATE TABLE IF NOT EXISTS public.formation_events (
   details JSONB,
 
   -- Immutable timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT pg_catalog.now(),
-
-  -- Semantic uniqueness: at most one acknowledgement per session
-  CONSTRAINT formation_events_one_acknowledgement_per_session
-    UNIQUE(formation_session_id, event_type)
-    WHERE event_type = 'owner_acknowledged_prepared_opening'
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT pg_catalog.now()
 );
+
+-- Semantic uniqueness: at most one acknowledgement event per session
+-- Implemented as partial UNIQUE INDEX (standard PostgreSQL syntax)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_formation_events_one_acknowledgement_per_session
+  ON public.formation_events (formation_session_id, event_type)
+  WHERE event_type = 'owner_acknowledged_prepared_opening'::public.formation_event_type;
 
 -- Indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_formation_events_session_id
