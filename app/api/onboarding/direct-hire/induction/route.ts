@@ -309,7 +309,6 @@ export async function POST(request: NextRequest) {
           source_type: "direct_hire_induction",
           source_description: `Induction material: ${material.label || material.type}`,
           raw_statement,
-          statement_hash,
           captured_by_actor: ownerId,
           direct_hire_onboarding_session_id: session.id,
           induction_material_type: material.type,
@@ -317,7 +316,7 @@ export async function POST(request: NextRequest) {
           induction_material_url: null,
           affected_domains: constitutionalDomainsForInductionMaterial(material.label),
         })
-        .select("id")
+        .select("id,statement_hash")
         .single();
 
         if (evidenceResult.error) {
