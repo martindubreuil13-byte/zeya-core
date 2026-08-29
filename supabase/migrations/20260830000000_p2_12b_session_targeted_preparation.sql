@@ -1,28 +1,35 @@
 BEGIN;
 
--- P2.12B: Extend zeya_claim_first_working_session_preparation to support
+-- P2.12B: Replace zeya_claim_first_working_session_preparation to support
 -- session-targeted claims while preserving queue-worker behavior.
 --
--- Backward compatible: NULL working_session_id defaults to queue behavior.
--- Targeted: specific UUID claims only that exact eligible session (for owner-scoped paths).
+-- SIGNATURE MIGRATION SEQUENCE:
+-- Old signature: zeya_claim_first_working_session_preparation(text, integer)
+-- New signature: zeya_claim_first_working_session_preparation(text, integer, uuid DEFAULT NULL)
 --
--- MIGRATION SAFETY NOTE:
--- This uses CREATE OR REPLACE FUNCTION to add a parameter with a DEFAULT value.
--- PostgreSQL allows this safely because:
--- 1. The first two parameter types (text, integer) remain unchanged
--- 2. The new third parameter (uuid DEFAULT NULL) has a default value
--- 3. This creates a single function signature, not an overload
--- 4. Existing calls with 2 arguments will work (DEFAULT NULL applies)
--- 5. New calls with 3 arguments will work (explicit session_id provided)
--- PostgREST RPC resolution remains unambiguous.
+-- These are different PostgreSQL function signatures (different arity).
+-- Safe migration requires DROP old signature + CREATE new signature.
+-- This ensures exactly one function signature exists (no ambiguous overloads).
 --
--- GRANTS VERIFICATION:
--- The new function signature preserves the original function's grants:
--- - SECURITY DEFINER (unchanged)
--- - search_path = '' (unchanged)
--- - service_role EXECUTE permission (preserved via ALTER FUNCTION + GRANT)
+-- MIGRATION STRATEGY:
+-- 1. Drop the old 2-argument function (signature is definitive)
+-- 2. Create the new 3-argument function with all security settings
+-- 3. Restore SECURITY DEFINER, search_path, ownership, grants
+-- 4. Verify exactly one signature exists via pg_proc query
+--
+-- BACKWARD COMPATIBILITY:
+-- The new function has a DEFAULT value for the third parameter, so:
+-- - Old calls: rpc("zeya_claim_first_working_session_preparation", {p_contract_version: "...", p_lease_seconds: 600})
+--   → uses DEFAULT NULL for p_working_session_id ✓
+-- - New calls: rpc("zeya_claim_first_working_session_preparation", {p_contract_version: "...", p_lease_seconds: 600, p_working_session_id: "..."})
+--   → provides explicit p_working_session_id ✓
+-- PostgREST RPC can resolve both patterns to the single function signature.
 
-CREATE OR REPLACE FUNCTION public.zeya_claim_first_working_session_preparation(
+-- Drop old 2-argument function signature to avoid ambiguous overloads
+DROP FUNCTION IF EXISTS public.zeya_claim_first_working_session_preparation(text, integer) CASCADE;
+
+-- Create new 3-argument function with session targeting support
+CREATE FUNCTION public.zeya_claim_first_working_session_preparation(
   p_contract_version text,
   p_lease_seconds integer DEFAULT 300,
   p_working_session_id uuid DEFAULT NULL
@@ -105,6 +112,30 @@ $$;
 ALTER FUNCTION public.zeya_claim_first_working_session_preparation(text, integer, uuid) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.zeya_claim_first_working_session_preparation(text, integer, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.zeya_claim_first_working_session_preparation(text, integer, uuid) TO service_role;
+
+-- VERIFICATION: Ensure exactly one function signature exists
+-- This query must return exactly one row with the new 3-argument signature
+DO $$
+DECLARE
+  v_count integer;
+  v_signature text;
+BEGIN
+  SELECT count(*),
+         string_agg(pg_get_function_identity_arguments(p.oid), '; ')
+  INTO v_count, v_signature
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.proname = 'zeya_claim_first_working_session_preparation';
+
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'Function signature migration failed: expected 1 signature, found %', v_count;
+  END IF;
+
+  IF v_signature NOT LIKE '%uuid%' THEN
+    RAISE EXCEPTION 'Function signature migration failed: expected uuid parameter, got %', v_signature;
+  END IF;
+END $$;
 
 NOTIFY pgrst, 'reload schema';
 COMMIT;

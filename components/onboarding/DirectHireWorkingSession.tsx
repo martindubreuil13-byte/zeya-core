@@ -34,12 +34,20 @@ export function DirectHireWorkingSessionScheduler() {
   const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any) => {
     if (!workingSession?.id || !workingSession.preparationStatus || !authSession) return;
 
-    // State machine: determine if preparation should be triggered
-    // pending: start preparation
-    // running with valid lease: no action (already running)
-    // failed (retryable): retry preparation (attempt counter < 3)
-    // ready/partial: no action (already complete)
-    const shouldTrigger = workingSession.preparationStatus === "pending" || workingSession.preparationStatus === "failed";
+    // State machine: determine if preparation endpoint should be invoked
+    // The endpoint (and RPC) decide claim eligibility based on lease/attempt state:
+    //
+    // pending: RPC claims immediately
+    // running + live lease: RPC skips (already running, lease valid)
+    // running + expired lease: RPC reclaims and retries
+    // failed + retryable (attempts < 3): RPC claims for retry
+    // ready/partial/terminal failed: RPC skips (no claim)
+    //
+    // Product states where we should invoke the endpoint:
+    const shouldTrigger =
+      workingSession.preparationStatus === "pending" ||
+      workingSession.preparationStatus === "running" ||
+      workingSession.preparationStatus === "failed";
     if (!shouldTrigger) return;
 
     setPreparing(true);
@@ -278,19 +286,27 @@ export function DirectHireWorkingSessionScheduler() {
           )}
 
           {isFailed && (
-            <p className="text-sm text-red-300">
-              Preparation encountered an issue. Please try scheduling another session or contact support.
-            </p>
-          )}
-
-          <div className="flex justify-center gap-4">
-            {!isRunning && !isPending && (
-              <>
+            <div className="space-y-3">
+              <p className="text-sm text-red-300">
+                Preparation encountered an issue. Please contact support if the problem persists.
+              </p>
+              <div className="flex justify-center gap-4">
                 <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
                 <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
+
+          {!isFailed && (
+            <div className="flex justify-center gap-4">
+              {!isRunning && !isPending && (
+                <>
+                  <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
+                  <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
+                </>
+              )}
+            </div>
+          )}
         </div>
         {error && <p role="alert" className="mt-5 text-sm text-red-200">{error}</p>}
       </section>
