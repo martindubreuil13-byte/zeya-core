@@ -23,7 +23,7 @@ export function shouldAutoTriggerPreparation(
   preparationStatus: string,
   failureCode: string | null | undefined,
   attemptCount: number,
-  maxAttempts: number = 3,
+  maxAttempts: number = 10,
 ): boolean {
   switch (preparationStatus) {
     case 'pending':

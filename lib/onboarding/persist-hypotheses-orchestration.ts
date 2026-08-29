@@ -489,13 +489,6 @@ export async function persistReasonedHypothesesForPreparation(
   const snapshot = await loadPreparationReasoningSnapshot(client, onboardingSessionId, ownerId);
   const { session, evidence, observations, reasoningRunId } = snapshot;
 
-  // Validate preparation status
-  if (!['ready', 'partial'].includes(session.preparation_status)) {
-    throw new Error(
-      `Direct Hire preparation must be ready or partial; current status: ${session.preparation_status}`
-    );
-  }
-
   // Convert to reasoning service input
   const evidenceInput = toEvidenceInput(evidence);
   const observationInput = toObservationInput(observations);
