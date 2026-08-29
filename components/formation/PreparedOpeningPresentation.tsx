@@ -1,18 +1,44 @@
 'use client';
 
+import { useCallback } from 'react';
 import type { PreparedOpening } from '@/lib/formation/prepared-opening';
 
 interface PreparedOpeningPresentationProps {
   opening: PreparedOpening;
-  onReady: () => void;
+  sessionId: string;
+  onAcknowledged: (status: string, acknowledged: boolean) => void;
   isProcessing?: boolean;
 }
 
 export function PreparedOpeningPresentation({
   opening,
-  onReady,
+  sessionId,
+  onAcknowledged,
   isProcessing = false,
 }: PreparedOpeningPresentationProps) {
+  const handleAcknowledge = useCallback(async () => {
+    if (isProcessing) return;
+
+    try {
+      const res = await fetch(`/api/formation/sessions/${sessionId}/acknowledge-preparation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!res.ok) {
+        console.error('Failed to acknowledge preparation:', res.statusText);
+        return;
+      }
+
+      const data = await res.json();
+      if (data.success && data.data) {
+        onAcknowledged(data.data.status, data.data.preparationOpeningAcknowledged);
+      }
+    } catch (error) {
+      console.error('Error acknowledging preparation:', error);
+    }
+  }, [sessionId, isProcessing, onAcknowledged]);
+
   return (
     <div className="space-y-8 py-12 px-6">
       <div className="max-w-2xl mx-auto">
@@ -55,7 +81,7 @@ export function PreparedOpeningPresentation({
       {/* Action */}
       <div className="flex justify-center pt-6">
         <button
-          onClick={onReady}
+          onClick={handleAcknowledge}
           disabled={isProcessing}
           className="px-6 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 disabled:opacity-50 transition-colors rounded text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus:ring-offset-stone-950"
         >

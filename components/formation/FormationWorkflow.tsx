@@ -162,13 +162,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
 
       const data = await res.json();
       if (data.success) {
-        // P2.12C: Set preparationOpeningAcknowledged when advancing from 'initiated'
-        const updatedSession = {
-          ...session!,
-          status: nextStatus as FormationSessionStatusResponse['status'],
-          preparationOpeningAcknowledged:
-            session?.status === 'initiated' ? true : session?.preparationOpeningAcknowledged,
-        };
+        const updatedSession = { ...session!, status: nextStatus as FormationSessionStatusResponse['status'] };
         setSession(updatedSession);
         mapSessionToUIState(updatedSession);
       } else {
@@ -311,6 +305,26 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     }
   }, [sessionId, authSession, router, screenLab]);
 
+  // P2.12C: Acknowledge Prepared Opening
+  // Calls authoritative endpoint which persists event + sets cache + advances status
+  const acknowledgePreparation = useCallback(
+    (status: string, acknowledged: boolean) => {
+      if (!session) return;
+
+      // Update session state with acknowledged flag and advanced status
+      const updatedSession: FormationSessionStatusResponse = {
+        ...session,
+        status: status as FormationSessionStatusResponse['status'],
+        preparationOpeningAcknowledged: acknowledged,
+      };
+      setSession(updatedSession);
+
+      // Remap UI state based on new session state (including acknowledgement)
+      mapSessionToUIState(updatedSession);
+    },
+    [session, mapSessionToUIState]
+  );
+
   if (uiState === 'loading') {
     return (
       <div className="min-h-screen bg-stone-950 flex items-center justify-center">
@@ -348,7 +362,8 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
       {(uiState as string) === 'presenting_preparation' && preparedOpening && (
         <PreparedOpeningPresentation
           opening={preparedOpening}
-          onReady={() => advanceState('getting_familiar')}
+          sessionId={sessionId}
+          onAcknowledged={acknowledgePreparation}
           isProcessing={isProcessing}
         />
       )}
