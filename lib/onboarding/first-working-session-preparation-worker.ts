@@ -21,16 +21,11 @@ type Claim = {
   website_persisted: boolean;
 };
 
-export async function executeOneFirstWorkingSessionPreparation(client: SupabaseClient) {
-  const executionDeadlineMs = Date.now() + 240_000;
-  const claimResult = await client.rpc("zeya_claim_first_working_session_preparation", {
-    p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
-    p_lease_seconds: 600,
-  });
-  if (claimResult.error) throw new Error("preparation_claim_failed");
-  const claim = claimResult.data?.[0] as Claim | undefined;
-  if (!claim) return { claimed: false as const };
-
+async function _runPreparationOrchestration(
+  client: SupabaseClient,
+  claim: Claim,
+  executionDeadlineMs: number,
+) {
   try {
     // Partial source failures remain truthful source outcomes and do not block
     // company-site research or reasoning when governed Evidence is available.
@@ -105,4 +100,34 @@ export async function executeOneFirstWorkingSessionPreparation(client: SupabaseC
     if (failed.error) console.error("[first-working-session-preparation] preparation_failure_recording_failed");
     throw error;
   }
+}
+
+export async function executeFirstWorkingSessionPreparationForSession(
+  client: SupabaseClient,
+  workingSessionId: string,
+) {
+  const executionDeadlineMs = Date.now() + 240_000;
+  const claimResult = await client.rpc("zeya_claim_first_working_session_preparation", {
+    p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
+    p_lease_seconds: 600,
+    p_working_session_id: workingSessionId,
+  });
+  if (claimResult.error) throw new Error("preparation_claim_failed");
+  const claim = claimResult.data?.[0] as Claim | undefined;
+  if (!claim) return { claimed: false as const };
+
+  return _runPreparationOrchestration(client, claim, executionDeadlineMs);
+}
+
+export async function executeOneFirstWorkingSessionPreparation(client: SupabaseClient) {
+  const executionDeadlineMs = Date.now() + 240_000;
+  const claimResult = await client.rpc("zeya_claim_first_working_session_preparation", {
+    p_contract_version: FIRST_WORKING_SESSION_PREPARATION_VERSION,
+    p_lease_seconds: 600,
+  });
+  if (claimResult.error) throw new Error("preparation_claim_failed");
+  const claim = claimResult.data?.[0] as Claim | undefined;
+  if (!claim) return { claimed: false as const };
+
+  return _runPreparationOrchestration(client, claim, executionDeadlineMs);
 }

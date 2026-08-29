@@ -92,8 +92,36 @@ export function DirectHireWorkingSessionScheduler() {
         setError(body.error || "working_session_persistence_failed");
         return;
       }
-      setWorkingSession(body.data);
+      const scheduledSession = body.data;
+      setWorkingSession(scheduledSession);
       setEditing(false);
+
+      // Trigger preparation asynchronously for the newly scheduled session
+      if (scheduledSession?.id) {
+        authenticatedFetch(
+          `/api/onboarding/direct-hire/working-session/${scheduledSession.id}/prepare`,
+          session,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          },
+        )
+          .then((res) => res.json().catch(() => ({})))
+          .then((result) => {
+            if (result.success && result.data?.preparationStatus) {
+              // Update session with new preparation status from preparation response
+              setWorkingSession((prev) =>
+                prev
+                  ? { ...prev, preparationStatus: result.data.preparationStatus }
+                  : null
+              );
+            }
+          })
+          .catch(() => {
+            // Preparation fetch error is not a critical failure
+            // Status will be updated on next page load via GET endpoint
+          });
+      }
     } catch {
       setError("working_session_persistence_failed");
     } finally {
