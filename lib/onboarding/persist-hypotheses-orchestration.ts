@@ -597,11 +597,6 @@ export async function loadPreparationReasoningSnapshot(
   ownerId: string,
 ): Promise<PreparationReasoningSnapshot> {
   const session = await loadDirectHireSession(client, onboardingSessionId, ownerId);
-  if (!['ready', 'partial'].includes(session.preparation_status)) {
-    throw new Error(
-      `Direct Hire preparation must be ready or partial; current status: ${session.preparation_status}`,
-    );
-  }
   const evidence = await loadScopedEvidence(
     client,
     onboardingSessionId,

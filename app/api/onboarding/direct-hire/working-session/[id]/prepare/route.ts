@@ -12,6 +12,8 @@ type WorkingSessionRow = {
   owner_id: string;
   status: "scheduled" | "cancelled" | "completed";
   preparation_status: "pending" | "running" | "ready" | "partial" | "failed";
+  preparation_failure_code: string | null;
+  preparation_attempt_count: number;
 };
 
 function failure(error: string, status: number) {
@@ -37,7 +39,7 @@ export async function POST(
   // Verify ownership and session state
   const sessionResult = await auth.supabase
     .from("direct_hire_working_sessions")
-    .select("id,owner_id,status,preparation_status")
+    .select("id,owner_id,status,preparation_status,preparation_failure_code,preparation_attempt_count")
     .eq("id", id)
     .eq("owner_id", auth.user.id)
     .single();
@@ -66,7 +68,7 @@ export async function POST(
     // Re-fetch to get updated status
     const updated = await auth.supabase
       .from("direct_hire_working_sessions")
-      .select("id,owner_id,status,preparation_status")
+      .select("id,owner_id,status,preparation_status,preparation_failure_code,preparation_attempt_count")
       .eq("id", id)
       .single();
 
@@ -74,11 +76,14 @@ export async function POST(
       return failure("preparation_status_lookup_failed", 500);
     }
 
+    const row = updated.data as WorkingSessionRow;
     return NextResponse.json({
       success: true,
       data: {
         workingSessionId: id,
-        preparationStatus: (updated.data as WorkingSessionRow).preparation_status,
+        preparationStatus: row.preparation_status,
+        preparationFailureCode: row.preparation_failure_code,
+        preparationAttemptCount: row.preparation_attempt_count,
         claimed: result.claimed,
       },
     });
@@ -91,6 +96,31 @@ export async function POST(
           ? error.message
       : "preparation_failed";
     console.error("[working-session-prepare]", safeStage);
-    return NextResponse.json({ success: false, error: safeStage }, { status: 503 });
+
+    // Always re-fetch to return authoritative DB state, even on failure
+    const updated = await auth.supabase
+      .from("direct_hire_working_sessions")
+      .select("id,owner_id,status,preparation_status,preparation_failure_code,preparation_attempt_count")
+      .eq("id", id)
+      .single();
+
+    if (updated.error) {
+      return NextResponse.json({ success: false, error: safeStage, data: null }, { status: 503 });
+    }
+
+    const row = updated.data as WorkingSessionRow;
+    return NextResponse.json(
+      {
+        success: false,
+        error: safeStage,
+        data: {
+          workingSessionId: id,
+          preparationStatus: row.preparation_status,
+          preparationFailureCode: row.preparation_failure_code,
+          preparationAttemptCount: row.preparation_attempt_count,
+        },
+      },
+      { status: 422 }
+    );
   }
 }

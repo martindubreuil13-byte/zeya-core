@@ -16,6 +16,8 @@ export type DirectHireWorkingSession = {
   schedulingTimezone: string;
   status: DirectHireWorkingSessionStatus;
   preparationStatus: "pending" | "running" | "ready" | "partial" | "failed";
+  preparationFailureCode?: string | null;
+  preparationAttemptCount?: number;
 };
 
 export function isValidIanaTimezone(value: unknown): value is string {

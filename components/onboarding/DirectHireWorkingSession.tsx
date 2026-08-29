@@ -8,6 +8,7 @@ import {
   localDateTimeInTimezoneToIso,
   type DirectHireWorkingSession,
 } from "@/lib/onboarding/direct-hire-working-session";
+import { shouldAutoTriggerPreparation } from "@/lib/onboarding/preparation-retry-policy";
 
 function localInputDefault() {
   const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -31,24 +32,15 @@ export function DirectHireWorkingSessionScheduler() {
   const [preparing, setPreparing] = useState(false);
   const [renderedAt] = useState(() => Date.now());
 
-  const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any) => {
+  const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any, isExplicitRetry: boolean = false) => {
     if (!workingSession?.id || !workingSession.preparationStatus || !authSession) return;
 
-    // State machine: determine if preparation endpoint should be invoked
-    // The endpoint (and RPC) decide claim eligibility based on lease/attempt state:
-    //
-    // pending: RPC claims immediately
-    // running + live lease: RPC skips (already running, lease valid)
-    // running + expired lease: RPC reclaims and retries
-    // failed + retryable (attempts < 3): RPC claims for retry
-    // ready/partial/terminal failed: RPC skips (no claim)
-    //
-    // Product states where we should invoke the endpoint:
-    const shouldTrigger =
-      workingSession.preparationStatus === "pending" ||
-      workingSession.preparationStatus === "running" ||
-      workingSession.preparationStatus === "failed";
-    if (!shouldTrigger) return;
+    const shouldTrigger = shouldAutoTriggerPreparation(
+      workingSession.preparationStatus,
+      workingSession.preparationFailureCode,
+      workingSession.preparationAttemptCount ?? 0,
+    );
+    if (!shouldTrigger && !isExplicitRetry) return;
 
     setPreparing(true);
     try {
@@ -61,15 +53,17 @@ export function DirectHireWorkingSessionScheduler() {
         },
       );
       const body = await response.json().catch(() => ({}));
-      if (body.success && body.data?.preparationStatus) {
+
+      if (body.data?.preparationStatus) {
         setWorkingSession((prev) =>
-          prev ? { ...prev, preparationStatus: body.data.preparationStatus } : null
+          prev ? { ...prev,
+            preparationStatus: body.data.preparationStatus,
+            preparationFailureCode: body.data.preparationFailureCode ?? null,
+            preparationAttemptCount: body.data.preparationAttemptCount ?? 0,
+          } : null
         );
       }
     } catch (error) {
-      // Network error or timeout: silently fail
-      // State will be refreshed on next page load via GET endpoint
-      // If browser is closed during preparation, DB state remains authoritative
       console.debug("[DirectHireWorkingSession] preparation trigger failed", error);
     } finally {
       setPreparing(false);
@@ -291,6 +285,14 @@ export function DirectHireWorkingSessionScheduler() {
                 Preparation encountered an issue. Please contact support if the problem persists.
               </p>
               <div className="flex justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => workingSession && void triggerPreparationIfNeeded(workingSession, session, true)}
+                  disabled={submitting || preparing}
+                  className="rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:opacity-60"
+                >
+                  {preparing ? "Trying again…" : "Try preparation again"}
+                </button>
                 <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
                 <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
               </div>
