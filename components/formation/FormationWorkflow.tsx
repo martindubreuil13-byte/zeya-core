@@ -92,6 +92,26 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     void loadContext();
   }, [session, sessionId, authSession, screenLab, preparedContext]);
 
+  // P2.12C Async Restoration Re-resolution
+  // When prepared opening becomes available after initial UI state resolution,
+  // re-resolve the workflow state to transition from conversation_ready to presenting_preparation.
+  // This handles the race where prepared context arrives after initial session load.
+  useEffect(() => {
+    if (!session) return;
+    if (!preparedOpening) return;
+    if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
+    if (screenLab) return;
+
+    // Re-resolve UI state with prepared opening now available
+    const resolution = resolveFormationWorkflowState(session, {
+      hasPreparedOpening: true,
+      preparationOpeningAcknowledged: session.preparationOpeningAcknowledged,
+    });
+    setSummary(resolution.summary);
+    setError(resolution.error);
+    setUiState(resolution.uiState);
+  }, [preparedOpening, session, screenLab]);
+
   // Load Formation Session on mount
   useEffect(() => {
     if (screenLab) return;
