@@ -9,6 +9,7 @@ type HandoffRow = {
   direct_hire_working_session_id: string;
   direct_hire_onboarding_session_id: string;
   business_representation_id: string;
+  business_id: string;
   owner_id: string;
   preparation_brief_id: string;
   preparation_snapshot_fingerprint: string;
@@ -71,7 +72,7 @@ export async function loadDirectHireFormationPreparedContext(input: {
 
   const handoffResult = await input.client
     .from('direct_hire_first_working_session_formation_handoffs')
-    .select('id,formation_session_id,direct_hire_working_session_id,direct_hire_onboarding_session_id,business_representation_id,owner_id,preparation_brief_id,preparation_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version')
+    .select('id,formation_session_id,direct_hire_working_session_id,direct_hire_onboarding_session_id,business_representation_id,business_id,owner_id,preparation_brief_id,preparation_snapshot_fingerprint,hypothesis_trace_fingerprint,preparation_contract_version')
     .eq('formation_session_id', input.formationSessionId)
     .eq('owner_id', input.ownerId)
     .maybeSingle();
@@ -91,7 +92,7 @@ export async function loadDirectHireFormationPreparedContext(input: {
       .order('rank', { ascending: true }),
     buildPrivatePreparationProjection(input.client, {
       ownerId: input.ownerId,
-      businessId: handoff.business_representation_id.substring(0, 36),
+      businessId: handoff.business_id,
       businessRepresentationId: handoff.business_representation_id,
       onboardingSessionId: handoff.direct_hire_onboarding_session_id,
     }),
