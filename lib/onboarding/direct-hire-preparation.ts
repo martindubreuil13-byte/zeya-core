@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { load } from "cheerio";
 import {
   evidenceFromExtractedPage,
   extractWebsitePage,
@@ -6,6 +7,9 @@ import {
   type ExtractedWebsitePage,
   type WebsiteEvidenceKind,
   type WebsitePageType,
+  classifyBusinessLink,
+  normalizeDiscoveredUrl,
+  type DiscoveredPage,
 } from "../research/html-extraction";
 import {
   robotsAllowsPath,
@@ -14,6 +18,7 @@ import {
   WEBSITE_RESEARCH_LIMITS,
   type SafeFetchDependencies,
   type SafeFetchFailureCode,
+  isSameResearchSite,
 } from "../research/safe-public-site-fetch";
 import type {
   DirectHireProgress,
@@ -99,6 +104,134 @@ function toEvidence(sourceScope: string, page: ExtractedWebsitePage): WebsiteEvi
 
 function concise(value: string, maximum = 280): string {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 1).trimEnd()}…`;
+}
+
+// Common business page paths to probe if not discovered from homepage
+const COMMON_PAGE_PATHS = [
+  "/about", "/about-us", "/our-story", "/company", "/team",
+  "/services", "/solutions", "/products", "/what-we-do", "/work",
+  "/how-it-works", "/methodology", "/process", "/approach", "/framework",
+  "/case-studies", "/results", "/success-stories", "/portfolio", "/clients",
+  "/testimonials", "/reviews", "/pricing", "/plans", "/packages",
+  "/faq", "/help", "/contact",
+] as const;
+
+type DiscoverablePageType = Exclude<WebsitePageType, "homepage" | "registered_public_page">;
+
+const COMMON_PATH_PAGE_TYPES: Record<string, DiscoverablePageType> = {
+  "/about": "about", "/about-us": "about", "/our-story": "about", "/company": "about", "/team": "team",
+  "/services": "products_services", "/solutions": "products_services", "/products": "products_services", "/what-we-do": "products_services", "/work": "products_services",
+  "/how-it-works": "methodology", "/methodology": "methodology", "/process": "methodology", "/approach": "methodology", "/framework": "methodology",
+  "/case-studies": "case_studies", "/results": "case_studies", "/success-stories": "case_studies", "/portfolio": "customers", "/clients": "customers",
+  "/testimonials": "testimonials", "/reviews": "testimonials", "/pricing": "pricing", "/plans": "pricing", "/packages": "pricing",
+  "/faq": "faq", "/help": "faq", "/contact": "contact",
+};
+
+async function discoverFromSitemap(
+  siteUrl: URL,
+  maxBytes: number,
+  signal: AbortSignal,
+  fetchPage: typeof safeFetchPublicSite,
+  dependencies: PreparationDependencies,
+): Promise<DiscoveredPage[]> {
+  const sitemapUrl = new URL("/sitemap.xml", siteUrl).toString();
+  try {
+    const fetched = await fetchPage(sitemapUrl, {
+      maxBytes: Math.min(64 * 1024, maxBytes),
+      acceptedContentTypes: /^(?:text\/xml|application\/xml|text\/plain)(?:;|$)/i,
+      signal,
+      dependencies: dependencies.safeFetchDependencies,
+    });
+    const xml = fetched.body.toString("utf8");
+    const urls: string[] = [];
+    const urlMatches = xml.matchAll(/<loc>([^<]+)<\/loc>/g);
+    for (const match of urlMatches) {
+      if (urls.length >= 40) break; // Hard cap on sitemap URLs evaluated
+      urls.push(match[1]);
+    }
+    const normalized = urls
+      .map(href => normalizeDiscoveredUrl(href, siteUrl))
+      .filter((url): url is URL => url !== null);
+    const candidates = new Map<string, DiscoveredPage>();
+    for (const url of normalized) {
+      const pageType = COMMON_PATH_PAGE_TYPES[url.pathname] || null;
+      if (!pageType) continue;
+      const label = url.pathname.split("/").filter(Boolean).pop() || "page";
+      const candidate: DiscoveredPage = {
+        pageType,
+        url: url.toString(),
+        label,
+        score: 100, // Sitemap URLs get baseline priority
+      };
+      const existing = candidates.get(candidate.url);
+      if (!existing || candidate.score > existing.score) {
+        candidates.set(candidate.url, candidate);
+      }
+    }
+    return [...candidates.values()];
+  } catch {
+    return [];
+  }
+}
+
+async function probeCommonPaths(
+  siteUrl: URL,
+  discovered: Set<string>,
+  maxBytes: number,
+  signal: AbortSignal,
+  fetchPage: typeof safeFetchPublicSite,
+  dependencies: PreparationDependencies,
+): Promise<DiscoveredPage[]> {
+  const candidates: DiscoveredPage[] = [];
+  for (const path of COMMON_PAGE_PATHS) {
+    if (candidates.length >= 10) break; // Stop after finding reasonable number
+    const url = new URL(path, siteUrl).toString();
+    if (discovered.has(url)) continue; // Already discovered from homepage/sitemap
+    const pageType = COMMON_PATH_PAGE_TYPES[path];
+    try {
+      const response = await fetchPage(url, {
+        maxBytes: Math.min(512 * 1024, maxBytes),
+        signal,
+        dependencies: dependencies.safeFetchDependencies,
+      });
+      if (response.status === 200) {
+        discovered.add(url);
+        candidates.push({
+          pageType,
+          url,
+          label: path.slice(1),
+          score: 85, // Probed paths get lower priority than discovered
+        });
+      }
+    } catch {
+      // 404 or error is fine; continue probing
+    }
+  }
+  return candidates;
+}
+
+function rankCandidates(candidates: DiscoveredPage[]): DiscoveredPage[] {
+  const categoryPriority: Record<WebsitePageType, number> = {
+    "products_services": 130,
+    "pricing": 120,
+    "case_studies": 110,
+    "customers": 105,
+    "about": 100,
+    "industries": 90,
+    "methodology": 80,
+    "testimonials": 70,
+    "team": 60,
+    "faq": 50,
+    "contact": 30,
+    "resources": 20,
+    "homepage": 0,
+    "registered_public_page": 0,
+  };
+  return candidates.sort((a, b) => {
+    const categoryDiff = (categoryPriority[b.pageType] || 0) - (categoryPriority[a.pageType] || 0);
+    if (categoryDiff !== 0) return categoryDiff;
+    return b.score - a.score || a.url.localeCompare(b.url);
+  });
 }
 
 export function createDeterministicWebsiteObservations(
@@ -281,7 +414,44 @@ export async function executeDirectHirePreparation(
       WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
     );
     totalHtmlBytes += robots?.totalBytes ?? 0;
-    const selectedPages = homepagePage.discoveredPages.slice(0, WEBSITE_RESEARCH_LIMITS.maxPages - 1);
+
+    // Enhanced candidate discovery: homepage + sitemap + common paths
+    const homepageUrl = new URL(homepage.finalUrl);
+    const discoveredSet = new Set(homepagePage.discoveredPages.map(p => p.url));
+
+    const sitemapCandidates = await discoverFromSitemap(
+      homepageUrl,
+      WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
+      controller.signal,
+      fetchPage,
+      dependencies,
+    );
+    sitemapCandidates.forEach(p => discoveredSet.add(p.url));
+
+    const commonPathCandidates = await probeCommonPaths(
+      homepageUrl,
+      discoveredSet,
+      WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
+      controller.signal,
+      fetchPage,
+      dependencies,
+    );
+
+    // Merge all candidates and rank intelligently
+    const allCandidates = [
+      ...homepagePage.discoveredPages,
+      ...sitemapCandidates,
+      ...commonPathCandidates,
+    ];
+    const deduped = new Map<string, DiscoveredPage>();
+    for (const candidate of allCandidates) {
+      const existing = deduped.get(candidate.url);
+      if (!existing || candidate.score > existing.score) {
+        deduped.set(candidate.url, candidate);
+      }
+    }
+    const ranked = rankCandidates([...deduped.values()]);
+    const selectedPages = ranked.slice(0, WEBSITE_RESEARCH_LIMITS.maxPages - 1);
     for (const discovered of selectedPages) {
       const progressKey = discovered.pageType === "about" || discovered.pageType === "products_services"
         ? discovered.pageType
