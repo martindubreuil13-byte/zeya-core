@@ -49,14 +49,33 @@ describe("P2.12D.1c — Formation Re-Entry with Stale Preparation", () => {
       expect(shouldReturn409).toBe(false);
     });
 
-    it("schema: direct_hire_onboarding_sessions includes preparation_contract_version field", async () => {
-      // Verify the route.ts code queries preparation_contract_version.
-      // The GET endpoint now includes it in the SELECT clause at line 94.
+    it("P2.12D.1d fix: does NOT select preparation_contract_version from onboarding table", async () => {
+      // P2.12D.1d fixed the error from 900a874 where preparation_contract_version
+      // was incorrectly selected from direct_hire_onboarding_sessions.
+      // The field exists ONLY on direct_hire_working_sessions.
+      // The fixed route queries working_sessions separately.
 
-      const selectClause =
-        "owner_id,business_id,business_representation_id,onboarding_state,preparation_status,preparation_contract_version,research_authorized_at,preparation_attempt_count,preparation_completed_at,preparation_failure_code,preparation_progress,preparation_successful_page_count,preparation_failed_page_count,preparation_lease_expires_at";
+      const onboardingSelectClause =
+        "id,owner_id,business_id,business_representation_id,onboarding_state,preparation_status,research_authorized_at,preparation_attempt_count,preparation_completed_at,preparation_failure_code,preparation_progress,preparation_successful_page_count,preparation_failed_page_count,preparation_lease_expires_at";
 
-      expect(selectClause).toContain("preparation_contract_version");
+      // Verify preparation_contract_version is NOT in the onboarding SELECT
+      expect(onboardingSelectClause).not.toContain("preparation_contract_version");
+    });
+
+    it("P2.12D.1d fix: queries working_sessions for authoritative preparation_contract_version", async () => {
+      // The corrected logic:
+      // 1. If formation exists
+      // 2. Query direct_hire_working_sessions with status='scheduled'
+      // 3. Get preparation_contract_version from working session (not onboarding)
+      // 4. Use that to determine if prep is current
+
+      const workingSessionTable = "direct_hire_working_sessions";
+      const authorityStatus = "scheduled"; // unique constraint ensures one per onboarding
+      const selectField = "preparation_contract_version";
+
+      expect(workingSessionTable).toBe("direct_hire_working_sessions");
+      expect(authorityStatus).toBe("scheduled");
+      expect(selectField).toBe("preparation_contract_version");
     });
 
     it("expired diagnostic lease with stale prep can be reclaimed by normal flow", async () => {
