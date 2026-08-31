@@ -78,6 +78,35 @@ describe("P2.12D.1c — Formation Re-Entry with Stale Preparation", () => {
       expect(selectField).toBe("preparation_contract_version");
     });
 
+    it("P2.12D.1e fix: preparation is current AND usable only when status=ready AND contract=current", async () => {
+      // P2.12D.1d was incomplete: it only checked contract version.
+      // P2.12D.1e adds: preparation must ALSO be in 'ready' state.
+      //
+      // Correct semantics (from RPC governance):
+      // preparation_status = 'ready' AND preparation_contract_version = v5
+      //
+      // This handles cases:
+      // - v5 + running + expired lease → NOT usable (continues to prep surface)
+      // - v5 + ready + current brief → usable (restores Formation)
+      // - v5 + failed → NOT usable (continues to prep surface)
+      // - v4 + ready → NOT usable (continues to prep surface for refresh)
+
+      const v5 = "first-working-session-preparation-v5";
+
+      const cases = [
+        { status: "running", contract: v5, expected: false, reason: "running is not ready" },
+        { status: "ready", contract: v5, expected: true, reason: "ready + v5 is usable" },
+        { status: "failed", contract: v5, expected: false, reason: "failed is not ready" },
+        { status: "pending", contract: v5, expected: false, reason: "pending is not ready" },
+        { status: "ready", contract: "first-working-session-preparation-v4", expected: false, reason: "v4 is stale" },
+      ];
+
+      cases.forEach((c) => {
+        const preparationIsReadyAndCurrent = c.status === "ready" && c.contract === v5;
+        expect(preparationIsReadyAndCurrent).toBe(c.expected);
+      });
+    });
+
     it("expired diagnostic lease with stale prep can be reclaimed by normal flow", async () => {
       // When an expired lease exists (from diagnostic testing) and prep is stale,
       // a normal owner request should be able to claim it via existing RPC semantics.

@@ -180,26 +180,28 @@ export async function GET(request: NextRequest) {
       .eq("business_representation_id", onboarding.business_representation_id);
     if (formation.error) return failure("formation_lookup_failed", 500);
 
-    // P2.12D.1d: Allow preparation re-entry if preparation is stale
-    // Determine currentness from the authoritative working session (status='scheduled')
+    // P2.12D.1e: Allow preparation re-entry if preparation is not ready/current
+    // Determine usability from the authoritative working session (status='scheduled')
+    // Authoritative: preparation is usable only when BOTH status='ready' AND contract is current
     const formationExists = (formation.count ?? 0) > 0;
     if (formationExists) {
       const workingSessionResult = await auth.supabase
         .from("direct_hire_working_sessions")
-        .select("preparation_contract_version")
+        .select("preparation_status,preparation_contract_version")
         .eq("direct_hire_onboarding_session_id", onboarding.id)
         .eq("status", "scheduled")
         .maybeSingle();
 
       if (workingSessionResult.error) return failure("working_session_lookup_failed", 500);
 
-      const preparationIsCurrent =
+      const preparationIsReadyAndCurrent =
+        workingSessionResult.data?.preparation_status === "ready" &&
         workingSessionResult.data?.preparation_contract_version === FIRST_WORKING_SESSION_PREPARATION_VERSION;
 
-      if (preparationIsCurrent) {
+      if (preparationIsReadyAndCurrent) {
         return failure("owner_journey_conflict", 409);
       }
-      // If formation exists but preparation is stale, continue to allow prep surface
+      // If formation exists but preparation is not ready/current, allow preparation re-entry surface
     }
 
     return success(onboarding.onboarding_state, onboarding.preparation_status, {
