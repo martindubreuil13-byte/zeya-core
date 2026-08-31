@@ -13,6 +13,7 @@ import {
   type DirectHireSafeFailureCode,
 } from "@/lib/onboarding/direct-hire-contract";
 import { validateDirectHireProfile } from "@/lib/onboarding/direct-hire-validation";
+import { FIRST_WORKING_SESSION_PREPARATION_VERSION } from "@/lib/onboarding/first-working-session-brief";
 
 type DirectHireRow = {
   owner_id: string;
@@ -20,6 +21,7 @@ type DirectHireRow = {
   business_representation_id: string;
   onboarding_state: string;
   preparation_status: string;
+  preparation_contract_version: string | null;
   research_authorized_at: string | null;
   preparation_attempt_count: number;
   preparation_lease_expires_at: string | null;
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest) {
     const onboardingResult = await auth.supabase
       .from("direct_hire_onboarding_sessions")
       .select(
-        "owner_id,business_id,business_representation_id,onboarding_state,preparation_status,research_authorized_at,preparation_attempt_count,preparation_completed_at,preparation_failure_code,preparation_progress,preparation_successful_page_count,preparation_failed_page_count,preparation_lease_expires_at",
+        "owner_id,business_id,business_representation_id,onboarding_state,preparation_status,preparation_contract_version,research_authorized_at,preparation_attempt_count,preparation_completed_at,preparation_failure_code,preparation_progress,preparation_successful_page_count,preparation_failed_page_count,preparation_lease_expires_at",
       )
       .eq("owner_id", ownerId)
       .limit(2);
@@ -177,7 +179,15 @@ export async function GET(request: NextRequest) {
       .eq("business_id", onboarding.business_id)
       .eq("business_representation_id", onboarding.business_representation_id);
     if (formation.error) return failure("formation_lookup_failed", 500);
-    if ((formation.count ?? 0) > 0) return failure("owner_journey_conflict", 409);
+
+    // P2.12D.1c: Allow preparation re-entry if preparation is stale
+    const formationExists = (formation.count ?? 0) > 0;
+    const preparationIsCurrent = onboarding.preparation_contract_version === FIRST_WORKING_SESSION_PREPARATION_VERSION;
+
+    if (formationExists && preparationIsCurrent) {
+      return failure("owner_journey_conflict", 409);
+    }
+    // If formation exists but preparation is stale, continue to allow prep surface
 
     return success(onboarding.onboarding_state, onboarding.preparation_status, {
       authorized: Boolean(onboarding.research_authorized_at),
