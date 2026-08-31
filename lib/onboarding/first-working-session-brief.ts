@@ -16,7 +16,7 @@ export const FIRST_WORKING_SESSION_BRIEF_MODEL = "gpt-4o";
 export const FIRST_WORKING_SESSION_OPENAI_SDK_VERSION = "6.39.0";
 
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
-  "first-working-session-preparation-v4";
+  "first-working-session-preparation-v5";
 
 export type BriefStatementKind =
   | "supported_finding" | "interpretation" | "working_opinion"
