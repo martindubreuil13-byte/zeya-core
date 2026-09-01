@@ -132,7 +132,7 @@ export function scopeReasoningInputs(
   const scopedEvidenceIds = new Set(scopedEvidence.map(item => item.id));
   const scopedObservations = observations.filter(item =>
     item.affected_domains.includes(scope.constitutionalDomain) &&
-    scopedEvidenceIds.has(item.evidenceId)
+    (item.evidenceIds ?? [item.evidenceId]).every(id => scopedEvidenceIds.has(id))
   );
   return { evidence: scopedEvidence, observations: scopedObservations };
 }
@@ -171,7 +171,7 @@ export function buildReasoningPrompt(
   const observationText = observations
     .map(
       o =>
-        `Observation ${o.id} (from Evidence ${o.evidenceId}):
+        `Observation ${o.id} (${o.category ?? 'legacy interpretation'}; supported by Evidence ${(o.evidenceIds ?? [o.evidenceId]).join(', ')}):
   Interpretation: ${o.interpreted_meaning}
   Confidence: ${o.confidence_in_interpretation}%
   Domains: ${o.affected_domains.join(', ')}`
@@ -224,6 +224,7 @@ CORE PRINCIPLES
 16. Prefer unknown over plausible inference.
 17. Do not produce marketing language unsupported by Evidence.
 18. Do not reveal chain-of-thought.
+19. A synthesized Observation may cite several Evidence records. Preserve every cited Evidence ID when using it; never cite the Observation ID as Evidence.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONFIDENCE LEVELS

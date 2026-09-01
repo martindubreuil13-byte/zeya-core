@@ -98,6 +98,8 @@ export interface EvidenceInput {
 export interface ObservationInput {
   id: string;
   evidenceId: string;
+  evidenceIds?: string[];
+  category?: string;
   interpreted_meaning: string;
   confidence_in_interpretation: number; // 0-100
   affected_domains: string[];

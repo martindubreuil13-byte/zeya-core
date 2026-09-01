@@ -236,6 +236,8 @@ async function loadScopedObservations(
       id,
       business_representation_id,
       evidence_id,
+      supporting_evidence_ids,
+      observation_category,
       interpreted_meaning,
       confidence_in_interpretation,
       affected_domains,
@@ -260,7 +262,9 @@ export function normalizeEffectivePreparationObservations(
   observations: DatabaseObservation[],
   effectiveEvidenceIds: Set<string>,
 ): DatabaseObservation[] {
-  return observations.filter((observation) => effectiveEvidenceIds.has(observation.evidence_id));
+  return observations.filter((observation) =>
+    (observation.supporting_evidence_ids?.length ? observation.supporting_evidence_ids : [observation.evidence_id])
+      .every(id => effectiveEvidenceIds.has(id)));
 }
 
 /**
@@ -271,9 +275,10 @@ function validateObservationScope(
   evidenceIds: Set<string>
 ): void {
   for (const obs of observations) {
-    if (!evidenceIds.has(obs.evidence_id)) {
+    const supportingIds = obs.supporting_evidence_ids?.length ? obs.supporting_evidence_ids : [obs.evidence_id];
+    if (supportingIds.some(id => !evidenceIds.has(id))) {
       throw new Error(
-        `Observation ${obs.id} references Evidence ${obs.evidence_id} outside the loaded scope`
+        `Observation ${obs.id} references Evidence outside the loaded scope`
       );
     }
   }
@@ -314,6 +319,8 @@ export function toObservationInput(dbObservations: DatabaseObservation[]): Obser
   return dbObservations.map(o => ({
     id: o.id,
     evidenceId: o.evidence_id,
+    evidenceIds: o.supporting_evidence_ids?.length ? [...o.supporting_evidence_ids] : [o.evidence_id],
+    ...(o.observation_category ? { category: o.observation_category } : {}),
     interpreted_meaning: o.interpreted_meaning,
     confidence_in_interpretation: o.confidence_in_interpretation,
     affected_domains: o.affected_domains || [],

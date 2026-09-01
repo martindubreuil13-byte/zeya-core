@@ -67,6 +67,8 @@ export interface DatabaseObservation {
   id: string;
   business_representation_id: string;
   evidence_id: string;
+  supporting_evidence_ids?: string[];
+  observation_category?: string | null;
   interpreted_meaning: string;
   confidence_in_interpretation: number;
   affected_domains: string[];

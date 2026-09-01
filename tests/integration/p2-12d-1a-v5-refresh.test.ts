@@ -82,7 +82,7 @@ describe("P2.12D.1a — Preparation v5 Contract Versioning", () => {
       expect(constraintLine).toBeDefined();
     });
 
-    it("contract version in first-working-session-brief.ts is v5", () => {
+    it("preserves v5 history while the current semantic contract advances to v6", () => {
       const briefFile = readFileSync(
         resolve(
           __dirname,
@@ -92,11 +92,9 @@ describe("P2.12D.1a — Preparation v5 Contract Versioning", () => {
       );
 
       expect(briefFile).toContain(
-        '"first-working-session-preparation-v5"'
+        '"first-working-session-preparation-v6"'
       );
-      expect(briefFile).not.toContain(
-        'first-working-session-preparation-v4"'
-      );
+      expect(briefFile).not.toContain('first-working-session-preparation-v5"');
     });
   });
 

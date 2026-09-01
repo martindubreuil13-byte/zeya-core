@@ -104,7 +104,7 @@ describe("P2.2 private brief governance", () => {
       expect(sql).toContain(marker);
     }
     const service = await readFile("lib/onboarding/first-working-session-brief.ts", "utf8");
-    expect(service).toContain('"first-working-session-preparation-v5"');
+    expect(service).toContain('"first-working-session-preparation-v6"');
   });
   it("independently synthesizes a specific, governed representative brief", async () => {
     const inputs = {
@@ -272,7 +272,8 @@ describe("P2.2 private brief governance", () => {
     expect(route).toContain("preparationStatus");
   });
   it("rejects a stale brief when its governed snapshot changes", () => {
-    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v5" }, "a")).toBe(true);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v6" }, "a")).toBe(true);
+    expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v5" }, "a")).toBe(false);
     expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "first-working-session-preparation-v4" }, "a")).toBe(false);
     expect(isFirstWorkingSessionBriefCurrent({ sourceSnapshotFingerprint: "a", preparationContractVersion: "old" }, "a")).toBe(false);
   });

@@ -16,7 +16,7 @@ export const FIRST_WORKING_SESSION_BRIEF_MODEL = "gpt-4o";
 export const FIRST_WORKING_SESSION_OPENAI_SDK_VERSION = "6.39.0";
 
 export const FIRST_WORKING_SESSION_PREPARATION_VERSION =
-  "first-working-session-preparation-v5";
+  "first-working-session-preparation-v6";
 
 export type BriefStatementKind =
   | "supported_finding" | "interpretation" | "working_opinion"
@@ -109,7 +109,8 @@ type CompactEvidenceInput = {
   authorityKey?: string;
 };
 type CompactObservationInput = {
-  evidenceId: string;
+  evidenceIds: string[];
+  category?: string;
   meaning: string;
   confidence: number;
   affectedDomains: string[];
@@ -242,7 +243,8 @@ export function buildFirstWorkingSessionBriefProviderContract(
         ...(item.authority_key ? { authorityKey: authorityAliases.get(item.authority_key)! } : {}),
       })),
       observations: inputs.observations.map((item) => ({
-        evidenceId: evidenceIdToAlias.get(item.evidenceId)!,
+        evidenceIds: (item.evidenceIds ?? [item.evidenceId]).map(id => evidenceIdToAlias.get(id)!),
+        ...(item.category ? { category: item.category } : {}),
         meaning: item.interpreted_meaning,
         confidence: item.confidence_in_interpretation,
         affectedDomains: item.affected_domains,
@@ -279,6 +281,7 @@ Compare owner-authority Evidence with first_party_company Evidence. Surface usef
 Questions must reduce representation risk or improve outbound business-development readiness. Reject generic consultant questions and terminology absent from the cited material.
 Questions and verification priorities may ask whether an unsupported matter is true, but must not assert that it is true. Authority gaps may name pricing, negotiation, promises, commitments, and escalation specifically as unknown categories.
 Business Read and working opinions must synthesize distinctive patterns across inputs rather than paraphrase a meta description.
+Use the strongest categorized synthesized Observations for openingInsights. Exclude legacy/template restatements and generic praise; an opening insight must expose a useful pattern, segmentation, tension, unresolved contradiction, implication, gap, or differentiation signal and cite its supporting Evidence.
 Do not invent contradiction resolution, market size, geography, customer segment, regulatory status, authority, pricing, timelines, guarantees, promises, commitments, superlatives, quantitative performance, jargon, or facts. Concrete assertions must appear in the cited governed basis: supported findings use cited Evidence; interpretations and working opinions may also use cited current hypotheses.
 Do not use guarded superlative words such as "leading", "best", "largest", or "number one" merely to mean prominent or central; use neutral wording unless the exact claim is present in the cited governed basis.
 Return conclusions only: never chain-of-thought, hidden reasoning, or provider commentary.
@@ -801,7 +804,6 @@ export function collectFirstWorkingSessionBriefValidation(
 ): BriefValidationReport {
   try {
     validateFirstWorkingSessionBrief(value, inputs);
-    return { valid: true, repairable: false, defects: [], terminalCategory: null };
   } catch (error) {
     if (!(error instanceof FirstWorkingSessionPreparationStageError)) {
       return { valid: false, repairable: false, defects: [], terminalCategory: "brief_schema_invalid" };
@@ -859,6 +861,22 @@ export function collectFirstWorkingSessionBriefValidation(
   brief.authorityGaps.forEach((item, index) => {
     if (item.kind !== "unknown") defects.push(semanticDefect("authorityGaps", index, item, "brief_authority_gap_invalid", "authority_gap_kind_required"));
   });
+  const meaningfulObservations = inputs.observations.filter(item => item.category && item.category !== "confirmation");
+  if (meaningfulObservations.length > 0 && brief.openingInsights.length === 0) {
+    defects.push(globalDefect("openingInsights", "brief_semantic_interpretation_invalid", "meaningful_opening_insight_required", "interpretation"));
+  }
+  brief.openingInsights.forEach((item, index) => {
+    const groundedInSynthesis = meaningfulObservations.some(observation => {
+      const supportingIds = observation.evidenceIds ?? [observation.evidenceId];
+      return supportingIds.length >= 2 && supportingIds.every(id => item.evidenceIds.includes(id));
+    });
+    if (meaningfulObservations.length > 0 && !groundedInSynthesis) {
+      defects.push(semanticDefect("openingInsights", index, item, "brief_semantic_interpretation_invalid", "opening_insight_must_cite_synthesized_observation_basis"));
+    }
+    if (/\b(?:great|excellent|impressive|strong business|compelling business)\b/i.test(item.statement)) {
+      defects.push(semanticDefect("openingInsights", index, item, "brief_semantic_interpretation_invalid", "generic_praise_not_opening_insight"));
+    }
+  });
   const unresolvedRisk = inputs.hypotheses.some((item) =>
     ["medium", "high"].includes(item.representationRisk)
       && (item.epistemicState !== "supported" || item.ownerDecision !== "approved"));
@@ -882,7 +900,7 @@ export function collectFirstWorkingSessionBriefValidation(
     defect,
   ])).values()];
   if (unique.length === 0) {
-    return { valid: false, repairable: false, defects: [], terminalCategory: "brief_schema_invalid" };
+    return { valid: true, repairable: false, defects: [], terminalCategory: null };
   }
   return {
     valid: false,

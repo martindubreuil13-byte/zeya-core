@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { executeDirectHirePreparation } from "./direct-hire-preparation";
 import { acquirePendingRegisteredPublicSources } from "./registered-public-sources";
 import { ensurePreparationIntelligence } from "./preparation-intelligence";
+import { ensureExecutiveObservationSynthesis } from "./executive-observation-synthesis";
 import {
   buildFirstWorkingSessionBrief,
   buildFirstWorkingSessionFinalizationPayload,
@@ -94,6 +95,16 @@ async function _runPreparationOrchestration(
       businessRepresentationId: claim.business_representation_id,
       onboardingSessionId: claim.onboarding_session_id,
     };
+    terminalStage = "executive_observation_synthesis";
+    logPreparationStage(telemetry, "executive_observation_synthesis", "started");
+    const executiveObservations = await ensureExecutiveObservationSynthesis(client, {
+      workingSessionId: claim.working_session_id, leaseId: claim.lease_id,
+      onboardingSessionId: claim.onboarding_session_id,
+      businessRepresentationId: claim.business_representation_id,
+    });
+    logPreparationStage(telemetry, "executive_observation_synthesis", "completed", {
+      observationsProduced: executiveObservations.length,
+    });
     terminalStage = "hypotheses";
     logPreparationStage(telemetry, "hypotheses", "started");
     const hypotheses = await ensurePreparationIntelligence(client, scope);
