@@ -24,6 +24,7 @@ import type {
   DirectHireProgress,
   DirectHireSafeFailureCode,
 } from "./direct-hire-contract";
+import { logPreparationStage, type PreparationTelemetryContext } from "./preparation-telemetry";
 
 export type WebsiteEvidenceDraft = {
   sourceKey: string;
@@ -62,7 +63,26 @@ type PreparationDependencies = {
   safeFetch?: typeof safeFetchPublicSite;
   safeFetchDependencies?: SafeFetchDependencies;
   now?: () => Date;
+  telemetry?: PreparationTelemetryContext;
 };
+
+function acquisitionDiagnostic(
+  dependencies: PreparationDependencies,
+  acquisitionStage: "homepage" | "robots" | "sitemap" | "common_path_probe" | "selected_page",
+  pageCategory?: string,
+) {
+  return {
+    acquisitionStage,
+    sourceCategory: "company_website",
+    ...(pageCategory ? { pageCategory } : {}),
+    ...(dependencies.telemetry ? {
+      workingSessionId: dependencies.telemetry.workingSessionId,
+      onboardingSessionId: dependencies.telemetry.onboardingSessionId,
+      preparationContractVersion: dependencies.telemetry.contractVersion,
+      correlationId: dependencies.telemetry.correlationId,
+    } : {}),
+  } as const;
+}
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -141,6 +161,7 @@ async function discoverFromSitemap(
       acceptedContentTypes: /^(?:text\/xml|application\/xml|text\/plain)(?:;|$)/i,
       signal,
       dependencies: dependencies.safeFetchDependencies,
+      diagnostic: acquisitionDiagnostic(dependencies, "sitemap"),
     });
     const xml = fetched.body.toString("utf8");
     const urls: string[] = [];
@@ -181,18 +202,21 @@ async function probeCommonPaths(
   signal: AbortSignal,
   fetchPage: typeof safeFetchPublicSite,
   dependencies: PreparationDependencies,
-): Promise<DiscoveredPage[]> {
+): Promise<{ candidates: DiscoveredPage[]; probedCount: number }> {
   const candidates: DiscoveredPage[] = [];
+  let probedCount = 0;
   for (const path of COMMON_PAGE_PATHS) {
     if (candidates.length >= 10) break; // Stop after finding reasonable number
     const url = new URL(path, siteUrl).toString();
     if (discovered.has(url)) continue; // Already discovered from homepage/sitemap
     const pageType = COMMON_PATH_PAGE_TYPES[path];
     try {
+      probedCount += 1;
       const response = await fetchPage(url, {
         maxBytes: Math.min(512 * 1024, maxBytes),
         signal,
         dependencies: dependencies.safeFetchDependencies,
+        diagnostic: acquisitionDiagnostic(dependencies, "common_path_probe", pageType),
       });
       if (response.status === 200) {
         discovered.add(url);
@@ -207,7 +231,7 @@ async function probeCommonPaths(
       // 404 or error is fine; continue probing
     }
   }
-  return candidates;
+  return { candidates, probedCount };
 }
 
 function rankCandidates(candidates: DiscoveredPage[]): DiscoveredPage[] {
@@ -331,6 +355,7 @@ async function fetchRobots(
       acceptedContentTypes: /^(?:text\/plain|text\/html)(?:;|$)/i,
       signal,
       dependencies: dependencies.safeFetchDependencies,
+      diagnostic: acquisitionDiagnostic(dependencies, "robots"),
     });
     return { text: fetched.body.toString("utf8"), totalBytes: fetched.totalBytes };
   } catch {
@@ -362,6 +387,8 @@ export async function executeDirectHirePreparation(
   const controller = new AbortController();
   const runTimer = setTimeout(() => controller.abort(), WEBSITE_RESEARCH_LIMITS.runTimeoutMs);
   const fetchPage = dependencies.safeFetch ?? safeFetchPublicSite;
+  const startedAt = Date.now();
+  if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "website_acquisition", "started");
 
   try {
     progress.validating_destination = "complete";
@@ -370,8 +397,10 @@ export async function executeDirectHirePreparation(
       homepage = await fetchPage(websiteUrl, {
         signal: controller.signal,
         dependencies: dependencies.safeFetchDependencies,
+        diagnostic: acquisitionDiagnostic(dependencies, "homepage", "homepage"),
       });
     } catch (error) {
+      if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "homepage_acquisition", "failed", { failureCode: homepageFailureCode(error, websiteUrl), elapsedMs: Date.now() - startedAt });
       progress.homepage = "failed";
       progress.evidence = "failed";
       progress.observations = "skipped";
@@ -389,6 +418,7 @@ export async function executeDirectHirePreparation(
     totalHtmlBytes += homepage.totalBytes;
     progress.homepage = "complete";
     successfulPageCount += 1;
+    if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "homepage_acquisition", "completed", { homepageSuccessful: true });
     const homepagePage = extractWebsitePage({
       html: homepage.body,
       requestedUrl: homepage.requestedUrl,
@@ -426,9 +456,10 @@ export async function executeDirectHirePreparation(
       fetchPage,
       dependencies,
     );
+    if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "sitemap_discovery", "completed", { sitemapCandidatesDiscovered: sitemapCandidates.length });
     sitemapCandidates.forEach(p => discoveredSet.add(p.url));
 
-    const commonPathCandidates = await probeCommonPaths(
+    const commonPathResult = await probeCommonPaths(
       homepageUrl,
       discoveredSet,
       WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
@@ -436,6 +467,8 @@ export async function executeDirectHirePreparation(
       fetchPage,
       dependencies,
     );
+    const commonPathCandidates = commonPathResult.candidates;
+    if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "common_path_probing", "completed", { commonPathsProbed: commonPathResult.probedCount, commonPathsSuccessful: commonPathCandidates.length });
 
     // Merge all candidates and rank intelligently
     const allCandidates = [
@@ -452,6 +485,7 @@ export async function executeDirectHirePreparation(
     }
     const ranked = rankCandidates([...deduped.values()]);
     const selectedPages = ranked.slice(0, WEBSITE_RESEARCH_LIMITS.maxPages - 1);
+    if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "candidate_selection", "completed", { candidatePagesSelected: selectedPages.length });
     for (const discovered of selectedPages) {
       const progressKey = discovered.pageType === "about" || discovered.pageType === "products_services"
         ? discovered.pageType
@@ -474,6 +508,7 @@ export async function executeDirectHirePreparation(
           ),
           signal: controller.signal,
           dependencies: dependencies.safeFetchDependencies,
+          diagnostic: acquisitionDiagnostic(dependencies, "selected_page", discovered.pageType),
         });
         if (totalHtmlBytes + page.totalBytes > WEBSITE_RESEARCH_LIMITS.maxRunBytes) {
           throw new SafeFetchError("response_too_large");
@@ -513,6 +548,11 @@ export async function executeDirectHirePreparation(
     }
     progress.evidence = evidence.length ? "complete" : "failed";
     const observations = createDeterministicWebsiteObservations(evidence);
+    if (dependencies.telemetry) logPreparationStage(dependencies.telemetry, "website_acquisition", evidence.length ? "completed" : "failed", {
+      selectedPagesFetchedSuccessfully: Math.max(0, successfulPageCount - 1), evidenceRecordsPrepared: evidence.length,
+      observationsProduced: observations.length, failedPageCount, elapsedMs: Date.now() - startedAt,
+      ...(evidence.length ? {} : { failureCode: "no_usable_evidence" }),
+    });
     progress.observations = observations.length ? "complete" : "skipped";
     if (!evidence.length) {
       return {

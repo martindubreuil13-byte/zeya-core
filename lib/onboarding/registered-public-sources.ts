@@ -14,6 +14,7 @@ import {
   extractWebsitePage,
   WEBSITE_EXTRACTION_VERSION,
 } from '../research/html-extraction';
+import type { PreparationTelemetryContext } from './preparation-telemetry';
 
 export type PublicSourceStatus =
   | 'registered' | 'validating' | 'ready_to_acquire' | 'acquiring'
@@ -33,7 +34,22 @@ type AcquisitionDependencies = {
   safeFetch?: typeof safeFetchPublicSite;
   safeFetchDependencies?: SafeFetchDependencies;
   now?: () => Date;
+  telemetry?: PreparationTelemetryContext;
 };
+
+function registeredSourceDiagnostic(dependencies: AcquisitionDependencies, pageCategory: string) {
+  return {
+    acquisitionStage: 'registered_source' as const,
+    sourceCategory: 'registered_material',
+    pageCategory,
+    ...(dependencies.telemetry ? {
+      workingSessionId: dependencies.telemetry.workingSessionId,
+      onboardingSessionId: dependencies.telemetry.onboardingSessionId,
+      preparationContractVersion: dependencies.telemetry.contractVersion,
+      correlationId: dependencies.telemetry.correlationId,
+    } : {}),
+  };
+}
 
 const RESTRICTED_PLATFORM_HOSTS = [
   'linkedin.com', 'facebook.com', 'instagram.com', 'youtube.com',
@@ -140,6 +156,7 @@ async function robotsPermitRegisteredUrl(
   fetcher: typeof safeFetchPublicSite,
   sourceUrl: string,
   dependencies?: SafeFetchDependencies,
+  diagnosticDependencies: AcquisitionDependencies = {},
 ): Promise<boolean> {
   const parsed = new URL(sourceUrl);
   const robotsUrl = new URL('/robots.txt', parsed).toString();
@@ -148,6 +165,7 @@ async function robotsPermitRegisteredUrl(
       maxBytes: WEBSITE_RESEARCH_LIMITS.robotsMaxBytes,
       acceptedContentTypes: /^(?:text\/plain|text\/html)(?:;|$)/i,
       dependencies,
+      diagnostic: registeredSourceDiagnostic(diagnosticDependencies, 'robots'),
     });
     return robotsAllowsPath(robots.body.toString('utf8'), parsed.pathname || '/');
   } catch {
@@ -180,7 +198,7 @@ export async function acquireRegisteredPublicSource(
 
   const fetcher = dependencies.safeFetch ?? safeFetchPublicSite;
   try {
-    if (!await robotsPermitRegisteredUrl(fetcher, source.submitted_url, dependencies.safeFetchDependencies)) {
+    if (!await robotsPermitRegisteredUrl(fetcher, source.submitted_url, dependencies.safeFetchDependencies, dependencies)) {
       const failed = await client.rpc('zeya_fail_direct_hire_public_source', {
         p_owner_id: input.ownerId,
         p_source_id: source.source_id,
@@ -193,6 +211,7 @@ export async function acquireRegisteredPublicSource(
 
     const fetched = await fetcher(source.submitted_url, {
       dependencies: dependencies.safeFetchDependencies,
+      diagnostic: registeredSourceDiagnostic(dependencies, 'registered_public_page'),
     });
     const retrievedAt = (dependencies.now ?? (() => new Date()))().toISOString();
     const page = extractWebsitePage({

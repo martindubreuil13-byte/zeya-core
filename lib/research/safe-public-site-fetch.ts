@@ -43,6 +43,16 @@ type SafeFetchDiagnosticStage =
   | "http_status"
   | "unknown";
 
+export type SafeFetchDiagnosticContext = {
+  acquisitionStage: "registered_source" | "homepage" | "robots" | "sitemap" | "common_path_probe" | "selected_page";
+  sourceCategory?: string;
+  pageCategory?: string;
+  workingSessionId?: string;
+  onboardingSessionId?: string;
+  preparationContractVersion?: string;
+  correlationId?: string;
+};
+
 function nativeErrorCode(error: unknown): string {
   return error && typeof error === "object" && "code" in error
     && typeof error.code === "string"
@@ -54,12 +64,14 @@ function logSafeFetchFailure(
   stage: SafeFetchDiagnosticStage,
   error: unknown,
   statusClass?: "4xx" | "5xx" | "other",
+  diagnostic?: SafeFetchDiagnosticContext & { origin: string; pathname: string; httpStatusCode?: number },
 ): void {
   console.error({
     event: "direct_hire_safe_fetch_failure",
     stage,
     nativeErrorCode: nativeErrorCode(error),
     ...(statusClass ? { statusClass } : {}),
+    ...(diagnostic ?? {}),
   });
 }
 
@@ -254,6 +266,7 @@ type RequestOnceOptions = {
   acceptedContentTypes: RegExp;
   signal?: AbortSignal;
   dependencies: SafeFetchDependencies;
+  diagnostic?: SafeFetchDiagnosticContext;
 };
 
 async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
@@ -266,7 +279,7 @@ async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
     const addresses = await (options.dependencies.resolve ?? defaultResolve)(url.hostname);
     pinned = validateResolvedAddresses(addresses);
   } catch (error) {
-    logSafeFetchFailure("dns", error);
+    logSafeFetchFailure("dns", error, undefined, options.diagnostic ? { ...options.diagnostic, origin: url.origin, pathname: url.pathname } : undefined);
     throw error instanceof SafeFetchError ? error : new SafeFetchError("dns_failed");
   }
   const requestImpl = options.dependencies.request ?? httpsRequest;
@@ -343,17 +356,17 @@ async function requestOnce(url: URL, options: RequestOnceOptions): Promise<{
           body: Buffer.concat(chunks),
         }));
         response.on("error", (error) => {
-          logSafeFetchFailure("response_stream", error);
+          logSafeFetchFailure("response_stream", error, undefined, options.diagnostic ? { ...options.diagnostic, origin: url.origin, pathname: url.pathname } : undefined);
           finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
         });
       });
     } catch (error) {
-      logSafeFetchFailure("request_construction", error);
+      logSafeFetchFailure("request_construction", error, undefined, options.diagnostic ? { ...options.diagnostic, origin: url.origin, pathname: url.pathname } : undefined);
       finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
       return;
     }
     request.on("error", (error) => {
-      logSafeFetchFailure("request_socket", error);
+      logSafeFetchFailure("request_socket", error, undefined, options.diagnostic ? { ...options.diagnostic, origin: url.origin, pathname: url.pathname } : undefined);
       finish(error instanceof SafeFetchError ? error : new SafeFetchError("request_failed"));
     });
     options.signal?.addEventListener("abort", onAbort, { once: true });
@@ -374,6 +387,7 @@ export async function safeFetchPublicSite(
     acceptedContentTypes?: RegExp;
     signal?: AbortSignal;
     dependencies?: SafeFetchDependencies;
+    diagnostic?: SafeFetchDiagnosticContext;
   } = {},
 ): Promise<SafeFetchResult> {
   const requested = normalizeResearchUrl(input);
@@ -390,6 +404,7 @@ export async function safeFetchPublicSite(
       acceptedContentTypes: options.acceptedContentTypes ?? /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i,
       signal: options.signal,
       dependencies: options.dependencies ?? {},
+      diagnostic: options.diagnostic,
     });
     totalBytes += response.body.length;
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -417,7 +432,10 @@ export async function safeFetchPublicSite(
         : response.status >= 500 && response.status < 600
           ? "5xx"
           : "other";
-      logSafeFetchFailure("http_status", null, statusClass);
+      logSafeFetchFailure("http_status", null, statusClass, options.diagnostic ? {
+        ...options.diagnostic, origin: current.origin, pathname: current.pathname,
+        httpStatusCode: response.status,
+      } : undefined);
       throw new SafeFetchError("request_failed");
     }
     return {

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthenticatedRepresentationContext } from "@/lib/representation/api-auth";
 import { createDirectHireServiceClient } from "@/lib/onboarding/direct-hire-service-client";
-import { executeFirstWorkingSessionPreparationForSession } from "@/lib/onboarding/first-working-session-preparation-worker";
+import { executeFirstWorkingSessionPreparationForSession, getPreparationFailureTelemetry } from "@/lib/onboarding/first-working-session-preparation-worker";
 import { PreparationReasoningStageError } from "@/lib/onboarding/hypothesis-reasoning-service";
-import { FirstWorkingSessionPreparationStageError } from "@/lib/onboarding/first-working-session-brief";
+import { FIRST_WORKING_SESSION_PREPARATION_VERSION, FirstWorkingSessionPreparationStageError } from "@/lib/onboarding/first-working-session-brief";
 
 export const maxDuration = 300;
 
@@ -88,6 +88,7 @@ export async function POST(
       },
     });
   } catch (error) {
+    const telemetry = getPreparationFailureTelemetry(error);
     const safeStage = error instanceof PreparationReasoningStageError
       ? error.stageCode
       : error instanceof FirstWorkingSessionPreparationStageError
@@ -96,6 +97,14 @@ export async function POST(
           ? error.message
       : "preparation_failed";
     console.error("[working-session-prepare]", safeStage);
+    console.error({
+      event: "first_working_session_preparation_terminal_failure",
+      workingSessionId: id,
+      preparationContractVersion: FIRST_WORKING_SESSION_PREPARATION_VERSION,
+      terminalStage: telemetry?.terminalStage ?? "route_or_claim",
+      failureCode: telemetry?.failureCode ?? safeStage,
+      failurePersistenceSucceeded: telemetry?.failurePersistenceSucceeded ?? false,
+    });
 
     // Always re-fetch to return authoritative DB state, even on failure
     const updated = await auth.supabase
