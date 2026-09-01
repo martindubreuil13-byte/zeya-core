@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedRepresentationContext } from '@/lib/representation/api-auth';
+import { resolveOwnerFormationPrecedence } from '@/lib/onboarding/first-working-session-currentness';
 
 type OwnerStatusFailureStage =
   | 'authentication'
   | 'business_lookup'
   | 'representation_lookup'
   | 'direct_hire_lookup'
+  | 'working_session_lookup'
   | 'formation_lookup'
   | 'version_lookup'
   | 'response_validation';
@@ -172,20 +174,6 @@ export async function GET(request: NextRequest) {
       ) {
         return ownerStatusFailure('response_validation');
       }
-
-      return NextResponse.json(
-        {
-          success: true,
-          data: {
-            status: 'active_formation',
-            formationSessionId: activeFormation.id,
-            formationStatus: activeFormation.status,
-            businessRepresentationId: representation.id,
-            businessId,
-          },
-        },
-        { status: 200 },
-      );
     }
 
     // Check for active Direct Hire onboarding session.
@@ -215,7 +203,62 @@ export async function GET(request: NextRequest) {
       ) {
         return ownerStatusFailure('response_validation');
       }
+    }
 
+    if (activeFormation && directHireSession) {
+      const workingSessionResult = await auth.supabase
+        .from('direct_hire_working_sessions')
+        .select('preparation_status, preparation_contract_version')
+        .eq('direct_hire_onboarding_session_id', directHireSession.id)
+        .eq('status', 'scheduled')
+        .maybeSingle();
+
+      if (workingSessionResult.error) {
+        console.error('[owner-status]', {
+          stage: 'working_session_lookup',
+          code: workingSessionResult.error.code,
+        });
+        return ownerStatusFailure('working_session_lookup');
+      }
+
+      if (resolveOwnerFormationPrecedence({
+        hasActiveFormation: true,
+        hasDirectHireOnboarding: true,
+        authoritativeWorkingSession: workingSessionResult.data,
+      }) === 'direct_hire_employed') {
+        return NextResponse.json(
+          {
+            success: true,
+            data: {
+              status: 'direct_hire_employed',
+              directHireSessionId: directHireSession.id,
+              onboardingState: directHireSession.onboarding_state,
+              businessRepresentationId: representation.id,
+              businessId,
+            },
+          },
+          { status: 200 },
+        );
+      }
+    }
+
+    if (activeFormation) {
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            status: 'active_formation',
+            formationSessionId: activeFormation.id,
+            formationStatus: activeFormation.status,
+            businessRepresentationId: representation.id,
+            businessId,
+          },
+        },
+        { status: 200 },
+      );
+    }
+
+    if (directHireSession) {
       return NextResponse.json(
         {
           success: true,

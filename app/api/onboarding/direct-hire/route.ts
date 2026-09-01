@@ -13,7 +13,7 @@ import {
   type DirectHireSafeFailureCode,
 } from "@/lib/onboarding/direct-hire-contract";
 import { validateDirectHireProfile } from "@/lib/onboarding/direct-hire-validation";
-import { FIRST_WORKING_SESSION_PREPARATION_VERSION } from "@/lib/onboarding/first-working-session-brief";
+import { isFirstWorkingSessionPreparationCurrentAndUsable } from "@/lib/onboarding/first-working-session-currentness";
 
 type DirectHireRow = {
   id: string;
@@ -195,8 +195,7 @@ export async function GET(request: NextRequest) {
       if (workingSessionResult.error) return failure("working_session_lookup_failed", 500);
 
       const preparationIsReadyAndCurrent =
-        workingSessionResult.data?.preparation_status === "ready" &&
-        workingSessionResult.data?.preparation_contract_version === FIRST_WORKING_SESSION_PREPARATION_VERSION;
+        isFirstWorkingSessionPreparationCurrentAndUsable(workingSessionResult.data);
 
       if (preparationIsReadyAndCurrent) {
         return failure("owner_journey_conflict", 409);

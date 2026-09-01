@@ -7,7 +7,8 @@ describe("Direct Hire Re-entry and Durable Routing", () => {
       "app/api/owner/status/route.ts",
       "utf8",
     );
-    // Verify precedence order: 1) current_version_id 2) active_formation 3) direct_hire 4) new_owner
+    // Queries establish canonical state, then Formation + Direct Hire currentness
+    // resolves precedence before the new-owner fallback.
     const versionCheck = route.indexOf("if (representation.current_version_id)");
     const formationCheck = route.indexOf(".from('representation_formation_sessions')");
     const directHireStart = route.indexOf("// Check for active Direct Hire onboarding");
