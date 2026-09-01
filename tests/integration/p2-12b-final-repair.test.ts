@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isRetryableFailure,
+  shouldAllowExplicitPreparationRetry,
   shouldAutoTriggerPreparation,
 } from '../../lib/onboarding/preparation-retry-policy';
 
@@ -64,10 +65,10 @@ describe('P2.12B Final Repair', () => {
       ).toBe(false);
     });
 
-    it('failed with retryable code and attempts < max triggers', () => {
+    it('failed with retryable code never auto-triggers', () => {
       expect(
         shouldAutoTriggerPreparation('failed', 'transient_network_error', 1, 3)
-      ).toBe(true);
+      ).toBe(false);
     });
 
     it('failed with retryable code and attempts >= max does not trigger', () => {
@@ -76,10 +77,22 @@ describe('P2.12B Final Repair', () => {
       ).toBe(false);
     });
 
-    it('failed with null code and attempts < max triggers (treats null as retryable)', () => {
+    it('failed with null code never auto-triggers', () => {
       expect(
         shouldAutoTriggerPreparation('failed', null, 1, 3)
-      ).toBe(true);
+      ).toBe(false);
+    });
+  });
+
+  describe('Retry Policy: Explicit Owner Retry', () => {
+    it('allows one explicit retry for retryable failed state below the cap', () => {
+      expect(shouldAllowExplicitPreparationRetry('failed', 'transient_network_error', 1, 3)).toBe(true);
+    });
+
+    it('rejects terminal failures, exhausted attempts, and non-failed states', () => {
+      expect(shouldAllowExplicitPreparationRetry('failed', 'brief_input_snapshot_invalid', 1, 3)).toBe(false);
+      expect(shouldAllowExplicitPreparationRetry('failed', 'transient_network_error', 3, 3)).toBe(false);
+      expect(shouldAllowExplicitPreparationRetry('running', null, 1, 3)).toBe(false);
     });
   });
 

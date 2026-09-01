@@ -2,8 +2,8 @@
  * Preparation Retry Policy
  *
  * Classifies failures as deterministic (terminal) or transient (retryable).
- * Deterministic failures must not auto-retry on page load to avoid consuming attempts.
- * Transient failures (lease expired, network) may auto-retry while attempts < max.
+ * Failed preparations never auto-retry on page load. Retryable failures may only
+ * be retried through an explicit owner action while attempts remain.
  */
 
 const TERMINAL_FAILURE_CODES = new Set([
@@ -31,10 +31,21 @@ export function shouldAutoTriggerPreparation(
     case 'running':
       return true;
     case 'failed':
-      return attemptCount < maxAttempts && isRetryableFailure(failureCode);
+      return false;
     case 'ready':
     case 'partial':
     default:
       return false;
   }
+}
+
+export function shouldAllowExplicitPreparationRetry(
+  preparationStatus: string,
+  failureCode: string | null | undefined,
+  attemptCount: number,
+  maxAttempts: number = 10,
+): boolean {
+  return preparationStatus === 'failed'
+    && attemptCount < maxAttempts
+    && isRetryableFailure(failureCode);
 }

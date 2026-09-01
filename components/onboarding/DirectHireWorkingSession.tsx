@@ -8,7 +8,10 @@ import {
   localDateTimeInTimezoneToIso,
   type DirectHireWorkingSession,
 } from "@/lib/onboarding/direct-hire-working-session";
-import { shouldAutoTriggerPreparation } from "@/lib/onboarding/preparation-retry-policy";
+import {
+  shouldAllowExplicitPreparationRetry,
+  shouldAutoTriggerPreparation,
+} from "@/lib/onboarding/preparation-retry-policy";
 
 function localInputDefault() {
   const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -35,12 +38,14 @@ export function DirectHireWorkingSessionScheduler() {
   const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any, isExplicitRetry: boolean = false) => {
     if (!workingSession?.id || !workingSession.preparationStatus || !authSession) return;
 
-    const shouldTrigger = shouldAutoTriggerPreparation(
+    const policy = isExplicitRetry
+      ? shouldAllowExplicitPreparationRetry
+      : shouldAutoTriggerPreparation;
+    if (!policy(
       workingSession.preparationStatus,
       workingSession.preparationFailureCode,
       workingSession.preparationAttemptCount ?? 0,
-    );
-    if (!shouldTrigger && !isExplicitRetry) return;
+    )) return;
 
     setPreparing(true);
     try {
@@ -86,7 +91,7 @@ export function DirectHireWorkingSessionScheduler() {
       const loadedSession = body.data ?? null;
       setWorkingSession(loadedSession);
 
-      // Auto-trigger preparation for existing pending/failed sessions
+      // Pending sessions start automatically; running sessions may safely reclaim.
       if (loadedSession) {
         await triggerPreparationIfNeeded(loadedSession, session);
       }
@@ -111,6 +116,14 @@ export function DirectHireWorkingSessionScheduler() {
       return workingSession.scheduledAt;
     }
   }, [workingSession]);
+
+  const canRetryFailedPreparation = workingSession
+    ? shouldAllowExplicitPreparationRetry(
+        workingSession.preparationStatus,
+        workingSession.preparationFailureCode,
+        workingSession.preparationAttemptCount ?? 0,
+      )
+    : false;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -285,14 +298,16 @@ export function DirectHireWorkingSessionScheduler() {
                 Preparation encountered an issue. Please contact support if the problem persists.
               </p>
               <div className="flex justify-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => workingSession && void triggerPreparationIfNeeded(workingSession, session, true)}
-                  disabled={submitting || preparing}
-                  className="rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:opacity-60"
-                >
-                  {preparing ? "Trying again…" : "Try preparation again"}
-                </button>
+                {canRetryFailedPreparation && (
+                  <button
+                    type="button"
+                    onClick={() => workingSession && void triggerPreparationIfNeeded(workingSession, session, true)}
+                    disabled={submitting || preparing}
+                    className="rounded-full bg-zeya-champagne px-7 py-3.5 text-sm font-medium text-zeya-void disabled:opacity-60"
+                  >
+                    {preparing ? "Trying again…" : "Try preparation again"}
+                  </button>
+                )}
                 <button type="button" onClick={() => setEditing(true)} className="rounded-full border border-zeya-champagne/50 px-6 py-3 text-sm">Reschedule</button>
                 <button type="button" onClick={() => void cancel()} disabled={submitting} className="rounded-full px-6 py-3 text-sm text-zeya-taupe">Cancel session</button>
               </div>
