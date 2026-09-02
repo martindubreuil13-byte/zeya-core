@@ -15,7 +15,52 @@ import {
   validateHypothesisReasoningInput,
   HypothesisReasoningValidationError,
   resolveHypothesisReasoningScope,
+  type HypothesisValidationDiagnostic,
 } from './hypothesis-reasoning-validation';
+
+export const HYPOTHESIS_REASONING_CONTRACT_VERSION = '1.1-source-semantics';
+
+export type RedactedHypothesisCandidate = {
+  domain: string | null;
+  epistemicState: string | null;
+  confidence: string | null;
+  representationRisk: string | null;
+  evidenceIds: string[];
+  beliefPresence: 'null' | 'non-null' | 'missing';
+};
+
+export type RedactedHypothesisCandidateShape = {
+  hypothesisCount: number | null;
+  generatedAtPresent: boolean;
+  hypotheses: RedactedHypothesisCandidate[];
+};
+
+export function redactHypothesisCandidate(candidate: unknown): RedactedHypothesisCandidateShape {
+  if (!candidate || typeof candidate !== 'object') {
+    return { hypothesisCount: null, generatedAtPresent: false, hypotheses: [] };
+  }
+  const record = candidate as Record<string, unknown>;
+  const hypotheses = Array.isArray(record.hypotheses) ? record.hypotheses : [];
+  return {
+    hypothesisCount: Array.isArray(record.hypotheses) ? hypotheses.length : null,
+    generatedAtPresent: typeof record.generatedAt === 'string',
+    hypotheses: hypotheses.map((item) => {
+      const hypothesis = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      return {
+        domain: typeof hypothesis.constitutionalDomain === 'string' ? hypothesis.constitutionalDomain : null,
+        epistemicState: typeof hypothesis.epistemicState === 'string' ? hypothesis.epistemicState : null,
+        confidence: typeof hypothesis.confidence === 'string' ? hypothesis.confidence : null,
+        representationRisk: typeof hypothesis.representationRisk === 'string' ? hypothesis.representationRisk : null,
+        evidenceIds: Array.isArray(hypothesis.sourceEvidenceIds)
+          ? hypothesis.sourceEvidenceIds.filter((id): id is string => typeof id === 'string')
+          : [],
+        beliefPresence: !Object.prototype.hasOwnProperty.call(hypothesis, 'currentBelief')
+          ? 'missing'
+          : hypothesis.currentBelief === null ? 'null' : 'non-null',
+      };
+    }),
+  };
+}
 
 const CONSTITUTIONAL_DOMAINS: ConstitutionalDomain[] = [
   'whatYouSell',
@@ -38,10 +83,25 @@ export type PreparationReasoningStageCode =
   | 'preparation_reasoning_readback_failed';
 
 export class PreparationReasoningStageError extends Error {
-  constructor(public readonly stageCode: PreparationReasoningStageCode) {
+  constructor(
+    public readonly stageCode: PreparationReasoningStageCode,
+    public readonly validationDiagnostic?: HypothesisValidationDiagnostic,
+    public readonly redactedCandidate?: RedactedHypothesisCandidateShape,
+  ) {
     super(stageCode);
     this.name = 'PreparationReasoningStageError';
   }
+}
+
+export function createReasoningOutputValidationFailure(
+  error: HypothesisReasoningValidationError,
+  candidate: unknown,
+): PreparationReasoningStageError {
+  return new PreparationReasoningStageError(
+    'preparation_reasoning_output_validation_failed',
+    error.diagnostic,
+    redactHypothesisCandidate(candidate),
+  );
 }
 
 // Matches OpenAI Responses API structured output schema.
@@ -397,6 +457,7 @@ export async function generateHypotheses(
   }
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const prompt = buildReasoningPrompt(req, scopedEvidence, scopedObservations);
+  let result: unknown;
 
   try {
     const response = await openai.responses.create({
@@ -420,7 +481,6 @@ export async function generateHypotheses(
       },
     });
 
-    let result: unknown;
     try {
       result = JSON.parse(response.output_text);
     } catch (parseError) {
@@ -438,7 +498,7 @@ export async function generateHypotheses(
     return validated;
   } catch (error) {
     if (error instanceof HypothesisReasoningValidationError) {
-      throw new PreparationReasoningStageError('preparation_reasoning_output_validation_failed');
+      throw createReasoningOutputValidationFailure(error, result);
     }
     throw new PreparationReasoningStageError('preparation_reasoning_provider_failed');
   }

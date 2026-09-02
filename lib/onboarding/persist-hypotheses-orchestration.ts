@@ -10,6 +10,7 @@ import type {
 } from './hypothesis-reasoning-types';
 import {
   generateHypotheses,
+  HYPOTHESIS_REASONING_CONTRACT_VERSION,
   PreparationReasoningStageError,
 } from './hypothesis-reasoning-service';
 import type {
@@ -26,7 +27,7 @@ import {
 } from './induction-evidence';
 
 // Reasoning contract version (increment when hypothesis output structure changes)
-const REASONING_CONTRACT_VERSION = '1.1-source-semantics';
+const REASONING_CONTRACT_VERSION = HYPOTHESIS_REASONING_CONTRACT_VERSION;
 
 function normalizedAuthorityHost(value?: string | null): string | null {
   if (!value) return null;

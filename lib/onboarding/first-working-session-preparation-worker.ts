@@ -9,7 +9,10 @@ import {
   FIRST_WORKING_SESSION_PREPARATION_VERSION,
   FirstWorkingSessionPreparationStageError,
 } from "./first-working-session-brief";
-import { PreparationReasoningStageError } from "./hypothesis-reasoning-service";
+import {
+  HYPOTHESIS_REASONING_CONTRACT_VERSION,
+  PreparationReasoningStageError,
+} from "./hypothesis-reasoning-service";
 import { logPreparationStage, safePreparationFailureCode } from "./preparation-telemetry";
 
 type FailureTelemetry = {
@@ -158,6 +161,14 @@ async function _runPreparationOrchestration(
     logPreparationStage(telemetry, terminalStage, "failed", {
       failureCode,
       failurePersistenceSucceeded,
+      ...(error instanceof PreparationReasoningStageError && error.validationDiagnostic ? {
+        validationRuleCode: error.validationDiagnostic.ruleCode,
+        validationDomain: error.validationDiagnostic.domain,
+        validationField: error.validationDiagnostic.field,
+        validationExpectedCategory: error.validationDiagnostic.expectedCategory,
+        validationActualCategory: error.validationDiagnostic.actualCategory,
+        reasoningContractVersion: HYPOTHESIS_REASONING_CONTRACT_VERSION,
+      } : {}),
     });
     if (error && typeof error === "object") {
       failureTelemetry.set(error, { terminalStage, failureCode, failurePersistenceSucceeded });

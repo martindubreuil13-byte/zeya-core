@@ -1,0 +1,562 @@
+{
+    "request": {
+        "scope": {
+            "mode": "all_domains"
+        },
+        "ownerName": "Owner",
+        "businessId": "049d1a9c-c0dc-4113-ab31-44633e5a4141",
+        "businessName": "Business",
+        "requestTraceId": "recomputed-by-replay",
+        "onboardingSessionId": "ba4bb9d8-9e81-4d3d-acef-46406062c3b9",
+        "businessRepresentationId": "886b773d-5c26-42e1-8089-17ae3c28fa96"
+    },
+    "evidence": [
+        {
+            "id": "31ccf97d-edb4-41a4-a9bb-49d35bdd4e20",
+            "sourceType": "direct_hire_induction",
+            "rawStatement": "Business Architecture and Intelligence Implementation (AI)",
+            "authority_key": "owner",
+            "authority_type": "owner",
+            "source_selector": null,
+            "affected_domains": [
+                "whatYouSell"
+            ],
+            "source_page_type": null,
+            "logical_source_key": "owner-origin:31ccf97d-edb4-41a4-a9bb-49d35bdd4e20",
+            "source_content_hash": null,
+            "source_retrieved_at": null,
+            "canonical_source_url": null,
+            "requested_source_url": null,
+            "source_evidence_kind": null
+        },
+        {
+            "id": "241f3f82-4961-4429-a156-fe809db229f2",
+            "sourceType": "direct_hire_induction",
+            "rawStatement": "Aspiring Entrepreneurs, startups, small businesses who want to scale and grow",
+            "authority_key": "owner",
+            "authority_type": "owner",
+            "source_selector": null,
+            "affected_domains": [
+                "whoItIsFor"
+            ],
+            "source_page_type": null,
+            "logical_source_key": "owner-origin:241f3f82-4961-4429-a156-fe809db229f2",
+            "source_content_hash": null,
+            "source_retrieved_at": null,
+            "canonical_source_url": null,
+            "requested_source_url": null,
+            "source_evidence_kind": null
+        },
+        {
+            "id": "fc13a8b2-945f-4b3c-9b00-d8c619eb2943",
+            "sourceType": "direct_hire_induction",
+            "rawStatement": "SME who wish to leverage AI.  AI is a big topic, everyone wants it but often the organisation need to be rearchitected around intelligence.  Plugging AI on obsolete processes is #1 reason why AI fail",
+            "authority_key": "owner",
+            "authority_type": "owner",
+            "source_selector": null,
+            "affected_domains": [
+            ],
+            "source_page_type": null,
+            "logical_source_key": "owner-origin:fc13a8b2-945f-4b3c-9b00-d8c619eb2943",
+            "source_content_hash": null,
+            "source_retrieved_at": null,
+            "canonical_source_url": null,
+            "requested_source_url": null,
+            "source_evidence_kind": null
+        },
+        {
+            "id": "794af057-35ec-48d2-8a9a-98a0bdf4b7e9",
+            "sourceType": "direct_hire_induction",
+            "rawStatement": "I coach entrepreneur in using AI and use a proprietary methodology called DRAW to help enterprise rearchitect their businesses around human and artificial intelligence to adapt to this new era",
+            "authority_key": "owner",
+            "authority_type": "owner",
+            "source_selector": null,
+            "affected_domains": [
+            ],
+            "source_page_type": null,
+            "logical_source_key": "owner-origin:794af057-35ec-48d2-8a9a-98a0bdf4b7e9",
+            "source_content_hash": null,
+            "source_retrieved_at": null,
+            "canonical_source_url": null,
+            "requested_source_url": null,
+            "source_evidence_kind": null
+        },
+        {
+            "id": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "sourceType": "public_website",
+            "rawStatement": "Business Architecture for entrepreneurs: test what's worth building, architect how the business will work, and make it exist.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "meta[name=description]",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "registered_public_page",
+            "logical_source_key": "registered-source:7e6c4bf0-7f74-4af2-868e-2a1eb1f67ca2",
+            "source_content_hash": "4ed7064b1f8c63afbfe7bc6c48bfdaf28e7088dd73debf1be18a4c13e67ef93e",
+            "source_retrieved_at": "2026-08-29T09:56:12.086+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com",
+            "source_evidence_kind": "meta_description"
+        },
+        {
+            "id": "623f58da-623a-476b-8eb4-ef7dbd795cf9",
+            "sourceType": "public_website",
+            "rawStatement": "The Modern Business Architect",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "title",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "registered_public_page",
+            "logical_source_key": "registered-source:7e6c4bf0-7f74-4af2-868e-2a1eb1f67ca2",
+            "source_content_hash": "4ed7064b1f8c63afbfe7bc6c48bfdaf28e7088dd73debf1be18a4c13e67ef93e",
+            "source_retrieved_at": "2026-08-29T09:56:12.086+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com",
+            "source_evidence_kind": "title"
+        },
+        {
+            "id": "6f792c1c-2a79-4d8f-a3fd-e0a9ff8c9267",
+            "sourceType": "public_website",
+            "rawStatement": "You've gotan idea.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "h1",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "registered_public_page",
+            "logical_source_key": "registered-source:7e6c4bf0-7f74-4af2-868e-2a1eb1f67ca2",
+            "source_content_hash": "4ed7064b1f8c63afbfe7bc6c48bfdaf28e7088dd73debf1be18a4c13e67ef93e",
+            "source_retrieved_at": "2026-08-29T09:56:12.086+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com",
+            "source_evidence_kind": "primary_heading"
+        },
+        {
+            "id": "fb53ba28-d51d-41aa-8cad-0388fbf3a2cf",
+            "sourceType": "public_website",
+            "rawStatement": "You've gotan idea.And inside that idea,there might be a business.Let's find out →",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "main",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "registered_public_page",
+            "logical_source_key": "registered-source:7e6c4bf0-7f74-4af2-868e-2a1eb1f67ca2",
+            "source_content_hash": "4ed7064b1f8c63afbfe7bc6c48bfdaf28e7088dd73debf1be18a4c13e67ef93e",
+            "source_retrieved_at": "2026-08-29T09:56:12.086+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com",
+            "source_evidence_kind": "registered_page_excerpt"
+        },
+        {
+            "id": "180953d9-0b34-465a-b168-8ef69e8d12d2",
+            "sourceType": "public_website",
+            "rawStatement": "Whereare you?",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "h1",
+            "affected_domains": [
+                "offer",
+                "whatYouSell",
+                "problemOrAspiration"
+            ],
+            "source_page_type": "products_services",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/work",
+            "source_content_hash": "ac650cc4c8994fe329ebc6d009278d46ccea08b9f4eb01ce1a1e1167c4026324",
+            "source_retrieved_at": "2026-09-01T11:18:29.871+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/work",
+            "requested_source_url": "https://modernbusinessarchitect.com/work",
+            "source_evidence_kind": "primary_heading"
+        },
+        {
+            "id": "23a82498-7699-48b3-b9fb-acdbc1ffbc00",
+            "sourceType": "public_website",
+            "rawStatement": "Let’s talk.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "h1",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "contact",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/contact",
+            "source_content_hash": "25cd536aececc9abc404cd696772513cdb2421643cad94f1e509ae44c6bc08b3",
+            "source_retrieved_at": "2026-09-01T11:18:29.904+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/contact",
+            "requested_source_url": "https://modernbusinessarchitect.com/contact",
+            "source_evidence_kind": "primary_heading"
+        },
+        {
+            "id": "51fd341c-a02e-4b3a-a712-20f2498b8162",
+            "sourceType": "public_website",
+            "rawStatement": "You've gotan idea.And inside that idea,there might be a business.Let's find out →",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "main",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "homepage",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/",
+            "source_content_hash": "048e0f73a50e3b4d389a493013c9981948bfcfc0fc8eea2e50f295beae3549c2",
+            "source_retrieved_at": "2026-09-01T11:18:28.868+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com/",
+            "source_evidence_kind": "main_excerpt"
+        },
+        {
+            "id": "567ae160-da9e-41ad-9a79-26264b749fd1",
+            "sourceType": "public_website",
+            "rawStatement": "Let’s talk.If you’re serious about building something that actually works, choose the easiest way to reach out.Message on WhatsAppSend an EmailBook a CallNo pressure. Just a quick conversation to see if this makes sense.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "main",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "contact",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/contact",
+            "source_content_hash": "25cd536aececc9abc404cd696772513cdb2421643cad94f1e509ae44c6bc08b3",
+            "source_retrieved_at": "2026-09-01T11:18:29.904+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/contact",
+            "requested_source_url": "https://modernbusinessarchitect.com/contact",
+            "source_evidence_kind": "main_excerpt"
+        },
+        {
+            "id": "57af1f1c-9425-450b-b34c-202a2dfc36b1",
+            "sourceType": "public_website",
+            "rawStatement": "I've startedbuilding something.: But I'm not sure how to turn it into a business—or take it to market.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "main heading[3] (h3)",
+            "affected_domains": [
+                "offer",
+                "whatYouSell",
+                "problemOrAspiration"
+            ],
+            "source_page_type": "products_services",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/work",
+            "source_content_hash": "ac650cc4c8994fe329ebc6d009278d46ccea08b9f4eb01ce1a1e1167c4026324",
+            "source_retrieved_at": "2026-09-01T11:18:29.871+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/work",
+            "requested_source_url": "https://modernbusinessarchitect.com/work",
+            "source_evidence_kind": "section_text"
+        },
+        {
+            "id": "65492595-4e70-4844-beb2-7d1c78c12d5b",
+            "sourceType": "public_website",
+            "rawStatement": "The Modern Business Architect",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "title",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "homepage",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/",
+            "source_content_hash": "048e0f73a50e3b4d389a493013c9981948bfcfc0fc8eea2e50f295beae3549c2",
+            "source_retrieved_at": "2026-09-01T11:18:28.868+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com/",
+            "source_evidence_kind": "title"
+        },
+        {
+            "id": "7deaee1d-3ca0-40f4-9ca2-6370b23927fc",
+            "sourceType": "public_website",
+            "rawStatement": "Contact Martin Dubreuil | The Modern Business Architect",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "title",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "contact",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/contact",
+            "source_content_hash": "25cd536aececc9abc404cd696772513cdb2421643cad94f1e509ae44c6bc08b3",
+            "source_retrieved_at": "2026-09-01T11:18:29.904+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/contact",
+            "requested_source_url": "https://modernbusinessarchitect.com/contact",
+            "source_evidence_kind": "title"
+        },
+        {
+            "id": "7f561764-565c-4110-aee3-5b6fa9d2d540",
+            "sourceType": "public_website",
+            "rawStatement": "Business Architecture | The Modern Business Architect",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "title",
+            "affected_domains": [
+                "offer",
+                "whatYouSell",
+                "problemOrAspiration"
+            ],
+            "source_page_type": "products_services",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/work",
+            "source_content_hash": "ac650cc4c8994fe329ebc6d009278d46ccea08b9f4eb01ce1a1e1167c4026324",
+            "source_retrieved_at": "2026-09-01T11:18:29.871+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/work",
+            "requested_source_url": "https://modernbusinessarchitect.com/work",
+            "source_evidence_kind": "title"
+        },
+        {
+            "id": "a9474676-0355-4c33-97ea-f121dbe70e6d",
+            "sourceType": "public_website",
+            "rawStatement": "You've gotan idea.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "h1",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "homepage",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/",
+            "source_content_hash": "048e0f73a50e3b4d389a493013c9981948bfcfc0fc8eea2e50f295beae3549c2",
+            "source_retrieved_at": "2026-09-01T11:18:28.868+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com/",
+            "source_evidence_kind": "primary_heading"
+        },
+        {
+            "id": "ca5f090a-6318-4c0e-a64d-4814b3ebf344",
+            "sourceType": "public_website",
+            "rawStatement": "Contact Martin Dubreuil by WhatsApp, email or scheduled call.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "meta[name=description]",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "contact",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/contact",
+            "source_content_hash": "25cd536aececc9abc404cd696772513cdb2421643cad94f1e509ae44c6bc08b3",
+            "source_retrieved_at": "2026-09-01T11:18:29.904+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/contact",
+            "requested_source_url": "https://modernbusinessarchitect.com/contact",
+            "source_evidence_kind": "meta_description"
+        },
+        {
+            "id": "cd63f0cb-8fc1-43ec-a15b-f4796ec3bfa5",
+            "sourceType": "public_website",
+            "rawStatement": "I havean idea.: But I don't know if it could actually become a business.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "main heading[2] (h3)",
+            "affected_domains": [
+                "offer",
+                "whatYouSell",
+                "problemOrAspiration"
+            ],
+            "source_page_type": "products_services",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/work",
+            "source_content_hash": "ac650cc4c8994fe329ebc6d009278d46ccea08b9f4eb01ce1a1e1167c4026324",
+            "source_retrieved_at": "2026-09-01T11:18:29.871+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/work",
+            "requested_source_url": "https://modernbusinessarchitect.com/work",
+            "source_evidence_kind": "section_text"
+        },
+        {
+            "id": "dd8ba59a-abd0-417b-b5d3-c327ff256183",
+            "sourceType": "public_website",
+            "rawStatement": "Business Architecture for entrepreneurs: test what's worth building, architect how the business will work, and make it exist.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "meta[name=description]",
+            "affected_domains": [
+                "business_identity",
+                "offer",
+                "positioning",
+                "proposedDescription"
+            ],
+            "source_page_type": "homepage",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/",
+            "source_content_hash": "048e0f73a50e3b4d389a493013c9981948bfcfc0fc8eea2e50f295beae3549c2",
+            "source_retrieved_at": "2026-09-01T11:18:28.868+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/",
+            "requested_source_url": "https://modernbusinessarchitect.com/",
+            "source_evidence_kind": "meta_description"
+        },
+        {
+            "id": "e252231d-9b3f-4668-9058-f764b8fa9d07",
+            "sourceType": "public_website",
+            "rawStatement": "Explore how business architecture moves ideas from uncertainty through validation, structure and execution.",
+            "authority_key": "first-party-site:modernbusinessarchitect.com",
+            "authority_type": "first_party_company",
+            "source_selector": "meta[name=description]",
+            "affected_domains": [
+                "offer",
+                "whatYouSell",
+                "problemOrAspiration"
+            ],
+            "source_page_type": "products_services",
+            "logical_source_key": "webpage:https://modernbusinessarchitect.com/work",
+            "source_content_hash": "ac650cc4c8994fe329ebc6d009278d46ccea08b9f4eb01ce1a1e1167c4026324",
+            "source_retrieved_at": "2026-09-01T11:18:29.871+00:00",
+            "canonical_source_url": "https://modernbusinessarchitect.com/work",
+            "requested_source_url": "https://modernbusinessarchitect.com/work",
+            "source_evidence_kind": "meta_description"
+        }
+    ],
+    "observations": [
+        {
+            "id": "b08c6590-cc5e-4fa1-b8d6-c2e15737c816",
+            "category": null,
+            "evidenceId": "57af1f1c-9425-450b-b34c-202a2dfc36b1",
+            "evidenceIds": [
+                "57af1f1c-9425-450b-b34c-202a2dfc36b1"
+            ],
+            "affected_domains": [
+                "offer"
+            ],
+            "interpreted_meaning": "The services page appears to emphasize this public description: “I've startedbuilding something.: But I'm not sure how to turn it into a business—or take it to market.”",
+            "confidence_in_interpretation": 50
+        },
+        {
+            "id": "ccbdae24-98ba-402e-b11d-66f2952e5f1e",
+            "category": null,
+            "evidenceId": "dd8ba59a-abd0-417b-b5d3-c327ff256183",
+            "evidenceIds": [
+                "dd8ba59a-abd0-417b-b5d3-c327ff256183"
+            ],
+            "affected_domains": [
+                "positioning"
+            ],
+            "interpreted_meaning": "The homepage appears to position the business with this language: “Business Architecture for entrepreneurs: test what's worth building, architect how the business will work, and make it exist.”",
+            "confidence_in_interpretation": 50
+        },
+        {
+            "id": "64bc88d3-3852-4c68-b4be-54e35b7eceb0",
+            "category": "segmentation",
+            "evidenceId": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "evidenceIds": [
+                "14588b5f-2397-4f9e-a934-50e65aa94f44",
+                "51fd341c-a02e-4b3a-a712-20f2498b8162",
+                "6f792c1c-2a79-4d8f-a3fd-e0a9ff8c9267",
+                "a9474676-0355-4c33-97ea-f121dbe70e6d",
+                "cd63f0cb-8fc1-43ec-a15b-f4796ec3bfa5",
+                "dd8ba59a-abd0-417b-b5d3-c327ff256183"
+            ],
+            "affected_domains": [
+                "problemOrAspiration",
+                "whatYouSell",
+                "whoItIsFor"
+            ],
+            "interpreted_meaning": "The public material acquired appears to address distinct customer moments: evaluating whether an idea can become a viable business, and turning early work into a structured business, and moving into execution or market readiness.",
+            "confidence_in_interpretation": 65
+        },
+        {
+            "id": "8e43486f-9024-4ecf-89c3-805e19abd13a",
+            "category": "pattern",
+            "evidenceId": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "evidenceIds": [
+                "14588b5f-2397-4f9e-a934-50e65aa94f44",
+                "51fd341c-a02e-4b3a-a712-20f2498b8162",
+                "6f792c1c-2a79-4d8f-a3fd-e0a9ff8c9267",
+                "a9474676-0355-4c33-97ea-f121dbe70e6d",
+                "cd63f0cb-8fc1-43ec-a15b-f4796ec3bfa5",
+                "dd8ba59a-abd0-417b-b5d3-c327ff256183"
+            ],
+            "affected_domains": [
+                "problemOrAspiration",
+                "whatYouSell",
+                "whyCustomersShouldCare"
+            ],
+            "interpreted_meaning": "Across the public pages acquired, the customer journey appears to progress from validation, through business structure, into execution or market readiness.",
+            "confidence_in_interpretation": 65
+        },
+        {
+            "id": "bf92ac42-221b-4212-96ee-295512516640",
+            "category": "confirmation",
+            "evidenceId": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "evidenceIds": [
+                "14588b5f-2397-4f9e-a934-50e65aa94f44",
+                "241f3f82-4961-4429-a156-fe809db229f2",
+                "31ccf97d-edb4-41a4-a9bb-49d35bdd4e20",
+                "51fd341c-a02e-4b3a-a712-20f2498b8162",
+                "57af1f1c-9425-450b-b34c-202a2dfc36b1",
+                "794af057-35ec-48d2-8a9a-98a0bdf4b7e9"
+            ],
+            "affected_domains": [
+                "proposedDescription",
+                "whatYouSell",
+                "whoItIsFor"
+            ],
+            "interpreted_meaning": "Owner-provided material and the public pages acquired independently align around entrepreneur, architecture, busines.",
+            "confidence_in_interpretation": 85
+        },
+        {
+            "id": "c058319a-2d72-4d98-988e-1f48f780fbc6",
+            "category": "contradiction",
+            "evidenceId": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "evidenceIds": [
+                "14588b5f-2397-4f9e-a934-50e65aa94f44",
+                "57af1f1c-9425-450b-b34c-202a2dfc36b1"
+            ],
+            "affected_domains": [
+                "clarificationsNeeded",
+                "proposedDescription"
+            ],
+            "interpreted_meaning": "Governed sources materially conflict about busines; the conflict remains unresolved and requires owner verification.",
+            "confidence_in_interpretation": 50
+        },
+        {
+            "id": "e0627d8c-716b-44b7-85cb-f27e9a012db7",
+            "category": "tension",
+            "evidenceId": "14588b5f-2397-4f9e-a934-50e65aa94f44",
+            "evidenceIds": [
+                "14588b5f-2397-4f9e-a934-50e65aa94f44",
+                "31ccf97d-edb4-41a4-a9bb-49d35bdd4e20",
+                "51fd341c-a02e-4b3a-a712-20f2498b8162",
+                "6f792c1c-2a79-4d8f-a3fd-e0a9ff8c9267",
+                "794af057-35ec-48d2-8a9a-98a0bdf4b7e9",
+                "fc13a8b2-945f-4b3c-9b00-d8c619eb2943"
+            ],
+            "affected_domains": [
+                "clarificationsNeeded",
+                "proposedDescription",
+                "whatYouSell"
+            ],
+            "interpreted_meaning": "Owner-provided material emphasizes intelligence and around, while the public pages acquired emphasize idea, gotan, architect more strongly. This is a positioning-emphasis tension, not proof of a factual contradiction.",
+            "confidence_in_interpretation": 75
+        }
+    ],
+    "failedCorrelationId": "75414cab-6b2c-4aa9-a549-55a7ccb4d6e2",
+    "reasoningContractVersion": "1.1-source-semantics"
+}
