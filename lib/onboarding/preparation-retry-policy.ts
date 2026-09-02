@@ -24,7 +24,9 @@ export function shouldAutoTriggerPreparation(
   failureCode: string | null | undefined,
   attemptCount: number,
   maxAttempts: number = 10,
+  preparationCurrent: boolean = true,
 ): boolean {
+  if (attemptCount >= maxAttempts) return false;
   switch (preparationStatus) {
     case 'pending':
       return true;
@@ -33,10 +35,32 @@ export function shouldAutoTriggerPreparation(
     case 'failed':
       return false;
     case 'ready':
+      return !preparationCurrent;
     case 'partial':
     default:
       return false;
   }
+}
+
+export type PreparationRequestGuard = {
+  tryStart(sessionId: string, explicitRetry?: boolean): boolean;
+  finish(sessionId: string): void;
+};
+
+export function createPreparationRequestGuard(): PreparationRequestGuard {
+  const inFlight = new Set<string>();
+  const automaticallyAttempted = new Set<string>();
+  return {
+    tryStart(sessionId, explicitRetry = false) {
+      if (inFlight.has(sessionId) || (!explicitRetry && automaticallyAttempted.has(sessionId))) return false;
+      inFlight.add(sessionId);
+      if (!explicitRetry) automaticallyAttempted.add(sessionId);
+      return true;
+    },
+    finish(sessionId) {
+      inFlight.delete(sessionId);
+    },
+  };
 }
 
 export function shouldAllowExplicitPreparationRetry(

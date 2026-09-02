@@ -5,6 +5,7 @@ import {
   parseFutureScheduledAt,
   type DirectHireWorkingSession,
 } from "@/lib/onboarding/direct-hire-working-session";
+import { isFirstWorkingSessionPreparationCurrentAndUsable } from "@/lib/onboarding/first-working-session-currentness";
 
 type WorkingSessionRow = {
   id: string;
@@ -16,6 +17,7 @@ type WorkingSessionRow = {
   scheduling_timezone: string;
   status: "scheduled" | "cancelled" | "completed";
   preparation_status: "pending" | "running" | "ready" | "partial" | "failed";
+  preparation_contract_version: string | null;
   preparation_failure_code: string | null;
   preparation_attempt_count: number;
 };
@@ -34,6 +36,8 @@ function project(row: WorkingSessionRow): DirectHireWorkingSession {
     schedulingTimezone: row.scheduling_timezone,
     status: row.status,
     preparationStatus: row.preparation_status,
+    preparationContractVersion: row.preparation_contract_version ?? null,
+    preparationCurrent: isFirstWorkingSessionPreparationCurrentAndUsable(row),
     preparationFailureCode: row.preparation_failure_code,
     preparationAttemptCount: row.preparation_attempt_count,
   };
@@ -54,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   const result = await auth.supabase
     .from("direct_hire_working_sessions")
-    .select("id,owner_id,direct_hire_onboarding_session_id,formation_session_id,session_kind,scheduled_at,scheduling_timezone,status,preparation_status,preparation_failure_code,preparation_attempt_count")
+    .select("id,owner_id,direct_hire_onboarding_session_id,formation_session_id,session_kind,scheduled_at,scheduling_timezone,status,preparation_status,preparation_contract_version,preparation_failure_code,preparation_attempt_count")
     .eq("owner_id", auth.user.id)
     .eq("session_kind", "first_working_session")
     .eq("status", "scheduled")

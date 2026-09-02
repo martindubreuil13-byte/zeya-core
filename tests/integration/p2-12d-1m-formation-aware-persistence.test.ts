@@ -67,9 +67,10 @@ describe('P2.12D.1m formation-aware website persistence', () => {
 
 describe('P2.12D.1m failed-state UI wiring', () => {
   it('uses separate automatic and explicit retry policies', () => {
-    expect(component).toContain('const policy = isExplicitRetry');
-    expect(component).toContain('? shouldAllowExplicitPreparationRetry');
-    expect(component).toContain(': shouldAutoTriggerPreparation');
+    expect(component).toContain('const shouldTrigger = isExplicitRetry');
+    expect(component).toContain('? shouldAllowExplicitPreparationRetry(');
+    expect(component).toContain(': shouldAutoTriggerPreparation(');
+    expect(component).toContain('preparationRequestGuard.current.tryStart');
     expect(component).toContain('triggerPreparationIfNeeded(workingSession, session, true)');
   });
 

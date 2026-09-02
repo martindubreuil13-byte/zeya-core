@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { authenticatedFetch } from "@/lib/auth/authenticated-fetch";
 import {
   localDateTimeInTimezoneToIso,
+  canStartDirectHireWorkingSession,
   type DirectHireWorkingSession,
 } from "@/lib/onboarding/direct-hire-working-session";
 import {
   shouldAllowExplicitPreparationRetry,
   shouldAutoTriggerPreparation,
+  createPreparationRequestGuard,
 } from "@/lib/onboarding/preparation-retry-policy";
 
 function localInputDefault() {
@@ -34,18 +36,26 @@ export function DirectHireWorkingSessionScheduler() {
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [renderedAt] = useState(() => Date.now());
+  const preparationRequestGuard = useRef(createPreparationRequestGuard());
 
   const triggerPreparationIfNeeded = useCallback(async (workingSession: DirectHireWorkingSession, authSession: any, isExplicitRetry: boolean = false) => {
     if (!workingSession?.id || !workingSession.preparationStatus || !authSession) return;
 
-    const policy = isExplicitRetry
-      ? shouldAllowExplicitPreparationRetry
-      : shouldAutoTriggerPreparation;
-    if (!policy(
-      workingSession.preparationStatus,
-      workingSession.preparationFailureCode,
-      workingSession.preparationAttemptCount ?? 0,
-    )) return;
+    const shouldTrigger = isExplicitRetry
+      ? shouldAllowExplicitPreparationRetry(
+          workingSession.preparationStatus,
+          workingSession.preparationFailureCode,
+          workingSession.preparationAttemptCount ?? 0,
+        )
+      : shouldAutoTriggerPreparation(
+          workingSession.preparationStatus,
+          workingSession.preparationFailureCode,
+          workingSession.preparationAttemptCount ?? 0,
+          10,
+          workingSession.preparationCurrent,
+        );
+    if (!shouldTrigger) return;
+    if (!preparationRequestGuard.current.tryStart(workingSession.id, isExplicitRetry)) return;
 
     setPreparing(true);
     try {
@@ -58,19 +68,21 @@ export function DirectHireWorkingSessionScheduler() {
         },
       );
       const body = await response.json().catch(() => ({}));
-
-      if (body.data?.preparationStatus) {
-        setWorkingSession((prev) =>
-          prev ? { ...prev,
-            preparationStatus: body.data.preparationStatus,
-            preparationFailureCode: body.data.preparationFailureCode ?? null,
-            preparationAttemptCount: body.data.preparationAttemptCount ?? 0,
-          } : null
-        );
+      const refreshedResponse = await authenticatedFetch(
+        "/api/onboarding/direct-hire/working-session",
+        authSession,
+      );
+      const refreshedBody = await refreshedResponse.json().catch(() => ({}));
+      if (refreshedResponse.ok && refreshedBody.success) {
+        setWorkingSession(refreshedBody.data ?? null);
+      } else {
+        setError(refreshedBody.error || "working_session_lookup_failed");
       }
+      if (!response.ok || !body.success) setError(body.error || "preparation_failed");
     } catch (error) {
       console.debug("[DirectHireWorkingSession] preparation trigger failed", error);
     } finally {
+      preparationRequestGuard.current.finish(workingSession.id);
       setPreparing(false);
     }
   }, []);
@@ -90,10 +102,11 @@ export function DirectHireWorkingSessionScheduler() {
       }
       const loadedSession = body.data ?? null;
       setWorkingSession(loadedSession);
+      setLoading(false);
 
       // Pending sessions start automatically; running sessions may safely reclaim.
       if (loadedSession) {
-        await triggerPreparationIfNeeded(loadedSession, session);
+        void triggerPreparationIfNeeded(loadedSession, session);
       }
     } catch {
       setError("working_session_lookup_failed");
@@ -157,32 +170,8 @@ export function DirectHireWorkingSessionScheduler() {
       setWorkingSession(scheduledSession);
       setEditing(false);
 
-      // Trigger preparation asynchronously for the newly scheduled session
-      if (scheduledSession?.id) {
-        authenticatedFetch(
-          `/api/onboarding/direct-hire/working-session/${scheduledSession.id}/prepare`,
-          session,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          },
-        )
-          .then((res) => res.json().catch(() => ({})))
-          .then((result) => {
-            if (result.success && result.data?.preparationStatus) {
-              // Update session with new preparation status from preparation response
-              setWorkingSession((prev) =>
-                prev
-                  ? { ...prev, preparationStatus: result.data.preparationStatus }
-                  : null
-              );
-            }
-          })
-          .catch(() => {
-            // Preparation fetch error is not a critical failure
-            // Status will be updated on next page load via GET endpoint
-          });
-      }
+      // Use the same guarded, authoritative preparation path as page re-entry.
+      if (scheduledSession?.id) void triggerPreparationIfNeeded(scheduledSession, session);
     } catch {
       setError("working_session_persistence_failed");
     } finally {
@@ -244,15 +233,22 @@ export function DirectHireWorkingSessionScheduler() {
   if (loading) return <p className="text-zeya-taupe" role="status">Loading our schedule…</p>;
 
   if (workingSession && !editing) {
-    const isReady = workingSession.preparationStatus === "ready";
+    const isReady = workingSession.preparationStatus === "ready" && workingSession.preparationCurrent;
+    const isStaleReady = workingSession.preparationStatus === "ready" && !workingSession.preparationCurrent;
+    const staleAtAttemptCap = isStaleReady && (workingSession.preparationAttemptCount ?? 0) >= 10;
     const isPartial = workingSession.preparationStatus === "partial";
     const isFailed = workingSession.preparationStatus === "failed";
     const isPending = workingSession.preparationStatus === "pending";
     const isRunning = workingSession.preparationStatus === "running";
+    const canStart = canStartDirectHireWorkingSession(workingSession);
 
     let preparationHeadline: string;
     if (isReady || isPartial) {
       preparationHeadline = "I’m ready for our first working session.";
+    } else if (staleAtAttemptCap) {
+      preparationHeadline = "My preparation needs attention before we begin.";
+    } else if (isStaleReady) {
+      preparationHeadline = "I’m preparing before we speak.";
     } else if (isFailed) {
       preparationHeadline = "I encountered a problem during preparation.";
     } else if (new Date(workingSession.scheduledAt).getTime() <= renderedAt) {
@@ -281,7 +277,7 @@ export function DirectHireWorkingSessionScheduler() {
         )}
 
         <div className="mt-9 flex flex-col gap-3">
-          {(isReady || isPartial) && (
+          {canStart && (
             <button
               type="button"
               onClick={() => void startWorkingSession()}
