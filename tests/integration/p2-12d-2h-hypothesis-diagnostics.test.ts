@@ -7,6 +7,8 @@ import {
 } from "../../lib/onboarding/hypothesis-reasoning-validation";
 import {
   HYPOTHESIS_REASONING_CONTRACT_VERSION,
+  buildHypothesisSchema,
+  buildReasoningPrompt,
   createReasoningOutputValidationFailure,
   redactHypothesisCandidate,
 } from "../../lib/onboarding/hypothesis-reasoning-service";
@@ -56,6 +58,27 @@ function invalid(mutator: (candidate: any) => void) {
 }
 
 describe("P2.12D.2h stable hypothesis diagnostics", () => {
+  it("constrains provider citations to supplied Evidence IDs, never Observation IDs", () => {
+    const allowedEvidenceIds = fixture.evidence.map(item => item.id);
+    const observationIds = fixture.observations.map(item => item.id);
+    const schema = buildHypothesisSchema({ mode: "all_domains" }, allowedEvidenceIds);
+    const sourceEvidenceItems = schema.properties.hypotheses.items.properties.sourceEvidenceIds.items;
+
+    expect(sourceEvidenceItems.enum).toEqual(allowedEvidenceIds);
+    expect(sourceEvidenceItems.enum).toHaveLength(fixture.evidence.length);
+    expect(sourceEvidenceItems.enum).toEqual(expect.arrayContaining(allowedEvidenceIds));
+    expect(observationIds.some(id => sourceEvidenceItems.enum.includes(id))).toBe(false);
+  });
+
+  it("marks Observation IDs non-citable and their supporting Evidence IDs citable", () => {
+    const prompt = buildReasoningPrompt(fixture.request, fixture.evidence as EvidenceInput[], fixture.observations);
+    const multiEvidenceObservation = fixture.observations.find(item => (item.evidenceIds?.length ?? 0) > 1)!;
+
+    expect(prompt).toContain(`Observation ID — NON-CITABLE: ${multiEvidenceObservation.id}`);
+    expect(prompt).toContain(`CITABLE SUPPORTING EVIDENCE IDS: ${multiEvidenceObservation.evidenceIds.join(", ")}`);
+    expect(prompt).toContain("never cite the Observation ID as Evidence");
+  });
+
   it("attributes a non-object result", () => {
     expect(() => validateHypothesisReasoningResult(null, evidenceIds, evidenceMetadata)).toThrowError(expect.objectContaining({ diagnostic: expect.objectContaining({ ruleCode: "HYPOTHESIS_RESULT_NOT_OBJECT" }) }));
   });

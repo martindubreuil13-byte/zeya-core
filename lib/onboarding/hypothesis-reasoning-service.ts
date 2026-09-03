@@ -105,7 +105,10 @@ export function createReasoningOutputValidationFailure(
 }
 
 // Matches OpenAI Responses API structured output schema.
-export function buildHypothesisSchema(scope: HypothesisReasoningScope) {
+export function buildHypothesisSchema(
+  scope: HypothesisReasoningScope,
+  allowedEvidenceIds: string[]
+) {
   const outputCount = scope.mode === 'specific_domain' ? 1 : 7;
   const domainEnum = scope.mode === 'specific_domain'
     ? [scope.constitutionalDomain]
@@ -146,9 +149,10 @@ export function buildHypothesisSchema(scope: HypothesisReasoningScope) {
           },
           sourceEvidenceIds: {
             type: 'array',
-            items: {
-              type: 'string',
-            },
+            items: allowedEvidenceIds.length > 0
+              ? { type: 'string', enum: allowedEvidenceIds }
+              : { type: 'string' },
+            ...(allowedEvidenceIds.length === 0 ? { maxItems: 0 } : {}),
           },
           evidenceCutoffAt: {
             type: 'string',
@@ -231,7 +235,9 @@ export function buildReasoningPrompt(
   const observationText = observations
     .map(
       o =>
-        `Observation ${o.id} (${o.category ?? 'legacy interpretation'}; supported by Evidence ${(o.evidenceIds ?? [o.evidenceId]).join(', ')}):
+        `Observation ID — NON-CITABLE: ${o.id}
+  Category: ${o.category ?? 'legacy interpretation'}
+  CITABLE SUPPORTING EVIDENCE IDS: ${(o.evidenceIds ?? [o.evidenceId]).join(', ')}
   Interpretation: ${o.interpreted_meaning}
   Confidence: ${o.confidence_in_interpretation}%
   Domains: ${o.affected_domains.join(', ')}`
@@ -475,7 +481,7 @@ export async function generateHypotheses(
         format: {
           type: 'json_schema',
           name: 'hypothesis_reasoning_result',
-          schema: buildHypothesisSchema(scope),
+          schema: buildHypothesisSchema(scope, [...scopedEvidenceIds]),
           strict: true,
         },
       },

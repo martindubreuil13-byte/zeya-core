@@ -41,14 +41,14 @@ function hypothesis(domain = 'whatYouSell') {
 
 describe('single-domain hypothesis reasoning contract', () => {
   it('keeps all-domains schema at exactly seven outputs', () => {
-    const schema = buildHypothesisSchema({ mode: 'all_domains' });
+    const schema = buildHypothesisSchema({ mode: 'all_domains' }, ['e1']);
     expect(schema.properties.hypotheses.minItems).toBe(7);
     expect(schema.properties.hypotheses.maxItems).toBe(7);
     expect(schema.properties.hypotheses.items.properties.constitutionalDomain.enum).toHaveLength(7);
   });
 
   it('requests exactly one requested-domain output in structured schema', () => {
-    const schema = buildHypothesisSchema(specificRequest.scope!);
+    const schema = buildHypothesisSchema(specificRequest.scope!, ['correction-evidence']);
     expect(schema.properties.hypotheses.minItems).toBe(1);
     expect(schema.properties.hypotheses.maxItems).toBe(1);
     expect(schema.properties.hypotheses.items.properties.constitutionalDomain.enum).toEqual(['whatYouSell']);
@@ -70,7 +70,7 @@ describe('single-domain hypothesis reasoning contract', () => {
       new Set(['correction-evidence']),
       undefined,
       specificRequest.scope
-    )).toThrow(/Expected constitutional domain/);
+    )).toThrow(/Constitutional domain does not match reasoning scope/);
   });
 
   it('rejects multiple outputs', () => {
