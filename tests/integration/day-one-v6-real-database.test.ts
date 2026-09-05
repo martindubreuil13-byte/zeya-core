@@ -64,7 +64,7 @@ describe.skipIf(!enabled)('Day-One V6 real disposable PostgreSQL matrix', () => 
   beforeAll(() => {
     const env = Object.fromEntries(readFileSync('/private/tmp/zeya-v6-local.env','utf8').split('\n').filter(l=>l.includes('=')).map(l=> { const i=l.indexOf('='); return [l.slice(0,i), l.slice(i+1).replace(/^"|"$/g,'')]; }));
     expect(env.API_URL).toMatch(/^http:\/\/127\.0\.0\.1:55321$/);
-    expect(sql('SELECT count(*) FROM supabase_migrations.schema_migrations')).toBe('121');
+    expect(sql('SELECT count(*) FROM supabase_migrations.schema_migrations')).toBe('122');
     state.client = createClient(env.API_URL, env.SERVICE_ROLE_KEY, {auth:{persistSession:false,autoRefreshToken:false}});
   });
   it('real Start fails closed on database rejection, retains V6 Formation, and retries the same ID exactly once', async () => {
