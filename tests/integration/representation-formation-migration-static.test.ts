@@ -41,6 +41,9 @@ const advanceFunction = correction.slice(
     'CREATE OR REPLACE FUNCTION public.zeya_link_formation_conversation'
   )
 );
+const advanceInputSignature =
+  'UUID, UUID, public.formation_session_status, public.formation_session_status, JSONB';
+const linkInputSignature = 'UUID, UUID, UUID, TEXT';
 const latestDeleteTables = new Set(matches(latestPurge, /DELETE FROM public\.([a-z_]+)/g));
 const correctiveDeleteTables = new Set(matches(correctivePurge, /DELETE FROM public\.([a-z_]+)/g));
 const latestCounters = new Set(matches(latestPurge, /jsonb_build_object\('([a-z_]+)'/g));
@@ -77,6 +80,22 @@ for (const state of [
 }
 
 assert(!foundation.includes('formation_complete'), 'foundation retains forbidden Formation Complete concept');
+assert(
+  correction.includes(`DROP FUNCTION public.zeya_advance_formation_status(\n  ${advanceInputSignature}\n);`),
+  'contract-changing advance RPC migration must drop the exact input signature first'
+);
+assert(
+  !correction.includes('DROP FUNCTION public.zeya_advance_formation_status CASCADE'),
+  'advance RPC transition must not use CASCADE'
+);
+assert(
+  correction.includes(`DROP FUNCTION public.zeya_link_formation_conversation(\n  ${linkInputSignature}\n);`),
+  'contract-changing link RPC migration must drop the exact input signature first'
+);
+assert(
+  !correction.includes('DROP FUNCTION public.zeya_link_formation_conversation CASCADE'),
+  'link RPC transition must not use CASCADE'
+);
 assert(!finalContract.includes('record_formation_session_audit'), 'Formation canonical audit function must not exist');
 assert(!finalContract.includes("'first_working_conversation'"), 'unsupported conversation discriminator remains');
 assert(

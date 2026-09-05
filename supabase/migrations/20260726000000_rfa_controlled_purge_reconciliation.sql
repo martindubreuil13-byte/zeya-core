@@ -126,6 +126,13 @@ BEGIN
 END;
 $$;
 
+-- PostgreSQL cannot replace a function when its TABLE/OUT row type changes.
+-- The RF-A foundation returned (session_id, status, updated_at); this migration
+-- intentionally introduces the representation-aware four-column contract.
+DROP FUNCTION public.zeya_advance_formation_status(
+  UUID, UUID, public.formation_session_status, public.formation_session_status, JSONB
+);
+
 CREATE OR REPLACE FUNCTION public.zeya_advance_formation_status(
   p_session_id UUID,
   p_business_representation_id UUID,
@@ -237,6 +244,13 @@ BEGIN
     v_transitioned_at;
 END;
 $$;
+
+-- PostgreSQL cannot replace a function when a TABLE/OUT column type changes.
+-- The RF-A foundation returned status as TEXT; this migration intentionally
+-- tightens that output to the formation_session_status enum.
+DROP FUNCTION public.zeya_link_formation_conversation(
+  UUID, UUID, UUID, TEXT
+);
 
 CREATE OR REPLACE FUNCTION public.zeya_link_formation_conversation(
   p_session_id UUID,

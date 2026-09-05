@@ -4,7 +4,7 @@ import {
   executeDirectHirePreparation,
   type WebsiteEvidenceDraft,
 } from "../../lib/onboarding/direct-hire-preparation";
-import { SafeFetchError, type SafeFetchResult } from "../../lib/research/safe-public-site-fetch";
+import { SafeFetchError, type SafeFetchResult, type SafeFetchDiagnosticContext } from "../../lib/research/safe-public-site-fetch";
 import { WEBSITE_RESEARCH_LIMITS } from "../../lib/research/safe-public-site-fetch";
 
 function page(url: string, html: string): SafeFetchResult {
@@ -25,13 +25,19 @@ const homepage = `<!doctype html><title>Academy</title>
   <main><h1>Practical AI business architecture</h1><p>${"Useful public business context. ".repeat(8)}</p></main>`;
 const optional = (heading: string) => `<main><h1>${heading}</h1><p>${"Substantive sourced public information. ".repeat(8)}</p></main>`;
 
+// Discovery probes must not turn unlisted paths into successful fixture pages.
+function homepageOnly(url: string): SafeFetchResult {
+  if (new URL(url).pathname === "/") return page("https://example.com/", homepage);
+  throw new SafeFetchError("request_failed");
+}
+
 describe("Direct Hire preparation execution", () => {
   it("creates ready sourced Evidence and at most three cautious Observations", async () => {
     const safeFetch = async (url: string) => {
       if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
       if (url.endsWith("/about")) return page(url, optional("About the Academy"));
       if (url.endsWith("/services")) return page(url, optional("Architecture services"));
-      return page("https://example.com/", homepage);
+      return homepageOnly(url);
     };
     const result = await executeDirectHirePreparation("http://example.com", {
       sourceScope: "test:onboarding-session",
@@ -56,7 +62,7 @@ describe("Direct Hire preparation execution", () => {
       if (url.endsWith("robots.txt")) throw new SafeFetchError("request_failed");
       if (url.endsWith("/about")) throw new SafeFetchError("request_timeout");
       if (url.endsWith("/services")) return page(url, optional("Services"));
-      return page("https://example.com/", homepage);
+      return homepageOnly(url);
     };
     const result = await executeDirectHirePreparation("https://example.com", {
       sourceScope: "test:onboarding-session",
@@ -73,7 +79,7 @@ describe("Direct Hire preparation execution", () => {
       if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
       if (url.endsWith("/about")) return page(url, "<main><p>Short</p></main>");
       if (url.endsWith("/services")) return page(url, optional("Services"));
-      return page("https://example.com/", homepage);
+      return homepageOnly(url);
     };
     const result = await executeDirectHirePreparation("https://example.com", {
       sourceScope: "test:onboarding-session",
@@ -110,7 +116,7 @@ describe("Direct Hire preparation execution", () => {
       calls.push(url);
       if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nDisallow: /about");
       if (url.endsWith("/services")) return page(url, optional("Services"));
-      return page("https://example.com/", homepage);
+      return homepageOnly(url);
     };
     const result = await executeDirectHirePreparation("https://example.com", {
       sourceScope: "test:onboarding-session",
@@ -160,9 +166,9 @@ describe("Direct Hire preparation execution", () => {
       ["/industries", "Industries"], ["/about", "About"], ["/customers", "Customers"],
       ["/case-studies", "Case studies"], ["/pricing", "Pricing"], ["/services", "Services"],
     ];
-    const fetched: string[] = [];
-    const safeFetch = async (url: string) => {
-      fetched.push(url);
+    const fetched: Array<{ url: string; stage?: SafeFetchDiagnosticContext["acquisitionStage"] }> = [];
+    const safeFetch = async (url: string, options?: { diagnostic?: SafeFetchDiagnosticContext }) => {
+      fetched.push({ url, stage: options?.diagnostic?.acquisitionStage });
       if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
       if (url === "https://example.com/") return page(url, `<nav>${links.map(([href, label]) => `<a href="${href}">${label}</a>`).join("")}</nav><main><h1>Home</h1><p>${"Business context. ".repeat(10)}</p></main>`);
       return page(url, optional(new URL(url).pathname));
@@ -170,7 +176,12 @@ describe("Direct Hire preparation execution", () => {
     const result = await executeDirectHirePreparation("https://example.com/", {
       sourceScope: "budget-test", safeFetch: safeFetch as never,
     });
-    const pageCalls = fetched.filter(url => !url.endsWith("robots.txt"));
+    // maxPages limits homepage + ranked extraction, not sitemap/probe requests.
+    const pageCalls = fetched.filter(call => call.stage === "homepage" || call.stage === "selected_page")
+      .map(call => call.url);
+    expect(fetched.filter(call => call.stage === "robots")).toHaveLength(1);
+    expect(fetched.filter(call => call.stage === "sitemap")).toHaveLength(1);
+    expect(fetched.filter(call => call.stage === "common_path_probe")).toHaveLength(10);
     expect(pageCalls).toHaveLength(WEBSITE_RESEARCH_LIMITS.maxPages);
     expect(pageCalls).toContain("https://example.com/services");
     expect(pageCalls).toContain("https://example.com/pricing");
@@ -183,7 +194,10 @@ describe("Direct Hire preparation execution", () => {
     const safeFetch = async (url: string) => {
       if (url.endsWith("robots.txt")) return page(url, "User-agent: *\nAllow: /");
       if (url === "https://example.com/") return page(url, `<nav><a href="/about">About</a><a href="/services">Services</a></nav><main><h1>Home</h1><p>${"Homepage context. ".repeat(8)}</p></main>`);
-      return page(url, `<main><h1>Shared heading</h1><p>${repeated}</p></main>`);
+      if (url.endsWith("/about") || url.endsWith("/services")) {
+        return page(url, `<main><h1>Shared heading</h1><p>${repeated}</p></main>`);
+      }
+      throw new SafeFetchError("request_failed");
     };
     const result = await executeDirectHirePreparation("https://example.com/", { sourceScope: "dedupe-test", safeFetch: safeFetch as never });
     const shared = result.evidence.filter(item => item.rawStatement === "Shared heading");
@@ -191,6 +205,28 @@ describe("Direct Hire preparation execution", () => {
     expect(new Set(shared.map(item => item.finalUrl))).toEqual(new Set([
       "https://example.com/about", "https://example.com/services",
     ]));
+    expect(shared.map(item => item.requestedUrl)).toEqual(shared.map(item => item.finalUrl));
+    expect(new Set(shared.map(item => item.sourceKey)).size).toBe(2);
+    expect(new Set(shared.map(item => item.pageType))).toEqual(new Set(["about", "products_services"]));
     expect(result.status).toBe("ready");
+  });
+
+  it("honors robots before probing unlinked common paths and preserves the homepage exception", async () => {
+    const calls: string[] = [];
+    const safeFetch = async (url: string) => {
+      calls.push(url);
+      if (url.endsWith("/robots.txt")) return page(url, "User-agent: *\nDisallow: /");
+      if (new URL(url).pathname === "/") return page(url, optional("Owner-submitted homepage"));
+      throw new SafeFetchError("request_failed");
+    };
+    const result = await executeDirectHirePreparation("https://example.com/", {
+      sourceScope: "robots-probes", safeFetch: safeFetch as never,
+    });
+    expect(calls).not.toContain("https://example.com/about");
+    expect(calls.filter(url => !["/", "/robots.txt", "/sitemap.xml"].includes(new URL(url).pathname))).toEqual([]);
+    expect(result.progress.homepage).toBe("complete");
+    expect(result.progress.about).toBe("skipped");
+    expect(result.successfulPageCount).toBe(1);
+    expect(result.evidence.length).toBeGreaterThan(0);
   });
 });

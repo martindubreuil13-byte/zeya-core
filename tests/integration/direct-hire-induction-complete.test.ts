@@ -46,6 +46,32 @@ describe("Employee Induction Material Collection", () => {
   });
 
   describe("State Progression and Durability", () => {
+    it("reuses the existing Evidence session column and strengthens its foreign key", async () => {
+      const researchMigration = await readFile(
+        "supabase/migrations/20260805000000_direct_hire_preparation_research.sql",
+        "utf8",
+      );
+      const inductionMigration = await readFile(
+        "supabase/migrations/20260805000002_employee_induction_material_collection.sql",
+        "utf8",
+      );
+
+      expect(researchMigration).toContain("ADD COLUMN direct_hire_onboarding_session_id uuid");
+      expect(inductionMigration).not.toContain("ADD COLUMN direct_hire_onboarding_session_id");
+      expect(inductionMigration).toContain(
+        "DROP CONSTRAINT evidence_direct_hire_onboarding_session_id_fkey",
+      );
+      expect(inductionMigration).toContain(
+        "FOREIGN KEY (direct_hire_onboarding_session_id)",
+      );
+      expect(inductionMigration).toContain(
+        "REFERENCES public.direct_hire_onboarding_sessions(id) ON DELETE CASCADE",
+      );
+      expect(inductionMigration).toContain("CREATE INDEX idx_evidence_direct_hire_induction");
+      expect(inductionMigration).not.toContain("DROP COLUMN");
+      expect(inductionMigration).not.toContain("CASCADE;");
+    });
+
     it("persists completion without prematurely starting Preparation", async () => {
       const route = await readFile(
         "app/api/onboarding/direct-hire/induction/route.ts",

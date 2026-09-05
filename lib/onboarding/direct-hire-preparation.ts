@@ -198,6 +198,7 @@ async function discoverFromSitemap(
 async function probeCommonPaths(
   siteUrl: URL,
   discovered: Set<string>,
+  robotsText: string | null,
   maxBytes: number,
   signal: AbortSignal,
   fetchPage: typeof safeFetchPublicSite,
@@ -209,6 +210,8 @@ async function probeCommonPaths(
     if (candidates.length >= 10) break; // Stop after finding reasonable number
     const url = new URL(path, siteUrl).toString();
     if (discovered.has(url)) continue; // Already discovered from homepage/sitemap
+    // Probes are automatic optional-page requests, so the same robots policy applies.
+    if (robotsText && !robotsAllowsPath(robotsText, path)) continue;
     const pageType = COMMON_PATH_PAGE_TYPES[path];
     try {
       probedCount += 1;
@@ -462,6 +465,7 @@ export async function executeDirectHirePreparation(
     const commonPathResult = await probeCommonPaths(
       homepageUrl,
       discoveredSet,
+      robots?.text ?? null,
       WEBSITE_RESEARCH_LIMITS.maxRunBytes - totalHtmlBytes,
       controller.signal,
       fetchPage,

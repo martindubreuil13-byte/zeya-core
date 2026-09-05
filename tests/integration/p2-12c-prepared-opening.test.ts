@@ -123,7 +123,7 @@ describe('P2.12C Prepared Opening', () => {
 
       expect(opening.introduction).toBeDefined();
       expect(opening.segments.length).toBeGreaterThan(0);
-      expect(opening.transition).toContain('am I reading');
+      expect(opening.transition).toContain('Where am I off');
 
       // Check that supported segment exists
       const supportedSegment = opening.segments.find(s => s.kind === 'supported');
@@ -472,7 +472,7 @@ describe('P2.12C Prepared Opening', () => {
       const opening = buildPreparedOpening(preparation);
 
       expect(opening.introduction).toContain('understood');
-      expect(opening.transition).toContain('reading');
+      expect(opening.transition).toContain('what should I understand differently?');
     });
   });
 });

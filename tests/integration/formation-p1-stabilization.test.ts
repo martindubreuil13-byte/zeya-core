@@ -62,7 +62,8 @@ describe('Formation P1 stabilization', () => {
     expect(summaryRoute).toContain(".eq('status', 'draft')");
     expect(summaryRoute).toContain("if (existing?.isCurrent)");
     expect(summaryRoute).toContain("status: 'superseded'");
-    expect(workflow).toContain('resolveFormationWorkflowState(sess)');
+    expect(workflow).toContain('resolveFormationWorkflowState(sess, {');
+    expect(workflow).toContain('preparationOpeningAcknowledged: sess.preparationOpeningAcknowledged');
     expect(workflowState).toContain("uiState: 'summary_pending'");
     expect(workflowState).toContain("uiState: 'summary_review'");
     expect(workflowState).toContain('Failed to load Formation session.');

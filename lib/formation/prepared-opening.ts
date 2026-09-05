@@ -21,79 +21,97 @@ export interface PreparedOpening {
 
 /**
  * Project OwnerPreparationProjection into owner-facing opening statement.
- * Zeya presents her understanding before asking questions.
+ * Zeya presents rich understanding before asking questions.
+ * Feels like "I've done my homework" not "I read a database summary."
  */
 export function buildPreparedOpening(preparation: OwnerPreparationProjection): PreparedOpening {
   const segments: PreparedOpeningSegment[] = [];
 
-  // Opening context
-  const intro = `Here's what I've understood so far from your website and what you've shared:`;
+  const intro = `Here's what I've understood so far from your materials and what you've shared:`;
 
-  // WHAT + WHO + HOW (core understanding)
-  if (preparation.domains.whatYouSell?.provisionalUnderstanding) {
-    const whatDomain = preparation.domains.whatYouSell;
-    const whoDomain = preparation.domains.whoItIsFor;
+  // WHAT + WHO: Core business identity
+  const whatDomain = preparation.domains.whatYouSell;
+  const whoDomain = preparation.domains.whoItIsFor;
+  const problemDomain = preparation.domains.problemOrAspiration;
+  const proposedDescriptionDomain = preparation.domains.proposedDescription;
 
-    const whatYouSell = whatDomain.provisionalUnderstanding || '';
-    const whoItIsFor = whoDomain.provisionalUnderstanding || '';
-
-    if (whatDomain.epistemicState === 'supported' && whoDomain.epistemicState === 'supported') {
-      segments.push({
-        kind: 'supported',
-        content: `You're offering ${whatYouSell}, and your focus is on ${whoItIsFor}.`,
-      });
-    }
+  // Opening frame: What they do and who they serve
+  if (whatDomain?.provisionalUnderstanding && whoDomain?.provisionalUnderstanding) {
+    const what = whatDomain.provisionalUnderstanding;
+    const who = whoDomain.provisionalUnderstanding;
+    segments.push({
+      kind: whatDomain.epistemicState === 'supported' ? 'supported' : 'inference',
+      content: `You're offering ${what} to ${who}. That's your core play.`,
+    });
   }
 
-  // DIFFERENTIATOR (inference from problem/positioning)
-  if (preparation.domains.problemOrAspiration?.provisionalUnderstanding) {
-    const problemDomain = preparation.domains.problemOrAspiration;
+  // Problem/aspiration: What drives your customer
+  if (problemDomain?.provisionalUnderstanding) {
     const problem = problemDomain.provisionalUnderstanding;
+    segments.push({
+      kind: problemDomain.epistemicState === 'supported' ? 'supported' : 'inference',
+      content: `The problem they're facing that you solve is: ${problem}.`,
+    });
+  }
 
-    if (problemDomain.epistemicState === 'partial') {
+  // Proposed description: How you describe your solution
+  if (proposedDescriptionDomain?.provisionalUnderstanding) {
+    const description = proposedDescriptionDomain.provisionalUnderstanding;
+    segments.push({
+      kind: proposedDescriptionDomain.epistemicState === 'supported' ? 'supported' : 'inference',
+      content: `The way I see you describing and positioning this is: ${description}.`,
+    });
+  }
+
+  // GAPS: What's unclear
+  const gaps: Array<{ domain: string; question: string }> = [];
+
+  if (preparation.domains.whyCustomersShouldCare?.epistemicState === 'unknown') {
+    gaps.push({
+      domain: 'value_articulation',
+      question: `How do you help a customer understand why YOUR approach is better than just buying off-the-shelf alternatives or staying with what they have?`,
+    });
+  }
+
+  if (preparation.domains.authorityBoundaries?.epistemicState === 'unknown') {
+    gaps.push({
+      domain: 'authority',
+      question: `What are the exact boundaries of what you commit to? What's in scope, what's not, and where do you draw the line?`,
+    });
+  }
+
+  if (preparation.domains.clarificationsNeeded?.provisionalUnderstanding) {
+    gaps.push({
+      domain: 'clarifications',
+      question: `You mentioned that ${preparation.domains.clarificationsNeeded.provisionalUnderstanding}—help me understand that better.`,
+    });
+  }
+
+  if (gaps.length > 0) {
+    const firstGap = gaps[0];
+    segments.push({
+      kind: 'uncertain',
+      content: `What I'm still not crystal clear on is: ${firstGap.question}`,
+    });
+
+    if (gaps.length > 1) {
+      const secondGap = gaps[1];
       segments.push({
-        kind: 'inference',
-        content: `What seems particularly important in your approach is that ${problem}—that's different from generic solutions.`,
+        kind: 'uncertain',
+        content: `And also: ${secondGap.question}`,
       });
     }
-  }
-
-  // POSITIONING/UNIQUENESS (from brief synthesis if available)
-  if (
-    preparation.domains.proposedDescription?.provisionalUnderstanding &&
-    preparation.domains.proposedDescription.epistemicState !== 'unknown'
-  ) {
-    segments.push({
-      kind: 'supported',
-      content: `The positioning I see across your materials is consistent: you're building this around testing, adaptation, and understanding the business before applying technology.`,
-    });
-  }
-
-  // GAPS: Why customers should care
-  if (preparation.domains.whyCustomersShouldCare?.epistemicState === 'unknown') {
-    segments.push({
-      kind: 'uncertain',
-      content: `One thing I'm still not entirely clear on is how you'd articulate to a potential customer WHY they should choose this approach—what's the compelling reason for them to invest in this method rather than other options?`,
-    });
-  }
-
-  // GAPS: Authority/promises
-  if (preparation.domains.authorityBoundaries?.epistemicState === 'unknown') {
-    segments.push({
-      kind: 'uncertain',
-      content: `I also don't yet understand the exact boundaries of what you're comfortable promising or guaranteeing to clients—that matters for building trust and managing expectations.`,
-    });
   }
 
   // CONTRADICTIONS if present
   for (const contradiction of preparation.contradictions) {
     segments.push({
       kind: 'contradiction',
-      content: `I noticed the public materials emphasize ${contradiction.provisionalUnderstanding}, but I want to make sure I understand how that aligns with your actual direction.`,
+      content: `I noticed something that seemed inconsistent: your materials emphasize ${contradiction.provisionalUnderstanding}, but I want to understand how that fits with your actual direction.`,
     });
   }
 
-  const transition = `So—am I reading this correctly? Where am I off, and what should I understand better?`;
+  const transition = `So—is that the shape of it? Where am I off, and what should I understand differently?`;
 
   return {
     introduction: intro,

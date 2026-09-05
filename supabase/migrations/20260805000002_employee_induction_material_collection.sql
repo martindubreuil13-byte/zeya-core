@@ -15,7 +15,9 @@ BEGIN;
 
 -- Extend evidence table to link to Direct Hire induction sessions
 ALTER TABLE public.evidence
-  ADD COLUMN direct_hire_onboarding_session_id uuid
+  DROP CONSTRAINT evidence_direct_hire_onboarding_session_id_fkey,
+  ADD CONSTRAINT evidence_direct_hire_onboarding_session_id_fkey
+    FOREIGN KEY (direct_hire_onboarding_session_id)
     REFERENCES public.direct_hire_onboarding_sessions(id) ON DELETE CASCADE,
   ADD COLUMN induction_material_type text CHECK (
     induction_material_type IS NULL OR induction_material_type IN (

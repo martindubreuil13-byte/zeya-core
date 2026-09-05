@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback } from 'react';
+import { useAuth } from '@/components/auth/auth-provider';
+import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { PreparedOpening } from '@/lib/formation/prepared-opening';
 
 interface PreparedOpeningPresentationProps {
@@ -16,14 +18,17 @@ export function PreparedOpeningPresentation({
   onAcknowledged,
   isProcessing = false,
 }: PreparedOpeningPresentationProps) {
+  const { session: authSession } = useAuth();
+
   const handleAcknowledge = useCallback(async () => {
-    if (isProcessing) return;
+    if (isProcessing || !authSession) return;
 
     try {
-      const res = await fetch(`/api/formation/sessions/${sessionId}/acknowledge-preparation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const res = await authenticatedFetch(
+        `/api/formation/sessions/${sessionId}/acknowledge-preparation`,
+        authSession,
+        { method: 'POST' }
+      );
 
       if (!res.ok) {
         console.error('Failed to acknowledge preparation:', res.statusText);
@@ -37,7 +42,7 @@ export function PreparedOpeningPresentation({
     } catch (error) {
       console.error('Error acknowledging preparation:', error);
     }
-  }, [sessionId, isProcessing, onAcknowledged]);
+  }, [sessionId, isProcessing, onAcknowledged, authSession]);
 
   return (
     <div className="space-y-8 py-12 px-6">

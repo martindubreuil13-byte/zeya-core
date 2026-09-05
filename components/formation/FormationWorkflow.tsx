@@ -10,6 +10,7 @@ import { authenticatedFetch } from '@/lib/auth/authenticated-fetch';
 import type { FormationSessionStatusResponse, FormationSummary } from '@/types/formation';
 import { DirectHirePreparationContext } from '@/components/formation/DirectHirePreparationContext';
 import { PreparedOpeningPresentation } from '@/components/formation/PreparedOpeningPresentation';
+import { FormationTextConversation } from '@/components/formation/FormationTextConversation';
 import { buildPreparedOpening, type PreparedOpening } from '@/lib/formation/prepared-opening';
 import {
   FormationSessionLoadError,
@@ -65,6 +66,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     if (screenLab || !session || !authSession) return;
     if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
     if (preparedContext) return; // Already loaded
+    let cancelled = false;
 
     const loadContext = async () => {
       try {
@@ -74,43 +76,32 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
           authSession,
         );
         const data = await res.json();
+        if (cancelled) return;
         if (data.success && data.data) {
           setPreparedContext(data.data);
           // Build PreparedOpening from the preparation intelligence
           if (data.data.preparation) {
             const opening = buildPreparedOpening(data.data.preparation);
             setPreparedOpening(opening);
+            const resolution = resolveFormationWorkflowState(session, {
+              hasPreparedOpening: true,
+              preparationOpeningAcknowledged: session.preparationOpeningAcknowledged,
+            });
+            setSummary(resolution.summary);
+            setError(resolution.error);
+            setUiState(resolution.uiState);
           }
         }
       } catch (err) {
         console.error('Failed to load prepared context:', err);
       } finally {
-        setPreparedContextLoading(false);
+        if (!cancelled) setPreparedContextLoading(false);
       }
     };
 
     void loadContext();
+    return () => { cancelled = true; };
   }, [session, sessionId, authSession, screenLab, preparedContext]);
-
-  // P2.12C Async Restoration Re-resolution
-  // When prepared opening becomes available after initial UI state resolution,
-  // re-resolve the workflow state to transition from conversation_ready to presenting_preparation.
-  // This handles the race where prepared context arrives after initial session load.
-  useEffect(() => {
-    if (!session) return;
-    if (!preparedOpening) return;
-    if (session.linkedContextSummary?.fromDirectHireOnboarding !== true) return;
-    if (screenLab) return;
-
-    // Re-resolve UI state with prepared opening now available
-    const resolution = resolveFormationWorkflowState(session, {
-      hasPreparedOpening: true,
-      preparationOpeningAcknowledged: session.preparationOpeningAcknowledged,
-    });
-    setSummary(resolution.summary);
-    setError(resolution.error);
-    setUiState(resolution.uiState);
-  }, [preparedOpening, session, screenLab]);
 
   // Load Formation Session on mount
   useEffect(() => {
@@ -142,9 +133,13 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         );
         if (cancelled) return;
         setSession(loaded.session);
-        setSummary(loaded.summary);
-        setError(loaded.error);
-        setUiState(loaded.uiState);
+        if (loaded.session && preparedOpening) {
+          mapSessionToUIState(loaded.session);
+        } else {
+          setSummary(loaded.summary);
+          setError(loaded.error);
+          setUiState(loaded.uiState);
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load session');
@@ -158,7 +153,7 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
     return () => {
       cancelled = true;
     };
-  }, [sessionId, mapSessionToUIState, authLoading, authSession, router, screenLab]);
+  }, [sessionId, mapSessionToUIState, preparedOpening, authLoading, authSession, router, screenLab]);
 
   const advanceState = useCallback(async (nextStatus: string) => {
     if (screenLab) return;
@@ -436,27 +431,34 @@ export function FormationWorkflow({ sessionId, screenLab }: FormationWorkflowPro
         </div>
       )}
 
-      {/* Conversation Ready: About to speak */}
+      {/* Conversation Ready: About to start governed text conversation */}
       {uiState === 'conversation_ready' && (
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <h2 className="text-2xl font-serif font-light text-amber-50">Ready to listen deeply</h2>
-            <p className="text-base text-stone-300 leading-relaxed">When you start speaking, I&apos;ll be paying full attention to understand what makes your business unique.</p>
-            {screenLab ? (
-              <button
-                onClick={() => setUiState('conversation_active')}
-                className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-2"
-              >
-                Start first working conversation
-              </button>
-            ) : (
-              <p className="text-sm text-stone-400">This session will remain pending until a completed governed conversation is linked.</p>
-            )}
+            <p className="text-base text-stone-300 leading-relaxed">I&apos;ll be paying full attention to understand what makes your business unique and where we can refine our shared understanding.</p>
+            <button
+              onClick={() => setUiState('conversation_active')}
+              className="inline-block px-8 py-3 bg-purple-950 text-amber-50 hover:bg-purple-900 transition-colors rounded text-sm font-medium mt-2"
+            >
+              Begin
+            </button>
           </div>
         </div>
       )}
 
-      {/* Conversation Active: Voice is live */}
+      {/* Conversation Active: Text-based governed conversation */}
+      {uiState === 'conversation_active' && !screenLab && (
+        <FormationTextConversation
+          sessionId={sessionId}
+          onConversationComplete={() => {
+            // When conversation is complete, advance to summary_pending
+            void generateSummary();
+          }}
+        />
+      )}
+
+      {/* Conversation Active: Screenlab mode (placeholder) */}
       {uiState === 'conversation_active' && screenLab && (
         <div className="space-y-8 py-12 px-6">
           <div className="max-w-2xl mx-auto text-center space-y-8">
